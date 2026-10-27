@@ -1,0 +1,50 @@
+@model IReadOnlyCollection<AiExamProctoring.Models.ExamResult>
+@{
+    ViewData["Title"] = "Exam results";
+    var exams = (IEnumerable<AiExamProctoring.Models.Exam>)ViewBag.Exams;
+    int page = ViewBag.Page;
+    int pages = ViewBag.Pages;
+    int position = (page - 1) * 50;
+}
+<header class="assessment-header mb-4">
+    <div class="row g-3 mb-4">
+        <div class="col-6 col-lg-3"><div class="card p-3"><span>Completed attempts</span><strong class="fs-3">@ViewBag.CompletedCount</strong></div></div>
+        <div class="col-6 col-lg-3"><div class="card p-3"><span>Passed</span><strong class="fs-3">@ViewBag.PassCount</strong></div></div>
+        <div class="col-6 col-lg-3"><div class="card p-3"><span>Average percentage</span><strong class="fs-3">@(((decimal)ViewBag.AveragePercentage).ToString("0.##"))%</strong></div></div>
+        <div class="col-6 col-lg-3"><div class="card p-3"><span>Highest marks</span><strong class="fs-3">@(((decimal)ViewBag.HighestScore).ToString("0.##"))</strong></div></div>
+    </div>
+    <span class="eyebrow">Teacher workspace</span>
+    <h1 class="h2 fw-bold">Results for your examination</h1>
+    <p class="text-secondary mb-0">Choose an exam to see results from highest to lowest marks. Each practice attempt has its own result.</p>
+</header>
+@if (ViewBag.ExamId is int selectedExamId)
+{
+    <a asp-action="DownloadList" asp-route-examId="@selectedExamId" class="btn btn-outline-primary mb-3">Download full ranked result list (PDF)</a>
+}
+<section class="card border-0 shadow-sm rounded-4"><div class="card-body p-4">
+    <form method="get" class="row g-3 mb-4 align-items-end">
+        <div class="col-md-6"><label for="result-exam" class="form-label">Examination</label><select id="result-exam" name="examId" class="form-select">
+            @foreach (var exam in exams) { <option value="@exam.ExamId" selected="@(exam.ExamId == (int?)ViewBag.ExamId)">@exam.ExamTitle</option> }
+        </select></div>
+        <div class="col-md-4"><label for="result-search" class="form-label">Find a candidate</label><input id="result-search" name="search" value="@Context.Request.Query["search"]" class="form-control" placeholder="Candidate name" maxlength="100" /></div>
+        <div class="col-md-2 d-grid"><button class="btn btn-primary">Show results</button></div>
+    </form>
+    <p class="small text-secondary">@ViewBag.Count result(s) · Highest marks first · Equal marks ordered by completion time. Row numbers reflect the current filter.</p>
+    <div class="table-responsive"><table class="table align-middle">
+        <thead><tr><th>#</th><th>Candidate</th><th>Marks</th><th>Outcome</th><th>Completed</th><th><span class="visually-hidden">Details</span></th></tr></thead><tbody>
+        @if (Model.Count == 0) { <tr><td colspan="6" class="text-center text-secondary py-5">No results match this selection. Completed attempts will appear here.</td></tr> }
+        @foreach (var result in Model)
+        {
+            position++;
+            <tr><td>@position</td><td><strong>@result.Attempt?.Student?.FullName</strong><div class="small text-secondary">@result.Attempt?.Student?.CandidateNumber · Attempt #@result.AttemptId</div></td>
+                <td><strong>@result.TotalMarksObtained.ToString("0.##") / @result.TotalMarks.ToString("0.##")</strong><div class="small text-secondary">@result.Percentage.ToString("0.##")%</div></td>
+                <td><span class="badge @(result.IsPassed ? "text-bg-success" : "text-bg-secondary")">@(result.IsPassed ? "Passed" : "Below pass mark")</span></td>
+                <td class="small">@result.GeneratedDate.ToString("dd MMM yyyy, HH:mm")</td><td><a asp-action="Details" asp-route-id="@result.ResultId" class="btn btn-sm btn-outline-primary">View result</a></td></tr>
+        }
+        </tbody></table></div>
+    <nav aria-label="Result pages" class="d-flex justify-content-between align-items-center mt-3">
+        @if (page > 1) { <a class="btn btn-outline-primary" asp-route-examId="@ViewBag.ExamId" asp-route-search="@Context.Request.Query["search"]" asp-route-page="@(page - 1)">Previous</a> } else { <span></span> }
+        <span class="small text-secondary">Page @(page) of @pages</span>
+        @if (page < pages) { <a class="btn btn-outline-primary" asp-route-examId="@ViewBag.ExamId" asp-route-search="@Context.Request.Query["search"]" asp-route-page="@(page + 1)">Next</a> } else { <span></span> }
+    </nav>
+</div></section>

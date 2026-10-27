@@ -1,0 +1,64 @@
+@model AiExamProctoring.Models.ApplicationUser
+@{
+    Layout = "~/Areas/Student/Views/Shared/_StudentLayout.cshtml";
+    ViewData["Title"] = "Face Identity Enrollment";
+    var exists = ViewBag.TemplateExists == true;
+    var serviceReady = ViewBag.ServiceReady == true;
+    var returnUrl = ViewBag.ReturnUrl as string;
+}
+
+<div class="d-flex justify-content-between align-items-end flex-wrap gap-3 mb-4">
+    <div><span class="eyebrow">AI Model 1</span><h1 class="fw-bold mb-1">Face Identity Enrollment</h1><p class="soft-muted mb-0">Create one secure identity template from several clear photos.</p></div>
+    <a asp-action="Edit" class="btn btn-light rounded-pill px-4"><i class="bi bi-arrow-left me-1"></i>Back to profile</a>
+</div>
+
+@if (TempData["Success"] is string success) { <div class="alert alert-success rounded-4">@success</div> }
+@if (TempData["Error"] is string error) { <div class="alert alert-danger rounded-4">@error</div> }
+@if (TempData["Info"] is string info) { <div class="alert alert-info rounded-4">@info</div> }
+
+<div class="row g-4">
+    <div class="col-lg-7">
+        <div class="student-card p-4 p-lg-5">
+            @if (exists)
+            {
+                <h2 class="h4">Your identity photos</h2>
+                <p>@ViewBag.ReferenceCount face references are enrolled for verification.</p>
+                @if ((int)(ViewBag.PhotoCount ?? 0) > 0)
+                {
+                    <div class="row g-3">
+                    @for (var i = 0; i < (int)ViewBag.PhotoCount; i++)
+                    {
+                        <figure class="col-6 col-md-4 mb-0"><img src="@Url.Action("EnrollmentPhoto", new { index = i })" class="img-fluid rounded-3" style="width:100%;height:160px;object-fit:contain" loading="lazy" alt="Enrollment photo @(i + 1)" /><figcaption class="small mt-1">Photo @(i + 1)</figcaption></figure>
+                    }
+                    </div>
+                }
+                else
+                {
+                    <p class="alert alert-info">Your earlier enrollment saved face references only. Original photos cannot be recovered. Ask the administrator to authorize re-enrollment if you need to update your photos.</p>
+                }
+                <div class="text-center py-4"><i class="bi bi-person-check-fill text-success display-3"></i><h2 class="fw-bold mt-3">Identity template is ready</h2><p class="soft-muted">For security, a student cannot overwrite an enrolled template. An administrator can reset it after checking the request.</p>@if (!string.IsNullOrWhiteSpace(returnUrl)){<a href="@returnUrl" class="btn btn-primary rounded-pill px-4">Continue to pre-exam check</a>}</div>
+            }
+            else if (!serviceReady)
+            {
+                <div class="alert alert-danger rounded-4 mb-0"><strong>Model 1 service is not available.</strong><div class="small mt-1">@ViewBag.ServiceMessage</div><div class="small mt-2">Please contact the exam administrator, then try again once the service is available.</div></div>
+            }
+            else
+            {
+                <form asp-action="FaceIdentity" method="post" enctype="multipart/form-data">
+                    @Html.AntiForgeryToken()
+                    <input type="hidden" name="ReturnUrl" value="@returnUrl" />
+                    <input type="hidden" name="CapturedImagesJson" id="capturedEnrollmentPhotos" />
+                    <div class="camera-box mb-3" id="cameraBox"><video id="cameraPreview" playsinline autoplay muted></video><canvas id="photoCanvas" class="d-none"></canvas><img id="capturedPreview" class="d-none" alt="Latest capture"/><div class="camera-placeholder" id="cameraPlaceholder"><i class="bi bi-person-bounding-box"></i><strong>Capture 5–10 face photos</strong><small>Use good light and keep exactly one person in every photo.</small></div></div>
+                    <div class="d-flex flex-wrap gap-2 mb-3"><button class="btn btn-dark rounded-pill" type="button" id="startCamera"><i class="bi bi-camera-video me-1"></i>Open camera</button><button class="btn btn-primary rounded-pill d-none" type="button" id="capturePhoto"><i class="bi bi-camera me-1"></i>Capture next photo</button><button class="btn btn-outline-secondary rounded-pill d-none" type="button" id="retakePhoto"><i class="bi bi-trash3 me-1"></i>Clear captured photos</button></div>
+                    <div id="captureCount" class="small fw-semibold text-primary mb-3">0 photos captured</div>
+                    <div class="text-center small soft-muted mb-2">or upload 5–10 JPG/PNG photos together</div>
+                    <input name="Images" type="file" accept="image/jpeg,image/png" multiple class="form-control" />
+                    <button class="btn btn-primary btn-lg rounded-pill w-100 mt-4" type="submit"><i class="bi bi-shield-check me-2"></i>Create identity template</button>
+                </form>
+            }
+        </div>
+    </div>
+    <div class="col-lg-5"><div class="student-card p-4"><h5 class="fw-bold">Photo rules</h5><ul class="small soft-muted mb-0 ps-3"><li class="mb-2">Exactly one face in every photo.</li><li class="mb-2">Use front, slight left/right and slight up/down views. Keep both eyes visible, clean the lens and light your face evenly. Include your usual glasses without glare.</li><li class="mb-2">No mask, sunglasses, filter or group photo.</li><li class="mb-2">Each image may be up to 5 MB.</li><li>Accepted photos and their face references are stored privately for identity verification and your profile gallery. To replace them, ask an administrator to reset enrollment, then submit 5–10 new photos.</li></ul></div></div>
+</div>
+
+@section Scripts { <script src="~/js/identity.js" asp-append-version="true"></script> }

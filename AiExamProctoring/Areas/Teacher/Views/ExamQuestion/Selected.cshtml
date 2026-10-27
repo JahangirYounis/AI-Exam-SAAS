@@ -1,0 +1,56 @@
+@model IReadOnlyCollection<AiExamProctoring.Models.ExamQuestion>
+@using AiExamProctoring.Models
+@{
+    var exam = ViewBag.Exam as Exam;
+    ViewData["Title"] = "Selected Exam Questions";
+}
+@if (exam == null)
+{
+    <div class="alert alert-danger">Examination not found.</div>
+    ; return;
+}
+<div class="d-flex flex-column flex-lg-row justify-content-between align-items-lg-end gap-3 mb-4">
+    <div><span class="eyebrow">Exam paper</span><h2 class="fw-bold mt-1 mb-1">Selected Questions</h2><p class="text-secondary mb-0">@exam.ExamTitle · Remove a question here if you selected it by mistake.</p></div>
+    <div class="d-flex gap-2">@if (!exam.IsPublished && !exam.IsLocked) {
+    <a asp-action="Index" asp-route-examId="@exam.ExamId" class="btn btn-primary rounded-pill"><i class="bi bi-plus-lg me-1"></i>Add More Questions</a>
+        }
+<a asp-controller="Exam" asp-action="Details" asp-route-id="@exam.ExamId" class="btn btn-light border rounded-pill">Review &amp; publish</a></div>
+</div>
+<div class="row g-3 mb-4"><div class="col-md-4"><div class="metric-card"><strong id="selectedMetric">@Model.Count</strong><span>Selected Questions</span></div></div><div class="col-md-4"><div class="metric-card"><strong>@exam.TotalMarks.ToString("0.##")</strong><span>Total Marks</span></div></div><div class="col-md-4"><div class="metric-card"><strong>@(Model.Count == 0 ? "—" : (exam.TotalMarks / Model.Count).ToString("0.####"))</strong><span>Approx. Marks per Question</span></div></div></div>
+<form id="antiForgeryForm" class="d-none">@Html.AntiForgeryToken()</form>
+<div class="card border-0 shadow-sm rounded-4">
+    <div class="card-body p-3 p-lg-4">
+        <div class="table-responsive">
+            <table class="table align-middle table-hover">
+                <thead><tr><th>#</th><th>Subject / Topic</th><th>Question</th><th>Marks</th><th>Wrong-answer deduction</th><th class="text-end">Action</th></tr></thead>
+                <tbody>
+                    @if (!Model.Any())
+                    {
+                        <tr><td colspan="6"><div class="text-center py-5 text-secondary">No questions selected yet.</div></td></tr>
+                    }
+                    @foreach (var item in Model)
+                    {
+                        <tr id="selected-row-@item.QuestionId"><td>@item.DisplayOrder</td><td><span class="badge text-bg-light border">@(item.Question?.Subject?.SubjectName ?? "—")</span><div class="small text-muted mt-1">@(item.Question?.Topic ?? "")</div></td><td><strong>@item.Question?.QuestionText</strong></td><td><span class="answer-chip">@item.Marks.ToString("0.##")</span></td><td>@item.NegativeMarks.ToString("0.##")</td><td class="text-end"><button type="button" class="btn btn-sm btn-outline-danger rounded-pill remove-question" data-question-id="@item.QuestionId" disabled="@(exam.IsPublished || exam.IsLocked ? "disabled" : null)"><i class="bi bi-trash3 me-1"></i>Remove</button></td></tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+@section Scripts {
+    <script>
+        (() => {
+         const token=document.querySelector('#antiForgeryForm input[name="__RequestVerificationToken"]')?.value;
+         document.querySelectorAll('.remove-question').forEach(btn=>btn.addEventListener('click',async function(){
+           if(!confirm('Remove this question from the examination?')) return;
+           this.disabled=true;
+           try{
+             const body=new URLSearchParams({examId:'@exam.ExamId',questionId:this.dataset.questionId,__RequestVerificationToken:token??''});
+             const r=await fetch('@Url.Action("RemoveQuestion", "ExamQuestion", new { area = "Teacher" })',{method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded; charset=UTF-8','X-Requested-With':'XMLHttpRequest'},body});
+             const d=await r.json(); if(!d.success) throw new Error(d.message||'Could not remove question.');
+             window.location.reload();
+           }catch(e){this.disabled=false;alert(e.message||'Could not remove question.');}
+         }));
+        })();
+    </script>
+}

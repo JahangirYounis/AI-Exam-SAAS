@@ -1,0 +1,42 @@
+@{
+    ViewData["Title"] = ViewBag.StatusTitle as string ?? "Request Error";
+    var statusCode = ViewBag.StatusCode is int value ? value : 404;
+    var isNotFound = statusCode == 404;
+}
+
+<section class="container py-5">
+    <div class="row justify-content-center">
+        <div class="col-lg-7">
+            <div class="card border-0 shadow-sm rounded-4 text-center">
+                <div class="card-body p-5">
+                    <div class="display-1 fw-bold text-primary">@statusCode</div>
+                    <h1 class="fw-bold mt-2">@(ViewBag.StatusTitle ?? "Request could not be completed")</h1>
+                    <p class="text-secondary fs-5">
+                        @(isNotFound
+                            ? "The requested page or old link does not exist. Use the navigation below to continue safely."
+                            : "You do not have access to this resource, or the request could not be completed.")
+                    </p>
+                    <div class="d-flex justify-content-center flex-wrap gap-2 mt-4">
+                        @if (User.IsInRole("Admin"))
+                        {
+                            <a asp-area="Admin" asp-controller="Dashboard" asp-action="Index" class="btn btn-primary rounded-pill px-4">Admin Dashboard</a>
+                        }
+                        else if (User.IsInRole("Student"))
+                        {
+                            <a asp-area="Student" asp-controller="Dashboard" asp-action="Index" class="btn btn-primary rounded-pill px-4">Student Dashboard</a>
+                        }
+                        else if (User.IsInRole("Teacher"))
+                        {
+                            <a asp-area="Teacher" asp-controller="Dashboard" asp-action="Index" class="btn btn-primary rounded-pill px-4">Teacher Dashboard</a>
+                        }
+                        else
+                        {
+                            <a asp-area="" asp-controller="Home" asp-action="Index" class="btn btn-primary rounded-pill px-4">Go to Home</a>
+                        }
+                        <button type="button" class="btn btn-light border rounded-pill px-4" onclick="history.back()">Go Back</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</section>

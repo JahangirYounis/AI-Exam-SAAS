@@ -1,0 +1,178 @@
+@using System.Security.Claims
+@inject Microsoft.AspNetCore.Identity.UserManager<AiExamProctoring.Models.ApplicationUser> UserManager
+@{
+    var currentController = ViewContext.RouteData.Values["Controller"]?.ToString() ?? "";
+    var currentAction = ViewContext.RouteData.Values["Action"]?.ToString() ?? "";
+    var user = await UserManager.GetUserAsync(User);
+    var fullName = user?.FullName ?? User.Identity?.Name ?? "Student";
+    var profileImage = user?.ProfileImage;
+    var imageUrl = string.IsNullOrWhiteSpace(profileImage) ? Url.Content("~/images/default-user.svg") : Url.Content(profileImage);
+    var isExamPage = currentController == "Exam" && (currentAction == "Session" || currentAction == "Attempt");
+}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<meta name="description" content="AI Based Online Examination System student portal" />
+<title>@ViewData["Title"] - AI Based Online Examination System</title>
+<link rel="stylesheet" href="~/lib/bootstrap/dist/css/bootstrap.min.css" />
+<link rel="stylesheet" href="~/css/site.css" asp-append-version="true" />
+<link rel="stylesheet" href="~/css/student.css" asp-append-version="true" />
+<link rel="stylesheet" href="/lib/bootstrap-icons/bootstrap-icons.min.css">
+@RenderSection("Styles", required: false)
+    <link rel="stylesheet" href="~/css/experience.css" asp-append-version="true" />
+    <link rel="stylesheet" href="~/css/exam-polish.css" asp-append-version="true" />
+<link rel="stylesheet" href="~/css/device-layout.css" asp-append-version="true" />
+</head>
+<body class="student-shell @(isExamPage ? "exam-mode" : "")">
+<a class="btn btn-light m-2" asp-area="Student" asp-controller="Exam" asp-action="Evidence">My exam evidence</a>
+<a class="skip-link" href="#main-content">Skip to main content</a>
+<div class="student-mobile-backdrop" id="studentBackdrop"></div>
+<aside class="student-sidebar" id="studentSidebar">
+  <div class="student-brand">
+    <div class="brand-mark"><i class="bi bi-journal-check"></i></div>
+    <div><div class="brand-title">AI Based Online Examination System</div><div class="brand-subtitle">Student Portal</div></div>
+    <button class="btn btn-sm text-white d-lg-none ms-auto" id="closeSidebar" type="button"><i class="bi bi-x-lg"></i></button>
+  </div>
+  <div class="student-profile-mini">
+    <img src="@imageUrl" alt="Profile" class="student-avatar" onerror="this.onerror=null;this.src='@Url.Content("~/images/default-user.svg")';">
+    <div class="min-w-0"><div class="fw-bold text-truncate">@fullName</div><div class="small text-white-50">Candidate</div></div>
+  </div>
+  <nav class="student-nav" aria-label="Student navigation">
+    <div class="nav-label">Main menu</div>
+    <a asp-area="Student" asp-controller="Dashboard" asp-action="Index" class="student-nav-link @(currentController == "Dashboard" ? "active" : "")"><i class="bi bi-grid-1x2-fill"></i><span>Dashboard</span></a>
+    <a asp-area="Student" asp-controller="Exam" asp-action="Available" class="student-nav-link @(currentController == "Exam" && !isExamPage ? "active" : "")"><i class="bi bi-journal-check"></i><span>Examinations</span></a>
+    <a asp-area="Student" asp-controller="Result" asp-action="Index" class="student-nav-link @(currentController == "Result" ? "active" : "")"><i class="bi bi-bar-chart-line-fill"></i><span>My Results</span></a>
+    <div class="nav-label mt-3">Account</div>
+    <a asp-area="Student" asp-controller="Profile" asp-action="Index" class="student-nav-link @(currentController == "Profile" ? "active" : "")"><i class="bi bi-person-badge-fill"></i><span>My Profile</span></a>
+  </nav>
+  <div class="student-sidebar-footer">
+    <div class="security-mini"><i class="bi bi-shield-check"></i><div><strong>Exam monitoring</strong><small>Active during examinations</small></div></div>
+    <form asp-area="Identity" asp-page="/Account/Logout" method="post"><button class="student-logout" type="submit"><i class="bi bi-box-arrow-right"></i> Logout</button></form>
+  </div>
+</aside>
+<main id="main-content" tabindex="-1" class="student-main">
+  <header class="student-topbar">
+    <div class="d-flex align-items-center gap-2">
+      <button class="icon-btn d-lg-none" id="openSidebar" type="button" aria-label="Open navigation"><i class="bi bi-list"></i></button>
+      <div><div class="topbar-title">@(ViewData["Title"] ?? "Student Dashboard")</div><div class="topbar-subtitle">Student Portal</div></div>
+    </div>
+    <div class="d-flex align-items-center gap-2">
+      @if (!isExamPage) { <a asp-area="Student" asp-controller="Exam" asp-action="Available" class="btn btn-primary rounded-pill px-3 d-none d-sm-inline-flex"><i class="bi bi-journal-check me-1"></i> View Exams</a> }
+      <div class="dropdown" id="notificationMenu">
+        <button class="icon-btn position-relative" type="button" data-bs-toggle="dropdown" aria-expanded="false" aria-label="Notifications">
+          <i class="bi bi-bell fs-5"></i>
+          <span id="notificationBadge" class="position-absolute top-0 start-100 translate-middle badge rounded-pill bg-danger d-none">0</span>
+        </button>
+        <div class="dropdown-menu dropdown-menu-end shadow border-0 rounded-4 p-0 overflow-hidden" style="width:min(390px,92vw)">
+          <div class="d-flex justify-content-between align-items-center px-3 py-3 border-bottom">
+            <strong>Notifications</strong>
+            <button type="button" id="markNotificationsRead" class="btn btn-sm btn-link text-decoration-none">Mark all read</button>
+          </div>
+          <div id="notificationList" style="max-height:360px;overflow:auto">
+            <div class="text-center text-muted small py-4">Loading notifications...</div>
+          </div>
+          <div class="border-top p-2 text-center"><a asp-area="Student" asp-controller="Exam" asp-action="Available" class="small text-decoration-none">Open Examinations</a></div>
+        </div>
+        <form id="notificationTokenForm" class="d-none">@Html.AntiForgeryToken()</form>
+      </div>
+      <div class="dropdown">
+        <button class="student-user-menu" data-bs-toggle="dropdown" aria-expanded="false">
+          <img src="@imageUrl" alt="Profile" class="top-avatar" onerror="this.onerror=null;this.src='@Url.Content("~/images/default-user.svg")';"><span class="d-none d-md-inline fw-semibold">@fullName</span><i class="bi bi-chevron-down small"></i>
+        </button>
+        <ul class="dropdown-menu dropdown-menu-end shadow border-0 rounded-4 p-2">
+          <li class="px-3 py-2"><strong>@fullName</strong><div class="small text-muted">@User.Identity?.Name</div></li><li><hr class="dropdown-divider"></li>
+          <li class="px-3 pb-2"><a class="btn btn-sm btn-outline-primary w-100 rounded-pill" asp-area="Student" asp-controller="Profile" asp-action="Edit"><i class="bi bi-pencil-square me-1"></i>Edit account</a></li>
+          <li><hr class="dropdown-divider"></li>
+          <li><form asp-area="Identity" asp-page="/Account/Logout" method="post"><button class="dropdown-item rounded-3 text-danger" type="submit"><i class="bi bi-box-arrow-right me-2"></i>Logout</button></form></li>
+        </ul>
+      </div>
+    </div>
+  </header>
+  <section class="student-content">
+    @if (TempData["Success"] != null) { <div class="alert alert-success alert-dismissible fade show student-alert"><i class="bi bi-check-circle-fill me-2"></i>@TempData["Success"]<button type="button" class="btn-close" data-bs-dismiss="alert"></button></div> }
+    @if (TempData["Error"] != null) { <div class="alert alert-danger alert-dismissible fade show student-alert"><i class="bi bi-exclamation-triangle-fill me-2"></i>@TempData["Error"]<button type="button" class="btn-close" data-bs-dismiss="alert"></button></div> }
+    @RenderBody()
+  </section>
+</main>
+<script src="~/lib/jquery/dist/jquery.min.js"></script>
+<script src="~/lib/bootstrap/dist/js/bootstrap.bundle.min.js"></script>
+<script src="~/js/site.js" asp-append-version="true"></script>
+<script src="~/js/student.js" asp-append-version="true"></script>
+<script>
+(() => {
+  const badge = document.getElementById('notificationBadge');
+  const list = document.getElementById('notificationList');
+  const markAll = document.getElementById('markNotificationsRead');
+  const token = document.querySelector('#notificationTokenForm input[name="__RequestVerificationToken"]')?.value || '';
+  let previousUnread = null;
+  let visibleUnreadIds = [];
+  let reading = false;
+
+  const escapeHtml = value => String(value ?? '').replace(/[&<>'"]/g, ch => ({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;'}[ch]));
+
+  async function loadNotifications(showToast) {
+    try {
+      const response = await fetch('@Url.Action("Recent", "Notification", new { area = "Student" })', { cache: 'no-store' });
+      if (!response.ok) return;
+      const data = await response.json();
+      const unread = Number(data.unread || 0);
+      badge.textContent = unread > 99 ? '99+' : unread;
+      badge.classList.toggle('d-none', unread <= 0);
+
+      const items = Array.isArray(data.items) ? data.items : [];
+      visibleUnreadIds = items.filter(item => !item.isRead).map(item => item.id);
+      list.innerHTML = items.length ? items.map(item => {
+        const href = item.examId ? '@Url.Action("Available", "Exam", new { area = "Student" })' : '#';
+        const created = item.createdAt ? new Date(item.createdAt).toLocaleString() : '';
+        return `<a class="dropdown-item text-wrap px-3 py-3 border-bottom ${item.isRead ? '' : 'bg-primary-subtle'}" href="${href}"><div class="fw-semibold">${escapeHtml(item.title)}</div><div class="small text-muted mt-1">${escapeHtml(item.message)}</div><div class="small text-secondary mt-2">${escapeHtml(created)}</div></a>`;
+      }).join('') : '<div class="text-center text-muted small py-4">No notifications yet.</div>';
+
+      if (showToast && previousUnread !== null && unread > previousUnread && items.length && window.bootstrap) {
+        const wrapper = document.createElement('div');
+        wrapper.className = 'toast-container position-fixed top-0 end-0 p-3';
+        wrapper.style.zIndex = '1090';
+        wrapper.innerHTML = `<div class="toast" role="alert"><div class="toast-header"><i class="bi bi-bell-fill text-primary me-2"></i><strong class="me-auto">${escapeHtml(items[0].title)}</strong><button type="button" class="btn-close" data-bs-dismiss="toast"></button></div><div class="toast-body">${escapeHtml(items[0].message)}</div></div>`;
+        document.body.appendChild(wrapper);
+        const toast = new bootstrap.Toast(wrapper.querySelector('.toast'), { delay: 9000 });
+        toast.show();
+        wrapper.addEventListener('hidden.bs.toast', () => wrapper.remove());
+      }
+      previousUnread = unread;
+    } catch { }
+  }
+
+  markAll?.addEventListener('click', async () => {
+    try {
+      await fetch('@Url.Action("MarkAllRead", "Notification", new { area = "Student" })', {
+        method: 'POST',
+        headers: { 'RequestVerificationToken': token }
+      });
+      await loadNotifications(false);
+    } catch { }
+  });
+
+  document.getElementById('notificationMenu')?.addEventListener('shown.bs.dropdown', async () => {
+    if (reading) return;
+    reading = true;
+    try {
+      await loadNotifications(false);
+      if (!visibleUnreadIds.length) return;
+      const body = new URLSearchParams();
+      visibleUnreadIds.forEach(id => body.append('ids', String(id)));
+      const response = await fetch('@Url.Action("MarkRead", "Notification", new { area = "Student" })', {
+        method: 'POST', headers: { 'RequestVerificationToken': token }, body
+      });
+      if (response.ok) await loadNotifications(false);
+    } catch { /* Preserve unread state when the server cannot confirm the update. */ }
+    finally { reading = false; }
+  });
+
+  loadNotifications(false);
+  window.setInterval(() => loadNotifications(true), 10000);
+})();
+</script>
+@RenderSection("Scripts", required: false)
+</body>
+</html>

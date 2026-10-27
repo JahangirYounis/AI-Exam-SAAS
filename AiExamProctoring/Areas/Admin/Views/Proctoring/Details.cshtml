@@ -1,0 +1,18 @@
+@model AiExamProctoring.Models.ProctoringLog
+@{
+    ViewData["Title"] = "Integrity Event Details";
+    var legacyRecording = Model.RecordingPath is null && Model.ScreenshotPath?.EndsWith(".webm", StringComparison.OrdinalIgnoreCase) == true;
+    var hasScreenshot = !string.IsNullOrWhiteSpace(Model.ScreenshotPath) && !legacyRecording;
+    var hasRecording = !string.IsNullOrWhiteSpace(Model.RecordingPath) || legacyRecording;
+}
+<nav class="small mb-3"><a asp-action="Index">Candidate folders</a><span class="mx-2 text-secondary">/</span><a asp-action="Candidate" asp-route-studentId="@Model.StudentId">@(Model.Student?.FullName ?? "Candidate")</a><span class="mx-2 text-secondary">/</span><a asp-action="ExamFolder" asp-route-studentId="@Model.StudentId" asp-route-examId="@Model.ExamId">@(Model.Exam?.ExamTitle ?? "Exam")</a><span class="mx-2 text-secondary">/</span><span>Event #@Model.LogId</span></nav>
+<div class="d-flex justify-content-between align-items-start flex-wrap gap-3 mb-4"><div><span class="eyebrow">Event record</span><h2 class="fw-bold mt-1 mb-1">@Model.AlertTypeDisplay</h2><p class="text-secondary mb-0">@(Model.Student?.FullName ?? "Unknown candidate") · @(Model.Exam?.ExamTitle ?? "Unknown exam")</p></div><span class="badge @Model.SeverityBadgeClass fs-6">@Model.Severity severity</span></div>
+<div class="row g-4">
+    <div class="col-lg-7"><div class="portal-panel p-4 h-100"><h5 class="fw-bold mb-3">Event information</h5><dl class="row mb-0"><dt class="col-sm-4">Recorded</dt><dd class="col-sm-8">@Model.CreatedDate.ToString("dd MMM yyyy, hh:mm:ss tt")</dd><dt class="col-sm-4">Attempt / session</dt><dd class="col-sm-8">#@(Model.AttemptId?.ToString() ?? "—") · @(Model.SessionAttempt?.Session?.SessionTitle ?? "Exam-level event")</dd><dt class="col-sm-4">Policy effect</dt><dd class="col-sm-8">@(Model.CountsAsViolation ? "Accepted violation" : "Observation / recovery")</dd><dt class="col-sm-4">Review state</dt><dd class="col-sm-8">@(Model.IsReviewed ? "Reviewed" : "Review pending")</dd><dt class="col-sm-4">Face / confidence</dt><dd class="col-sm-8">@(Model.DetectedFaceCount?.ToString() ?? "—") / @(Model.ConfidenceScore.HasValue ? $"{Model.ConfidenceScore:P1}" : "—")</dd><dt class="col-sm-4">Model</dt><dd class="col-sm-8">@(Model.ModelName ?? "Browser/system event") @(Model.ModelVersion)</dd><dt class="col-sm-4">Description</dt><dd class="col-sm-8">@(Model.Description ?? "No description supplied.")</dd></dl></div></div>
+    <div class="col-lg-5"><div class="portal-panel p-4 h-100"><h5 class="fw-bold mb-3">Protected evidence</h5>
+        @if (hasScreenshot){<div class="mb-3"><div class="small fw-semibold mb-2">Still screenshot</div><img src="@Url.Action("Evidence", new { id = Model.LogId, kind = "screenshot" })" class="img-fluid rounded-4 border" alt="Captured evidence" /></div>}
+        @if (hasRecording){<div><div class="small fw-semibold mb-2">Screen + camera clip @(Model.RecordingIncludesAudio ? "with microphone audio" : "")</div><video src="@Url.Action("Evidence", new { id = Model.LogId, kind = "recording" })" class="w-100 rounded-4 bg-dark" controls preload="metadata"></video></div>}
+        @if (!hasScreenshot && !hasRecording){<div class="empty-state py-5"><i class="bi bi-file-earmark-x"></i><p class="mt-3 mb-0">No browser evidence file was captured.</p></div>}
+        <p class="small text-secondary mt-3 mb-0"><i class="bi bi-lock-fill me-1"></i>Stored outside public web files and streamed only after role authorization.</p>
+    </div></div>
+</div>

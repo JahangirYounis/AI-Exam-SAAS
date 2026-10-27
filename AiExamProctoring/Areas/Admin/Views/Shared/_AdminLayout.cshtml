@@ -1,0 +1,105 @@
+@using Microsoft.AspNetCore.Identity
+@{
+    var controller = ViewContext.RouteData.Values["Controller"]?.ToString();
+    var action = ViewContext.RouteData.Values["Action"]?.ToString();
+}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="theme-color" content="#0b5ed7" />
+    <title>@ViewData["Title"] - AI Based Online Examination System</title>
+    <link rel="stylesheet" href="~/lib/bootstrap/dist/css/bootstrap.min.css" />
+    <link rel="stylesheet" href="~/css/site.css" asp-append-version="true" />
+    <link rel="stylesheet" href="/lib/bootstrap-icons/bootstrap-icons.min.css" />
+    <link rel="stylesheet" href="~/css/experience.css" asp-append-version="true" />
+<link rel="stylesheet" href="~/css/device-layout.css" asp-append-version="true" />
+</head>
+<body class="admin-body">
+<a class="skip-link" href="#main-content">Skip to main content</a>
+    <div class="admin-shell">
+        <header class="admin-topbar">
+            <div class="container-fluid d-flex align-items-center justify-content-between gap-3">
+                <div class="d-flex align-items-center gap-2">
+                    <button class="btn btn-icon d-lg-none" type="button" data-bs-toggle="offcanvas" data-bs-target="#adminSidebar" aria-label="Open navigation">
+                        <i class="bi bi-list fs-4"></i>
+                    </button>
+                    <a class="brand" asp-area="Admin" asp-controller="Dashboard" asp-action="Index">
+                        <span class="brand-mark"><i class="bi bi-journal-check"></i></span>
+                        <span>
+                            <strong>AI Based Online Examination System</strong>
+                            <small>Admin Portal</small>
+                        </span>
+                    </a>
+                </div>
+                <div class="d-flex align-items-center gap-2">
+                    <a class="btn btn-light btn-sm d-none d-md-inline-flex align-items-center gap-2" asp-area="" asp-controller="Home" asp-action="Index">
+                        <i class="bi bi-house"></i> Home page
+                    </a>
+                    <div class="dropdown">
+                        <button class="btn user-menu dropdown-toggle" data-bs-toggle="dropdown" aria-expanded="false">
+                            <span class="avatar"><i class="bi bi-person"></i></span>
+                            <span class="d-none d-sm-inline text-start">
+                                <strong>@(User.Identity?.Name ?? "Administrator")</strong>
+                                <small>Administrator</small>
+                            </span>
+                        </button>
+                        <ul class="dropdown-menu dropdown-menu-end shadow border-0 rounded-4 p-2">
+                            <li>
+                                <form asp-area="Identity" asp-page="/Account/Logout" method="post">
+                                    @Html.AntiForgeryToken()
+                                    <button class="dropdown-item rounded-3 text-danger" type="submit">
+                                        <i class="bi bi-box-arrow-right me-2"></i>Logout
+                                    </button>
+                                </form>
+                            </li>
+                        </ul>
+                    </div>
+                </div>
+            </div>
+        </header>
+
+        <div class="offcanvas offcanvas-start admin-offcanvas" tabindex="-1" id="adminSidebar">
+            <div class="offcanvas-header border-bottom">
+                <strong class="fs-5">Navigation</strong>
+                <button type="button" class="btn-close" data-bs-dismiss="offcanvas"></button>
+            </div>
+            <div class="offcanvas-body p-0">
+                @await Html.PartialAsync("~/Areas/Admin/Views/Shared/_AdminSidebar.cshtml", controller)
+            </div>
+        </div>
+
+        <aside class="admin-sidebar d-none d-lg-block">
+            @await Html.PartialAsync("~/Areas/Admin/Views/Shared/_AdminSidebar.cshtml", controller)
+        </aside>
+
+        <main id="main-content" tabindex="-1" class="admin-main">
+            @* Each admin page owns one context-aware heading. This avoids duplicate titles. *@
+
+
+            @if (TempData["Success"] is string success)
+            {
+                <div class="alert alert-success alert-dismissible fade show modern-alert" role="alert">
+                    <i class="bi bi-check-circle-fill me-2"></i>@success
+                    <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+                </div>
+            }
+            @if (TempData["Error"] is string error)
+            {
+                <div class="alert alert-danger alert-dismissible fade show modern-alert" role="alert">
+                    <i class="bi bi-exclamation-triangle-fill me-2"></i>@error
+                    <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+                </div>
+            }
+
+            @RenderBody()
+        </main>
+    </div>
+
+    <script src="~/lib/jquery/dist/jquery.min.js"></script>
+    <script src="~/lib/bootstrap/dist/js/bootstrap.bundle.min.js"></script>
+    <script src="~/js/site.js" asp-append-version="true"></script>
+    @await RenderSectionAsync("Scripts", required: false)
+</body>
+</html>

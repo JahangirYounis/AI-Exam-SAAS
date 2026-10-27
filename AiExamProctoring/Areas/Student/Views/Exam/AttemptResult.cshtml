@@ -1,0 +1,50 @@
+@using System
+@model AiExamProctoring.Models.ExamResult
+@{
+    Layout = "~/Areas/Student/Views/Shared/_StudentLayout.cshtml";
+    ViewData["Title"] = "Exam Result";
+}
+
+@if (Model is null)
+{
+    <section class="student-card p-4" role="alert">
+        <h1 class="h4">Your result could not open</h1>
+        <p>Your saved result has not been changed. Open My Results and try again, or contact your teacher.</p>
+        <a asp-area="Student" asp-controller="Result" asp-action="Index" class="btn btn-primary">My Results</a>
+    </section>
+}
+else
+{
+    <section class="result-hero mb-4" aria-labelledby="result-title">
+        <div class="row align-items-center">
+            <div class="col-md-8">
+                <div class="small text-white-50 text-uppercase fw-bold">Assessment completed</div>
+                <h1 id="result-title" class="fw-bold mt-2">@(Model.Attempt?.Exam?.ExamTitle ?? "Examination result")</h1>
+                <p class="text-white-50 mb-2">Exam Roll Number: @(ViewBag.ExamRollNumber ?? "Not available")</p>
+                <p class="text-white-50 mb-3">Result generated on @Model.GeneratedDate.ToString("dd MMM yyyy, hh:mm tt")</p>
+                <span class="badge rounded-pill @(Model.IsPassed ? "bg-success" : "bg-danger") px-3 py-2">@(Model.IsPassed ? "PASSED" : "NOT PASSED")</span>
+            </div>
+            <div class="col-md-4 d-flex justify-content-md-end justify-content-center mt-4 mt-md-0">
+                <div class="score-ring text-center">
+                    <div class="fs-3 fw-bold">@Model.Percentage.ToString("0.##")%</div>
+                    <div class="small text-white-50">Score</div>
+                </div>
+            </div>
+        </div>
+    </section>
+    <div class="row g-4">
+        <div class="col-sm-6 col-lg-3"><div class="student-card p-4 text-center h-100"><div class="display-6 fw-bold">@Model.TotalMarksObtained.ToString("0.##")</div><div class="soft-muted">out of @Model.TotalMarks.ToString("0.##")</div></div></div>
+        <div class="col-sm-6 col-lg-3"><div class="student-card p-4 text-center h-100"><div class="display-6 fw-bold text-success">@Model.CorrectAnswers</div><div class="soft-muted">Correct</div></div></div>
+        <div class="col-sm-6 col-lg-3"><div class="student-card p-4 text-center h-100"><div class="display-6 fw-bold text-danger">@Model.WrongAnswers</div><div class="soft-muted">Wrong</div></div></div>
+        <div class="col-sm-6 col-lg-3"><div class="student-card p-4 text-center h-100"><div class="display-6 fw-bold text-secondary">@Model.SkippedAnswers</div><div class="soft-muted">Skipped</div></div></div>
+    </div>
+    <section class="student-card p-4 mt-4" aria-labelledby="result-next">
+        <h2 id="result-next" class="h5 fw-bold">What next?</h2>
+        <p class="soft-muted">Your result has been saved. Review your performance or download the result PDF.</p>
+        <div class="d-flex flex-wrap gap-2">
+            <a asp-area="Student" asp-controller="Result" asp-action="Details" asp-route-id="@Model.ResultId" class="btn btn-primary rounded-pill">View Detailed Result</a>
+            <a asp-area="Student" asp-controller="Result" asp-action="DownloadPdf" asp-route-id="@Model.ResultId" class="btn btn-outline-secondary rounded-pill">Download PDF</a>
+            <a asp-area="Student" asp-controller="Exam" asp-action="Available" class="btn btn-light rounded-pill">Examinations</a>
+        </div>
+    </section>
+}

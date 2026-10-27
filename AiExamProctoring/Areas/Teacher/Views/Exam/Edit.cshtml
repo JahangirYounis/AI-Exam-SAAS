@@ -1,0 +1,18 @@
+@model AiExamProctoring.Models.Exam
+@{
+    ViewData["Title"] = "Edit test details";
+}
+<div class="d-flex justify-content-between align-items-start flex-wrap gap-3 mb-4">
+    <div><h1 class="h3 fw-bold">Edit test details</h1><p class="text-secondary mb-0">Review your changes before publishing. Sections will be prepared automatically.</p></div>
+    <a asp-action="Details" asp-route-id="@Model.ExamId" class="btn btn-outline-secondary">Back to test</a>
+</div>
+<form asp-action="Edit" asp-route-id="@Model.ExamId" method="post" id="teacherExamForm" asp-antiforgery="false" data-prevent-double-submit="false">
+    @Html.AntiForgeryToken()
+    <input asp-for="ExamId" type="hidden" />
+    <partial name="_ExamForm" model="Model" />
+    <div class="d-flex justify-content-end gap-2 mt-4"><a asp-action="Details" asp-route-id="@Model.ExamId" class="btn btn-light border">Cancel</a><button type="submit" class="btn btn-primary px-4">Save changes</button></div>
+</form>
+@section Scripts {
+    <partial name="_ValidationScriptsPartial" />
+    <script src="~/js/teacher-exam-form.js" asp-append-version="true" defer></script>
+}

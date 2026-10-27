@@ -1,0 +1,25 @@
+@model IEnumerable<AiExamProctoring.Models.Exam>
+@using AiExamProctoring.Models
+@{
+    Layout = "~/Areas/Student/Views/Shared/_StudentLayout.cshtml";
+    ViewData["Title"] = "Past examinations";
+    var attempts = ViewBag.Attempts as List<ExamAttempt> ?? new();
+}
+<h1>Past examinations</h1>
+<p>Entry has closed for these exams. Your saved attempts and results remain in your record.</p>
+<a asp-action="Available" class="btn btn-outline-primary mb-4">Available examinations</a>
+<a asp-area="Student" asp-controller="Result" asp-action="Index" class="btn btn-primary mb-4">My results</a>
+<div class="row g-3">
+@foreach (var exam in Model)
+{
+    var attempt = attempts.FirstOrDefault(x => x.ExamId == exam.ExamId);
+    var ongoing = attempt != null && (attempt.Status == AttemptStatus.InProgress || attempt.Status == AttemptStatus.ProctoringBlocked);
+    <div class="col-md-6"><article class="student-card p-4 h-100">
+        <h2 class="h4">@exam.ExamTitle</h2>
+        <p>Entry closed: @exam.LatestStartDate.ToString("dd MMM yyyy, hh:mm tt")</p>
+        <span class="badge text-bg-secondary">@(ongoing ? "Attempt in progress" : attempt != null ? attempt.Status.ToString() : exam.Status == ExamStatus.Completed ? "Completed" : "Entry closed")</span>
+        @if (ongoing) { <p class="mt-3">Your own exam timer still applies.</p><a asp-action="Resume" asp-route-attemptId="@attempt!.AttemptId" class="btn btn-primary">Resume examination</a> }
+    </article></div>
+}
+@if (!Model.Any()) { <p>No past examinations yet.</p> }
+</div>

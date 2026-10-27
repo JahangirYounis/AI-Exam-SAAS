@@ -1,0 +1,58 @@
+@model AiExamProctoring.Models.ExamResult
+@using AiExamProctoring.Models
+@{
+    Layout = "~/Areas/Student/Views/Shared/_StudentLayout.cshtml";
+    ViewData["Title"] = "Result Details";
+    var logs = ViewBag.ProctoringLogs as IReadOnlyCollection<ProctoringLog> ?? Array.Empty<ProctoringLog>();
+}
+
+<div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-4">
+    <div>
+        <a asp-action="Index" class="small text-decoration-none"><i class="bi bi-arrow-left me-1"></i>All results</a>
+        <h1 class="fw-bold mt-2 mb-1">Result Details</h1>
+        <p class="soft-muted mb-0">@Model.Attempt?.Exam?.ExamTitle · Exam Roll Number: @(ViewBag.ExamRollNumber ?? "—")</p>
+    </div>
+    <div class="d-flex gap-2 flex-wrap">
+        <a asp-action="DownloadPdf" asp-route-id="@Model.ResultId" class="btn btn-outline-primary rounded-pill"><i class="bi bi-file-earmark-text me-1"></i> Result PDF</a>
+        <a asp-action="DownloadCertificate" asp-route-id="@Model.ResultId" class="btn btn-primary rounded-pill"><i class="bi bi-award me-1"></i> Certificate PDF</a>
+    </div>
+</div>
+
+<div class="result-hero mb-4"><div class="d-flex justify-content-between align-items-center flex-wrap gap-3"><div><div class="small text-white-50">Final score</div><div class="display-4 fw-bold mt-1">@Model.TotalMarksObtained <span class="fs-5 text-white-50">/ @Model.TotalMarks</span></div><div class="mt-2">@Model.Percentage% · @(Model.IsPassed ? "Passed" : "Failed")</div></div><div class="text-end"><div class="small text-white-50">Certificate</div><strong>@(Model.CertificateNumber ?? "Not generated")</strong></div></div></div>
+
+<div class="row g-4">
+    <div class="col-md-3"><div class="student-card p-4 text-center"><div class="fs-2 fw-bold text-success">@Model.CorrectAnswers</div><div class="small soft-muted">Correct answers</div></div></div>
+    <div class="col-md-3"><div class="student-card p-4 text-center"><div class="fs-2 fw-bold text-danger">@Model.WrongAnswers</div><div class="small soft-muted">Wrong answers</div></div></div>
+    <div class="col-md-3"><div class="student-card p-4 text-center"><div class="fs-2 fw-bold">@Model.SkippedAnswers</div><div class="small soft-muted">Skipped answers</div></div></div>
+    <div class="col-md-3"><div class="student-card p-4 text-center"><div class="fs-2 fw-bold">@Model.GeneratedDate.ToString("dd")</div><div class="small soft-muted">@Model.GeneratedDate.ToString("MMMM yyyy")</div></div></div>
+</div>
+
+<div class="row g-4 mt-1">
+    <div class="col-lg-5"><div class="student-card p-4 h-100">
+        <h5 class="fw-bold">Monitoring status</h5>
+        <div class="d-flex justify-content-between border-bottom py-2"><span>AI models</span><strong>Proctoring active</strong></div>
+        <div class="d-flex justify-content-between border-bottom py-2"><span>Exam status</span><strong>@Model.Attempt?.Status</strong></div>
+        <div class="d-flex justify-content-between border-bottom py-2"><span>Historical monitoring events</span><strong>@logs.Count</strong></div>
+        <div class="d-flex justify-content-between border-bottom py-2"><span>Negative marking</span><strong>@(Model.Attempt?.Exam?.NegativeMarksPerWrongAnswer.ToString("0.##") ?? "0") / wrong</strong></div>
+        <div class="d-flex justify-content-between pt-2"><span>Evidence events</span><strong>@logs.Count(x => !string.IsNullOrWhiteSpace(x.ScreenshotPath) || !string.IsNullOrWhiteSpace(x.RecordingPath))</strong></div>
+        <p class="small soft-muted mt-3 mb-0">Models 1–4 provide identity, behavior, object and speech observations. Model 5 is integrated for question-context analysis. Model 6 manages warnings and exam locks. Your teacher reviews the evidence; observations alone do not determine your marks.</p>
+    </div></div>
+    <div class="col-lg-7"><div class="student-card p-4 h-100">
+        <h5 class="fw-bold">Recent monitoring record</h5>
+        @if (logs.Any())
+        {
+            @foreach (var log in logs.Take(6))
+            {
+                <div class="d-flex justify-content-between gap-3 border-bottom py-2"><div><span class="badge @log.AlertBadgeClass me-2">@log.AlertTypeDisplay</span><span class="small">@log.Description</span></div><small class="soft-muted text-nowrap">@log.CreatedDate.ToString("HH:mm:ss")</small></div>
+            }
+        }
+        else
+        {
+            <p class="text-muted mb-0">No proctoring event was recorded.</p>
+        }
+    </div></div>
+</div>
+
+<div class="student-card p-4 mt-4"><h5 class="fw-bold">Result actions</h5><div class="d-flex flex-wrap gap-2 mt-3"><a asp-action="QuestionReview" asp-route-id="@Model.ResultId" class="btn btn-primary rounded-pill"><i class="bi bi-list-check me-1"></i> Review Answers</a><a asp-action="DownloadCertificate" asp-route-id="@Model.ResultId" class="btn btn-outline-secondary rounded-pill"><i class="bi bi-award me-1"></i> Download detailed certificate</a></div></div>
+
+<partial name="_AnswerRows" model="@(ViewBag.AnswerRows as IEnumerable<AiExamProctoring.ViewModels.Student.ResultAnswerRow> ?? Array.Empty<AiExamProctoring.ViewModels.Student.ResultAnswerRow>())" />

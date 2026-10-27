@@ -1,0 +1,74 @@
+@model IReadOnlyCollection<AiExamProctoring.Models.ApplicationUser>
+@{
+    ViewData["Title"] = "Teacher Management";
+}
+
+<div class="d-flex justify-content-between align-items-start flex-wrap gap-3 mb-4">
+    <div><span class="eyebrow">Teacher accounts</span><h2 class="fw-bold mt-1 mb-1">Teacher Management</h2><p class="text-secondary mb-0">Verify, approve and control access to examination-authoring workspaces.</p></div>
+</div>
+
+<div class="row g-3 mb-4">
+    <div class="col-6 col-xl-3"><div class="metric-card"><strong>@ViewBag.Total</strong><span>Total Teachers</span></div></div>
+    <div class="col-6 col-xl-3"><div class="metric-card"><strong class="text-warning">@ViewBag.Pending</strong><span>Pending Review</span></div></div>
+    <div class="col-6 col-xl-3"><div class="metric-card"><strong class="text-success">@ViewBag.Approved</strong><span>Approved</span></div></div>
+    <div class="col-6 col-xl-3"><div class="metric-card"><strong class="text-danger">@ViewBag.Blocked</strong><span>Blocked</span></div></div>
+</div>
+
+<div class="card border-0 shadow-sm rounded-4">
+    <div class="card-body p-4">
+        <form method="get" class="row g-3 mb-4">
+            <div class="col-lg-7"><input name="search" value="@Context.Request.Query["search"]" class="form-control" placeholder="Search teacher, Gmail, CNIC or Teacher ID" /></div>
+            <div class="col-lg-3"><select name="status" class="form-select"><option value="">All statuses</option><option value="pending">Pending</option><option value="approved">Approved</option><option value="blocked">Blocked</option></select></div>
+            <div class="col-lg-2 d-grid"><button class="btn btn-primary" type="submit"><i class="bi bi-search me-1"></i>Filter</button></div>
+        </form>
+        <div class="table-responsive">
+            <table class="table align-middle mb-0">
+                <thead class="table-light"><tr><th>Teacher</th><th>Identity</th><th>Registered</th><th>Status</th><th class="text-end">Actions</th></tr></thead>
+                <tbody>
+                    @if (Model.Count == 0)
+                    {
+                        <tr><td colspan="5" class="text-center text-muted py-5">No teacher accounts match this filter.</td></tr>
+                    }
+                    @foreach (var teacher in Model)
+                    {
+                        <tr>
+                            <td><div class="d-flex align-items-center gap-3"><img src="@(teacher.ProfileImage ?? "/images/default-user.svg")" alt="Teacher" width="48" height="48" class="rounded-circle object-fit-cover" /><div><strong>@teacher.FullName</strong><div class="small text-muted">@teacher.Email</div></div></div></td>
+                            <td><div>@(teacher.CandidateNumber ?? "—")</div><small class="text-muted">CNIC: @(teacher.CNIC ?? "—")</small></td>
+                            <td>@teacher.CreatedDate.ToString("dd MMM yyyy")</td>
+                            <td>@if(teacher.IsBlocked){
+                            <span class="badge text-bg-danger">Blocked</span>
+                        }else if (teacher.IsApproved)
+                        {
+
+                            <span class="badge text-bg-success">Approved</span>
+                        }
+                        else
+                        {
+
+                            <span class="badge text-bg-warning">Pending</span>
+                        }
+</td>
+                        <td class="text-end">
+                            <div class="d-inline-flex gap-1">
+                                @if (!teacher.IsApproved)
+                                {
+                                    <form asp-area="Admin" asp-action="Approve" method="post"><input type="hidden" name="id" value="@teacher.Id" /><button class="btn btn-sm btn-success rounded-pill" type="submit">Approve</button></form>
+                                }
+                                @if (teacher.IsBlocked)
+                                {
+                                    <form asp-area="Admin" asp-action="Unblock" method="post"><input type="hidden" name="id" value="@teacher.Id" /><button class="btn btn-sm btn-outline-success rounded-pill" type="submit">Unblock</button></form>
+                                }
+                                else
+                                {
+
+                                    <form asp-area="Admin" asp-action="Block" method="post"><input type="hidden" name="id" value="@teacher.Id" /><button class="btn btn-sm btn-outline-danger rounded-pill" type="submit">Block</button></form>
+                                }
+                            </div>
+                        </td>
+                    </tr>
+                                        }
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>

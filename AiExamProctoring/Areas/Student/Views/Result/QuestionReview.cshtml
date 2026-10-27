@@ -1,0 +1,4 @@
+@model IEnumerable<AiExamProctoring.ViewModels.Student.ResultAnswerRow>
+@{ Layout="~/Areas/Student/Views/Shared/_StudentLayout.cshtml"; ViewData["Title"]="Answer Review"; }
+<a asp-action="Index">My results</a>
+<partial name="_AnswerRows" model="Model" />

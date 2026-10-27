@@ -1,0 +1,37 @@
+@model IEnumerable<AiExamProctoring.Models.ExamResult>
+@{
+    Layout = "~/Areas/Student/Views/Shared/_StudentLayout.cshtml";
+    ViewData["Title"] = "My Results";
+}
+
+@if ((ViewBag.PendingCount as int? ?? 0) > 0) { <div class="alert alert-info">@ViewBag.PendingCount result(s) are awaiting your teacher's final review. <a asp-controller="Exam" asp-action="Evidence">View your evidence</a>.</div> }
+<div class="d-flex justify-content-between align-items-end flex-wrap gap-3 mb-4">
+    <div><div class="small text-primary fw-bold text-uppercase">Performance Center</div><h1 class="fw-bold mb-1">My Results</h1><p class="soft-muted mb-0">Completed examinations, answer reviews and detailed certificates.</p></div>
+    <div class="input-group" style="max-width:300px"><span class="input-group-text bg-white border-end-0"><i class="bi bi-search"></i></span><input id="resultSearch" class="form-control border-start-0" placeholder="Search result..."></div>
+</div>
+
+<div class="student-card p-3 p-md-4"><div class="table-responsive"><table class="table table-modern align-middle mb-0" id="resultsTable">
+    <thead><tr><th>Examination</th><th>Score</th><th>Performance</th><th>Status</th><th>AI Status</th><th>Date</th><th class="text-end">Action</th></tr></thead>
+    <tbody>
+    @foreach (var result in Model)
+    {
+        <tr>
+            <td><div class="fw-bold">@result.Attempt?.Exam?.ExamTitle</div><div class="small soft-muted">Attempt #@result.AttemptId</div></td>
+            <td><strong>@result.TotalMarksObtained / @result.TotalMarks</strong><div class="small soft-muted">@result.Percentage%</div></td>
+            <td><div class="progress progress-thin" style="min-width:100px"><div class="progress-bar" style="width:@Math.Min(100, Math.Max(0, (double)result.Percentage))%"></div></div></td>
+            <td><span class="badge-soft @(result.IsPassed ? "soft-success" : "soft-danger")">@(result.IsPassed ? "Passed" : "Failed")</span></td>
+            <td><span class="badge text-bg-light border">Not active</span></td>
+            <td class="soft-muted">@result.GeneratedDate.ToString("dd MMM yyyy")</td>
+            <td class="text-end"><div class="dropdown"><button class="btn btn-light rounded-pill btn-sm" data-bs-toggle="dropdown"><i class="bi bi-three-dots"></i></button><ul class="dropdown-menu dropdown-menu-end border-0 shadow rounded-4"><li><a class="dropdown-item" asp-action="Details" asp-route-id="@result.ResultId">View details</a></li><li><a class="dropdown-item" asp-action="QuestionReview" asp-route-id="@result.ResultId">Review answers</a></li><li><a class="dropdown-item" asp-action="DownloadPdf" asp-route-id="@result.ResultId">Download result PDF</a></li><li><a class="dropdown-item" asp-action="DownloadCertificate" asp-route-id="@result.ResultId">Download certificate</a></li></ul></div></td>
+        </tr>
+    }
+    @if (!Model.Any())
+    {
+        <tr><td colspan="7"><div class="empty-state"><i class="bi bi-bar-chart"></i><h5 class="fw-bold mt-3">No results yet</h5><p class="soft-muted">Complete an examination and your result will appear here.</p></div></td></tr>
+    }
+    </tbody>
+</table></div></div>
+
+@section Scripts {
+    <script>document.getElementById('resultSearch')?.addEventListener('input', function () { const query = this.value.toLowerCase(); document.querySelectorAll('#resultsTable tbody tr').forEach(row => row.style.display = row.innerText.toLowerCase().includes(query) ? '' : 'none'); });</script>
+}

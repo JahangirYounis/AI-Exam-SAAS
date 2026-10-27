@@ -1,0 +1,122 @@
+@model AiExamProctoring.ViewModels.Student.SessionBreakViewModel
+@{
+    Layout = "~/Areas/Student/Views/Shared/_StudentLayout.cshtml";
+    ViewData["Title"] = "Session Break";
+}
+
+<div class="mx-auto" style="max-width:920px">
+    <div class="student-card p-4 p-lg-5 text-center">
+        <div class="d-inline-flex align-items-center justify-content-center rounded-circle bg-success-subtle text-success mb-3" style="width:76px;height:76px">
+            <i class="bi bi-check2-circle fs-1"></i>
+        </div>
+
+        <div class="small text-primary fw-bold text-uppercase">
+            Session @Model.CompletedSessionNumber completed successfully
+        </div>
+
+        <h1 class="fw-bold mt-2 mb-2">Rest or continue when you are ready</h1>
+
+        <p class="soft-muted mx-auto mb-4" style="max-width:700px">
+            Your submitted answers are safely stored on the server. You may start Session @Model.NextSessionNumber immediately,
+            or take a break for up to @Model.MaximumRestMinutes minute@(Model.MaximumRestMinutes == 1 ? "" : "s").
+            Break time is never deducted from the next session.
+        </p>
+
+        <div class="row g-3 justify-content-center my-4">
+            <div class="col-md-4">
+                <div class="border rounded-4 p-3 h-100">
+                    <div class="small soft-muted">Completed</div>
+                    <div class="fs-4 fw-bold">@Model.CompletedSessionNumber / @Model.TotalSessions</div>
+                </div>
+            </div>
+            <div class="col-md-4">
+                <div class="border rounded-4 p-3 h-100">
+                    <div class="small soft-muted">Next Session</div>
+                    <div class="fs-4 fw-bold">Session @Model.NextSessionNumber</div>
+                    @if (!string.IsNullOrWhiteSpace(Model.NextSessionTitle))
+                    {
+                        <div class="small soft-muted mt-1">@Model.NextSessionTitle</div>
+                    }
+                </div>
+            </div>
+            <div class="col-md-4">
+                <div class="border rounded-4 p-3 h-100">
+                    <div class="small soft-muted">Maximum Rest Remaining</div>
+                    <div class="fs-4 fw-bold timer-pill" id="breakTimer">--:--</div>
+                </div>
+            </div>
+        </div>
+
+        <p class="fs-5"><strong>@Model.NextSessionTotalMarks marks</strong> · @Model.NextSessionDurationMinutes minutes</p>
+        <div class="alert alert-info border-0 rounded-4 text-start">
+            <div class="d-flex gap-2">
+                <i class="bi bi-shield-check fs-5"></i>
+                <div>
+                    <strong>Server-controlled timing:</strong>
+                    the next-session timer starts only when the next session is created on the server.
+                    If you do not continue yourself, AI Based Online Examination System automatically continues when the maximum break ends.
+                </div>
+            </div>
+        </div>
+
+        <form asp-area="Student"
+              asp-controller="Exam"
+              asp-action="StartNextSession"
+              method="post"
+              id="startNextForm"
+              class="d-inline-block">
+            @Html.AntiForgeryToken()
+            <input type="hidden" name="attemptId" value="@Model.AttemptId" />
+            <button type="submit" class="btn btn-primary btn-lg rounded-pill px-5" id="startNextButton">
+                Start Next Session — Part @Model.NextSessionNumber
+                <i class="bi bi-arrow-right ms-1"></i>
+            </button>
+        </form>
+
+        <div class="small soft-muted mt-3">
+            You can use the remaining time to rest your eyes, stretch, or prepare for the next section.
+        </div>
+    </div>
+</div>
+
+@section Scripts {
+<script>
+(() => {
+    const target = new Date('@Model.RestEndsAt.ToUniversalTime().ToString("O")').getTime();
+    const timer = document.getElementById('breakTimer');
+    const form = document.getElementById('startNextForm');
+    const button = document.getElementById('startNextButton');
+    const continueUrl = '@Url.Action("Continue", "Exam", new { area = "Student", attemptId = Model.AttemptId })';
+    const serverNow = new Date('@Model.ServerNow.ToUniversalTime().ToString("O")').getTime();
+    const loadedAt = performance.now();
+    let leaving = false;
+
+    form?.addEventListener('submit', () => {
+        leaving = true;
+        if (button) {
+            button.disabled = true;
+            button.innerHTML = '<span class="spinner-border spinner-border-sm me-2"></span>Starting next session...';
+        }
+    });
+
+    function tick() {
+        const remaining = Math.max(0, target - (serverNow + performance.now() - loadedAt));
+        const totalSeconds = Math.ceil(remaining / 1000);
+        const minutes = Math.floor(totalSeconds / 60);
+        const seconds = totalSeconds % 60;
+
+        if (timer) {
+            timer.textContent = `${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
+        }
+
+        if (remaining <= 0 && !leaving) {
+            leaving = true;
+            window.location.replace(continueUrl);
+        }
+    }
+
+    tick();
+    window.setInterval(tick, 1000);
+})();
+</script>
+}

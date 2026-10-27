@@ -1,0 +1,184 @@
+@{ var portal = User.IsInRole("Admin") ? "Admin" : User.IsInRole("Teacher") ? "Teacher" : "Student"; }
+<section class="exam-hero">
+<div class="container">
+<div class="exam-hero-grid">
+    <div class="exam-hero-copy">
+<span class="eyebrow">● &nbsp; LEARNING DESERVES A CLEARER NEXT STEP</span>
+<h1>Less exam stress.<br />More room to <em>do your best.</em>
+</h1>
+<p>From your first question to the final result. A thoughtful online exam experience for students, teachers and the people who support them.</p>
+        <div class="hero-actions">
+            @if (User.Identity?.IsAuthenticated == true) { <a asp-area="@portal" asp-controller="Dashboard" asp-action="Index" class="btn btn-primary btn-lg">My dashboard <i class="bi bi-arrow-right">
+</i>
+</a> }
+            else { <a asp-area="Identity" asp-page="/Account/Register" class="btn btn-primary btn-lg">Get started <i class="bi bi-arrow-right">
+</i>
+</a> }
+            <a asp-controller="Home" asp-action="HowItWorks" class="text-link">See how it works <i class="bi bi-arrow-up-right">
+</i>
+</a>
+        </div>
+<div class="hero-assurances">
+<span>
+<i class="bi bi-check2-circle">
+</i> Guided device check</span>
+<span>
+<i class="bi bi-check2-circle">
+</i> Automatic answer saving</span>
+</div>
+    </div>
+    <div class="exam-hero-visual">
+<picture>
+<source media="(max-width: 767px)" srcset="/images/editorial/study-mobile.webp" />
+<img src="~/images/editorial/study-desktop.webp" asp-append-version="true" width="1440" height="960" fetchpriority="high" alt="A student concentrating on his laptop in a bright study space" />
+</picture>
+<div class="photo-caption">
+<i class="bi bi-journal-check">
+</i>
+<div>
+<strong>Your next chapter starts here.</strong>
+<span>A clear path from preparation to results.</span>
+</div>
+</div>
+<span class="photo-index">FOCUS ON WHAT YOU KNOW.</span>
+</div>
+</div>
+</div>
+</section>
+<section class="platform-strip" aria-label="Platform capabilities">
+<div class="container">
+<span>ONE PLACE. EVERY STEP.</span>
+<div>
+<i class="bi bi-collection">
+</i> Question banks</div>
+<div>
+<i class="bi bi-clock">
+</i> Timed sessions</div>
+<div>
+<i class="bi bi-camera-video">
+</i> AI-assisted review</div>
+<div>
+<i class="bi bi-file-earmark-bar-graph">
+</i> Clear results</div>
+</div>
+</section>
+<section class="public-section">
+<div class="container">
+<div class="section-intro">
+<div>
+<span class="eyebrow">BUILT AROUND PEOPLE</span>
+<h2>Different roles.<br />One connected experience.</h2>
+</div>
+<p>The right tools, in the right place. Spend less time finding your way around and more time on what matters.</p>
+</div>
+<div class="role-grid">
+    <article class="experience-card">
+<span class="experience-number">01 / STUDENTS</span>
+<div class="experience-icon">
+<i class="bi bi-mortarboard">
+</i>
+</div>
+<h3>Find your focus.</h3>
+<p>Join your exam, check your devices and work through a clear question-by-question experience. Review your results when they are available.</p>
+<a asp-area="Student" asp-controller="Dashboard" asp-action="Index" class="text-link">Student portal <i class="bi bi-arrow-right">
+</i>
+</a>
+</article>
+    <article class="experience-card featured">
+<span class="experience-number">02 / TEACHERS</span>
+<div class="experience-icon">
+<i class="bi bi-journal-richtext">
+</i>
+</div>
+<h3>Make assessment simpler.</h3>
+<p>Build a reusable question bank, arrange sessions and invite candidates. Keep results and recorded observations together for review.</p>
+<a asp-area="Teacher" asp-controller="Dashboard" asp-action="Index" class="text-link">Teacher portal <i class="bi bi-arrow-right">
+</i>
+</a>
+</article>
+    <article class="experience-card">
+<span class="experience-number">03 / ADMINISTRATORS</span>
+<div class="experience-icon">
+<i class="bi bi-grid-1x2">
+</i>
+</div>
+<h3>Keep the bigger picture.</h3>
+<p>Manage accounts, approve teachers and follow examination activity from a dedicated workspace with access to reports and evidence.</p>
+<a asp-area="Admin" asp-controller="Dashboard" asp-action="Index" class="text-link">Admin portal <i class="bi bi-arrow-right">
+</i>
+</a>
+</article>
+</div>
+</div>
+</section>
+<section class="public-section review-section">
+<div class="container review-grid">
+<div class="review-photo">
+<img src="~/images/editorial/student-study.webp" asp-append-version="true" width="1000" height="667" loading="lazy" decoding="async" alt="A student working with a laptop and study notes" />
+<span class="image-note">Real learning. Thoughtful assessment.</span>
+</div>
+<div class="review-copy">
+<span class="eyebrow">TECHNOLOGY WITH CONTEXT</span>
+<h2>AI can observe.<br />People make the call.</h2>
+<p>Face verification helps confirm identity. Camera and speech observations give teachers more context to review an attempt.</p>
+<ul class="check-list">
+<li>
+<i class="bi bi-check2">
+</i> Identity checks before and during an exam</li>
+<li>
+<i class="bi bi-check2">
+</i> Recorded observations for teacher review</li>
+<li>
+<i class="bi bi-check2">
+</i> Human-reviewed pause and resume</li>
+</ul>
+<p class="review-note">An observation is not a cheating verdict. Object detection is awaiting training; automatic risk decisions are not enabled.</p>
+<a asp-controller="Home" asp-action="Features" class="text-link">Explore the features <i class="bi bi-arrow-right">
+</i>
+</a>
+</div>
+</div>
+</section>
+<section class="public-section">
+<div class="container">
+<span class="eyebrow">A CLEAR PATH FORWARD</span>
+<h2>From ready to results.</h2>
+<div class="journey-grid">
+<article>
+<span>01</span>
+<h3>Set it up</h3>
+<p>Teachers choose questions, timing and candidate access.</p>
+</article>
+<article>
+<span>02</span>
+<h3>Get ready</h3>
+<p>Students check their camera, microphone and identity.</p>
+</article>
+<article>
+<span>03</span>
+<h3>Do your best</h3>
+<p>Answer within the session time. Saved answers show their status.</p>
+</article>
+<article>
+<span>04</span>
+<h3>See your progress</h3>
+<p>Review your marks and download available result documents.</p>
+</article>
+</div>
+</div>
+</section>
+<section class="welcome-cta">
+<div class="container">
+<div>
+<span class="eyebrow">YOUR NEXT STEP</span>
+<h2>A calmer start to your next exam.</h2>
+<p>New here? Create an account. Already enrolled? Your dashboard is waiting.</p>
+</div>
+<div class="hero-actions">
+<a asp-area="Identity" asp-page="/Account/Register" class="btn btn-light btn-lg">Create an account <i class="bi bi-arrow-right">
+</i>
+</a>
+<a asp-area="Identity" asp-page="/Account/Login" class="text-link">Sign in</a>
+</div>
+</div>
+</section>

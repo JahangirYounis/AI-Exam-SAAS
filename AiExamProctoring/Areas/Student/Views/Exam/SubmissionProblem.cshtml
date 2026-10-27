@@ -1,0 +1,17 @@
+@{
+    Layout = "~/Areas/Student/Views/Shared/_StudentLayout.cshtml";
+    ViewData["Title"] = "Submission needs attention";
+}
+<section class="student-card p-4 p-md-5 mx-auto" style="max-width:760px">
+    <h1>Submission needs attention</h1>
+    <p role="alert">@ViewBag.SubmissionMessage</p>
+    @if (ViewBag.SessionAttemptId is int sessionId)
+    {
+        <a asp-action="Session" asp-route-sessionAttemptId="@sessionId" class="btn btn-primary">Return to examination</a>
+    }
+    else
+    {
+        <a asp-action="Available" class="btn btn-primary">Open my examinations</a>
+    }
+    <p class="small soft-muted mt-3">If you need help, give your instructor this reference: @Context.TraceIdentifier</p>
+</section>

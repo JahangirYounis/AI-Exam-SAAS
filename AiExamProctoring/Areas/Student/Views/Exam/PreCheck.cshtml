@@ -1,0 +1,125 @@
+@model AiExamProctoring.Models.Exam
+@{
+    Layout = "~/Areas/Student/Views/Shared/_StudentLayout.cshtml";
+    ViewData["Title"] = "Get ready for your exam";
+    Context.Response.Headers["Cache-Control"] = "no-store";
+}
+@section Styles {
+    <link rel="stylesheet" href="~/css/exam-precheck.css" asp-append-version="true" />
+}
+@if (Model is null)
+{
+    <div class="student-card p-4" role="alert">
+        <h1 class="h4">Exam details could not load</h1>
+        <p>Return to examinations and open your exam again.</p>
+        <a asp-area="Student" asp-controller="Exam" asp-action="Available" class="btn btn-primary">Back to examinations</a>
+    </div>
+}
+else
+{
+    var now = ViewBag.ServerNow is DateTime serverTime ? serverTime : DateTime.Now;
+    var released = ViewBag.IsReleased is bool isReleased && isReleased;
+    var faceReady = ViewBag.FaceIdentityReady == true;
+    var frameCount = ViewBag.FaceVerificationFrames is int frames ? frames : 5;
+    var rollNumber = ViewBag.RollNumber as string;
+    var terminal = Model.Status == AiExamProctoring.Models.ExamStatus.Cancelled ||
+        (!Model.IsReusable && Model.Status == AiExamProctoring.Models.ExamStatus.Completed);
+    <main class="exam-precheck" id="examPrecheck"
+          data-exam-id="@Model.ExamId"
+          data-server-now="@now.ToUniversalTime().ToString("O")"
+          data-released="@released.ToString().ToLowerInvariant()"
+          data-terminal="@terminal.ToString().ToLowerInvariant()"
+          data-reusable="@Model.IsReusable.ToString().ToLowerInvariant()"
+          data-start="@(Model.IsReusable ? "" : Model.StartDate.ToUniversalTime().ToString("O"))"
+          data-latest="@(Model.IsReusable ? "" : Model.LatestStartDate.ToUniversalTime().ToString("O"))"
+          data-face-ready="@faceReady.ToString().ToLowerInvariant()"
+          data-frames="@frameCount"
+          data-microphone="@Model.RequireMicrophone.ToString().ToLowerInvariant()"
+          data-fullscreen="@Model.RequireFullscreen.ToString().ToLowerInvariant()"
+          data-status-url="@Url.Action("ReleaseStatus", "Exam", new { area = "Student", examId = Model.ExamId })"
+          data-verify-url="@Url.Action("VerifyIdentity", "Exam", new { area = "Student" })">
+        <div class="precheck-heading">
+            <div><h1 class="h3 fw-bold mb-1">Get ready for your exam</h1><p class="soft-muted mb-0">Check your devices, verify your face, then start when you are ready.</p></div>
+            <a asp-area="Student" asp-controller="Exam" asp-action="Available" class="btn btn-outline-secondary">Back to examinations</a>
+        </div>
+
+        <section class="student-card precheck-summary" aria-labelledby="examName">
+            <div>
+                <h2 id="examName" class="h4 fw-bold">@Model.ExamTitle</h2>
+                <p class="soft-muted mb-1">@Model.TotalQuestions questions · @Model.TotalMarks.ToString("0.##") marks · @Model.DurationMinutes active minutes · @Model.NumberOfSessions session@(Model.NumberOfSessions == 1 ? "" : "s")</p>
+                @if (!string.IsNullOrWhiteSpace(rollNumber))
+                {
+                    <p class="small mb-0">Exam roll number: <strong>@rollNumber</strong></p>
+                }
+            </div>
+            <p id="entryState" class="precheck-entry mb-0" role="status">Checking entry availability…</p>
+        </section>
+
+        <div class="precheck-columns">
+            <section class="student-card precheck-devices" aria-labelledby="devicesTitle">
+                <h2 id="devicesTitle" class="h5 fw-bold">1. Check devices &amp; verify face</h2>
+                <p class="small soft-muted">Sit alone in good light. Keep your face visible and allow the permissions requested by your browser.</p>
+                <div class="precheck-camera">
+                    <video id="precheckCamera" autoplay muted playsinline aria-label="Your camera preview" hidden></video>
+                    <p id="cameraPlaceholder">Your camera is off.<br /><span class="small">It starts only when you select the check button.</span></p>
+                    <span id="cameraIndicator" hidden>Camera connected</span>
+                </div>
+                <dl class="precheck-list">
+                    <div><dt>Connection to exam server</dt><dd id="connectionState">Checking…</dd></div>
+                    <div><dt>Camera</dt><dd id="cameraState">Not checked</dd></div>
+                    @if (Model.RequireMicrophone)
+                    {
+                        <div><dt>Microphone</dt><dd id="microphoneState">Not checked</dd></div>
+                    }
+                    @if (Model.RequireFullscreen)
+                    {
+                        <div><dt>Fullscreen support</dt><dd id="fullscreenState">Checking…</dd></div>
+                    }
+                    <div><dt>Identity verification</dt><dd id="identityState">@(faceReady ? "Not checked" : "Unavailable")</dd></div>
+                </dl>
+                <button type="button" id="checkDevices" class="btn btn-outline-primary w-100" disabled>Check devices &amp; verify face</button>
+                <p id="checkMessage" class="small mt-3 mb-0" role="status" aria-live="polite">Preparing readiness checks…</p>
+                <details class="precheck-help mt-3">
+                    <summary>Camera or microphone not working?</summary>
+                    <p class="small mt-2 mb-0">Allow Camera@(Model.RequireMicrophone ? " and Microphone" : "") in the site controls beside the address bar. Close apps using your camera, reconnect your device, then retry. If access remains blocked, reload this page or contact your teacher.</p>
+                </details>
+            </section>
+
+            <div>
+                <section class="student-card precheck-start" aria-labelledby="startTitle">
+                    <h2 id="startTitle" class="h5 fw-bold">2. Start your exam</h2>
+                    @if (Model.IsReusable)
+                    {
+                        <p class="small soft-muted">This exam has no scheduled entry window.@(Model.AllowsRepeatAttempts ? " You may repeat it after completing your current attempt." : "")</p>
+                    }
+                    else
+                    {
+                        <dl class="precheck-schedule"><dt>Starts</dt><dd><time datetime="@Model.StartDate.ToUniversalTime().ToString("O")">@Model.StartDate.ToString("dd MMM yyyy, hh:mm tt")</time></dd><dt>Latest entry</dt><dd><time datetime="@Model.LatestStartDate.ToUniversalTime().ToString("O")">@Model.LatestStartDate.ToString("dd MMM yyyy, hh:mm tt")</time></dd></dl>
+                        <p class="small soft-muted">Times shown use the exam server's time zone.</p>
+                    }
+                    @if (Model.NumberOfSessions > 1)
+                    {
+                        <p class="small soft-muted">Each session has its own timer. Follow the break allowance shown between sessions.</p>
+                    }
+                    <form id="startExamForm" asp-area="Student" asp-controller="Exam" asp-action="Start" method="post" asp-antiforgery="false" data-prevent-double-submit="false">
+                        @Html.AntiForgeryToken()
+                        <input type="hidden" name="examId" value="@Model.ExamId" />
+                        <input type="hidden" name="verificationTicket" id="verificationTicket" value="" autocomplete="off" />
+                        <div class="form-check my-3"><input type="checkbox" id="examAgreement" class="form-check-input" required /><label for="examAgreement" class="form-check-label small">I have read the exam instructions and understand the monitoring described below.</label></div>
+                        <button id="startExam" type="submit" class="btn btn-primary w-100" disabled>Start exam</button>
+                    </form>
+                    <p id="startHint" class="small soft-muted mt-2 mb-0" aria-live="polite">Complete the device and identity check first.</p>
+                    <noscript><p class="text-danger mt-3">JavaScript is required for device checks and identity verification. Enable it and reload.</p></noscript>
+                </section>
+                <section class="student-card precheck-privacy mt-3" aria-labelledby="monitoringTitle">
+                    <h2 id="monitoringTitle" class="h6 fw-bold">Monitoring during your exam</h2>
+                    <p class="small mb-2">Your camera@(Model.RequireMicrophone ? " and microphone" : "") must remain connected. Monitoring can capture images and short audio/video clips for teacher review. Speech may be transcribed and checked against exam content when speech monitoring is enabled.</p>
+                    <p class="small mb-0">This check sends camera images for identity verification. A fresh identity check also runs before your paper opens. Follow your teacher's rules about permitted materials and breaks.</p>
+                </section>
+            </div>
+        </div>
+    </main>
+}
+@section Scripts {
+    <script src="~/js/exam-precheck.js" asp-append-version="true" defer></script>
+}

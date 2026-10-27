@@ -1,0 +1,15 @@
+@model AiExamProctoring.Models.Exam
+@{ ViewData["Title"] = "Join test"; }
+<section class="student-card p-4 p-lg-5 mx-auto" style="max-width:720px">
+    <span class="eyebrow">Your invitation</span>
+    <h1 class="h2 fw-bold mt-2">@Model.ExamTitle</h1>
+    <p class="text-secondary">@Model.PurposeDisplay · @Model.ClassName</p>
+    <p><strong>@Model.StartDate.ToString("dd MMM yyyy, hh:mm tt")</strong> · @Model.DurationMinutes minutes</p>
+    <p>Join this test, then check your camera, microphone and identity. Your teacher must release the test before you can start.</p>
+    <form asp-action="JoinConfirmed" method="post">
+        @Html.AntiForgeryToken()
+        <input type="hidden" name="code" value="@Model.ClassCode" />
+        <button type="submit" class="btn btn-primary btn-lg">Join this test</button>
+        <a asp-controller="Dashboard" asp-action="Index" class="btn btn-light">Back</a>
+    </form>
+</section>

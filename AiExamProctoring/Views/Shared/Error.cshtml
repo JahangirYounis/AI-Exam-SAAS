@@ -1,0 +1,38 @@
+﻿@model ErrorViewModel
+@{
+    ViewData["Title"] = "Something went wrong";
+}
+
+<div class="container py-5">
+    <div class="row justify-content-center">
+        <div class="col-md-8 text-center">
+
+            <div class="mb-4">
+                <i class="bi bi-exclamation-triangle-fill text-danger" style="font-size: 4rem;"></i>
+            </div>
+
+            <h1 class="fw-bold text-danger mb-3">We could not complete this action</h1>
+            <p class="text-muted fs-5">
+                Please go back and try again. If the problem continues, copy the Request ID below and contact the administrator.
+            </p>
+
+            @if (Model.ShowRequestId)
+            {
+                <div class="alert alert-light border mt-4">
+                    <strong>Request ID:</strong>
+                    <code>@Model.RequestId</code>
+                </div>
+            }
+
+            <div class="mt-4">
+                <a asp-controller="Home" asp-action="Index" class="btn btn-primary px-4 py-2">
+                    <i class="bi bi-house-door-fill me-2"></i> Go to Home Page
+                </a>
+                <a asp-controller="Home" asp-action="Privacy" class="btn btn-outline-secondary px-4 py-2 ms-2">
+                    <i class="bi bi-info-circle me-2"></i> Privacy Information
+                </a>
+            </div>
+
+        </div>
+    </div>
+</div>

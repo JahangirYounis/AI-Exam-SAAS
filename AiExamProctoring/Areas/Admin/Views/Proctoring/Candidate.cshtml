@@ -1,0 +1,30 @@
+@model AiExamProctoring.ViewModels.ProctoringCandidateFolderPageViewModel
+@{
+    ViewData["Title"] = "Candidate Evidence";
+    var candidate = Model.Candidate;
+    var imageUrl = string.IsNullOrWhiteSpace(candidate.ProfileImage)
+        ? Url.Content("~/images/default-user.svg")
+        : Url.Content(candidate.ProfileImage);
+}
+
+<nav class="small mb-3"><a asp-action="Index" class="text-decoration-none">Candidate folders</a><span class="mx-2 text-secondary">/</span><span>@candidate.CandidateName</span></nav>
+<div class="proctor-candidate-hero mb-4">
+    <img src="@imageUrl" alt="@candidate.CandidateName" />
+    <div class="min-w-0 flex-grow-1"><span class="eyebrow">Candidate folder</span><h2 class="fw-bold mb-1">@candidate.CandidateName</h2><p class="mb-0 text-secondary">@candidate.CandidateNumber · @candidate.Email</p></div>
+    <div class="d-flex flex-wrap gap-2"><span class="badge-soft soft-primary">@candidate.ExamFolderCount exam folders</span><span class="badge-soft soft-warning">@candidate.PendingCount pending</span><span class="badge-soft soft-danger">@candidate.HighSeverityCount high severity</span></div>
+</div>
+
+<div class="row g-4">
+    @foreach (var folder in Model.ExamFolders)
+    {
+        <div class="col-md-6 col-xl-4">
+            <a asp-action="ExamFolder" asp-route-studentId="@candidate.StudentId" asp-route-examId="@folder.ExamId" class="proctor-folder-card h-100">
+                <div class="d-flex gap-3 align-items-start"><div class="exam-folder-icon"><i class="bi bi-folder2-open"></i></div><div class="min-w-0 flex-grow-1"><strong class="d-block text-truncate">@folder.ExamTitle</strong><small class="text-secondary">@folder.TeacherName · @folder.Audience · @folder.Purpose</small></div><i class="bi bi-chevron-right text-secondary"></i></div>
+                <div class="proctor-folder-metrics"><span><strong>@folder.AttemptCount</strong> attempts</span><span><strong>@folder.AlertCount</strong> events</span><span><strong>@folder.EvidenceCount</strong> files</span></div>
+                <div class="d-flex justify-content-between align-items-center mt-3"><span class="badge-soft @(folder.PendingCount > 0 ? "soft-warning" : "soft-success")">@folder.PendingCount pending</span><small class="text-secondary">@(folder.LatestEventAt?.ToString("dd MMM, hh:mm tt") ?? "—")</small></div>
+            </a>
+        </div>
+    }
+    @if (Model.ExamFolders.Count == 0)
+    { <div class="col-12"><div class="dashboard-card"><div class="empty-state"><i class="bi bi-folder2"></i><h5 class="fw-bold mt-3">No examination folder</h5><p class="text-secondary mb-0">No exam-linked proctoring event exists for this candidate.</p></div></div></div> }
+</div>

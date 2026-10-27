@@ -1,0 +1,15 @@
+@model IEnumerable<AiExamProctoring.ViewModels.Student.ResultAnswerRow>
+<h2 class="h4 mt-4">Question-wise answer review</h2>
+@if (!Model.Any()) { <p class="alert alert-info">No question details are available for this record. Your saved score is shown above.</p> }
+@{ var number = 0; }
+@foreach (var row in Model)
+{
+    number++;
+    <article class="student-card p-4 mb-3">
+        <div class="d-flex justify-content-between"><span class="badge @(row.Status == "Correct" ? "text-bg-success" : row.Status == "Wrong" ? "text-bg-danger" : "text-bg-secondary")">@row.Status</span><span>@row.Marks.ToString("0.##") marks</span></div>
+        <h3 class="h5 mt-3">@number. @row.Question</h3>
+        <p><strong>Your answer:</strong> @row.Selected</p>
+        <p><strong>Correct answer:</strong> @row.Correct</p>
+        @if (!string.IsNullOrWhiteSpace(row.Explanation)) { <p class="alert alert-info mb-0">@row.Explanation</p> }
+    </article>
+}

@@ -1,0 +1,272 @@
+@model IReadOnlyCollection<AiExamProctoring.Models.Exam>
+
+@{
+    ViewData["Title"] = "Examination History";
+
+    var search = ViewBag.Search as string ?? string.Empty;
+
+    var currentPage = ViewBag.Page != null
+        ? Convert.ToInt32(ViewBag.Page)
+        : 1;
+
+    var totalPages = ViewBag.TotalPages != null
+        ? Convert.ToInt32(ViewBag.TotalPages)
+        : 1;
+
+    var total = ViewBag.Total != null
+        ? Convert.ToInt32(ViewBag.Total)
+        : 0;
+}
+
+<div class="d-flex justify-content-between align-items-end flex-wrap gap-3 mb-4">
+    <div>
+        <span class="eyebrow">AUDIT &amp; RECORDS</span>
+
+        <h1 class="fw-bold mb-1">
+            Examination History
+        </h1>
+
+        <p class="text-secondary mb-0">
+            Permanent record of released and completed examinations,
+            including the exact questions used in each paper.
+        </p>
+    </div>
+
+    <a asp-area="Admin"
+       asp-controller="Exam"
+       asp-action="Index"
+       class="btn btn-outline-primary rounded-pill px-4">
+
+        <i class="bi bi-arrow-left me-1"></i>
+        Current Examinations
+    </a>
+</div>
+
+
+<div class="card border-0 shadow-sm rounded-4">
+    <div class="card-body p-3 p-lg-4">
+
+        <form asp-area="Admin"
+              asp-controller="ExamHistory"
+              asp-action="Index"
+              method="get"
+              class="row g-2 mb-4">
+
+            <div class="col-lg-8">
+                <label for="historySearch"
+                       class="form-label fw-semibold">
+                    Search Examination History
+                </label>
+
+                <input id="historySearch"
+                       name="search"
+                       value="@search"
+                       type="search"
+                       class="form-control"
+                       autocomplete="off"
+                       placeholder="Search by examination title, department or post..." />
+            </div>
+
+            <div class="col-lg-2 d-grid align-self-end">
+                <button type="submit"
+                        class="btn btn-primary">
+                    <i class="bi bi-search me-1"></i>
+                    Search
+                </button>
+            </div>
+
+            <div class="col-lg-2 d-grid align-self-end">
+                <a asp-area="Admin"
+                   asp-controller="ExamHistory"
+                   asp-action="Index"
+                   class="btn btn-light border">
+                    <i class="bi bi-arrow-counterclockwise me-1"></i>
+                    Reset
+                </a>
+            </div>
+        </form>
+
+
+        <div class="d-flex justify-content-between
+                    align-items-center flex-wrap gap-2 mb-3">
+
+            <strong>
+                @total historical examination(s)
+            </strong>
+
+            <span class="text-secondary small">
+                Page @currentPage of @totalPages
+            </span>
+        </div>
+
+
+        <div class="table-responsive">
+            <table class="table align-middle table-hover">
+
+                <thead>
+                    <tr>
+                        <th>Examination</th>
+                        <th>Date &amp; Time</th>
+                        <th class="text-center">Questions</th>
+                        <th class="text-center">Marks</th>
+                        <th class="text-center">Sessions</th>
+                        <th>Status</th>
+                        <th class="text-end">Action</th>
+                    </tr>
+                </thead>
+
+                <tbody>
+
+                    @if (Model != null && Model.Any())
+                    {
+                        foreach (var exam in Model)
+                        {
+                            <tr>
+
+                                <td>
+                                    <strong>
+                                        @exam.ExamTitle
+                                    </strong>
+
+                                    <div class="small text-secondary">
+                                        @(exam.Post?.PostName
+                                                                        ?? exam.Department?.DepartmentName
+                                                                        ?? "General Examination")
+                            </div>
+                        </td>
+
+                                <td>
+                                    @exam.StartDate.ToString(
+                                                        "dd MMM yyyy, hh:mm tt")
+                        </td>
+
+                        <td class="text-center">
+                            @exam.TotalQuestions
+                        </td>
+
+                        <td class="text-center">
+                            @exam.TotalMarks.ToString("0.##")
+                        </td>
+
+                        <td class="text-center">
+                            @exam.NumberOfSessions
+                        </td>
+
+                        <td>
+                            <span class="badge rounded-pill
+                                                 text-bg-light border">
+                                @exam.Status
+                            </span>
+                        </td>
+
+                        <td class="text-end">
+                            <a asp-area="Admin"
+                               asp-controller="ExamHistory"
+                               asp-action="Details"
+                               asp-route-id="@exam.ExamId"
+                               class="btn btn-sm
+                                              btn-outline-primary
+                                              rounded-pill">
+
+                                <i class="bi bi-folder2-open me-1"></i>
+                                Open Record
+                            </a>
+                        </td>
+
+                    </tr>
+                                        }
+                    }
+                    else
+                    {
+                        <tr>
+                            <td colspan="7"
+                                class="text-center py-5 text-secondary">
+
+                                <i class="bi bi-archive
+                                              fs-1 d-block mb-2">
+                                </i>
+
+                                <h5 class="fw-semibold mb-1">
+                                    No historical examinations yet
+                                </h5>
+
+                                <p class="mb-0">
+                                    Completed examinations will appear
+                                    here automatically.
+                                </p>
+                            </td>
+                        </tr>
+                    }
+
+                </tbody>
+            </table>
+        </div>
+
+
+        @if (totalPages > 1)
+        {
+            <nav class="pt-3"
+                 aria-label="Examination history pages">
+
+                <ul class="pagination pagination-sm mb-0">
+
+                    <li class="page-item
+                                   @(currentPage <= 1
+                                                           ? "disabled"
+                                                           : "")">
+
+                    <a class="page-link"
+                       asp-area="Admin"
+                       asp-controller="ExamHistory"
+                       asp-action="Index"
+                       asp-route-page="@(currentPage - 1)"
+                       asp-route-search="@search">
+                        Previous
+                    </a>
+                </li>
+
+
+                @for (var pageNumber = 1;
+                                pageNumber <= totalPages;
+                                pageNumber++)
+                    {
+                        <li class="page-item
+                                           @(pageNumber == currentPage
+                                                                   ? "active"
+                                                                   : "")">
+
+                    <a class="page-link"
+                       asp-area="Admin"
+                       asp-controller="ExamHistory"
+                       asp-action="Index"
+                       asp-route-page="@pageNumber"
+                       asp-route-search="@search">
+
+                                @pageNumber
+                            </a>
+
+                        </li>
+                                }
+
+
+                <li class="page-item
+                               @(currentPage >= totalPages
+                                                       ? "disabled"
+                                                       : "")">
+
+                    <a class="page-link"
+                       asp-area="Admin"
+                       asp-controller="ExamHistory"
+                       asp-action="Index"
+                       asp-route-page="@(currentPage + 1)"
+                       asp-route-search="@search">
+                        Next
+                    </a>
+                </li>
+
+                </ul>
+            </nav>
+                }
+
+    </div>
+</div>

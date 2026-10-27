@@ -1,0 +1,6 @@
+@model List<AiExamProctoring.Models.AcademicClass>
+@{ViewData["Title"]="Classes";}
+<h1>Classes and approved rosters</h1><p>Create your 12 university classes here. Each class has its own approved student list and assessments.</p>
+<form asp-action="CreateTwelve" method="post" class="mb-3"><button class="btn btn-outline-primary">Create 12 starter classes</button></form>
+<form asp-action="Create" method="post" class="d-flex gap-2 mb-4"><input name="name" class="form-control" required maxlength="120" placeholder="Class / programme / semester"/><button class="btn btn-primary">Create class</button></form>
+<div class="row g-3">@foreach(var c in Model){<div class="col-md-4"><div class="card p-3"><h3>@c.Name</h3><p>@c.Members.Count(m=>m.IsActive) approved students</p><a asp-action="Roster" asp-route-id="@c.Id">Manage roster</a><a asp-controller="Exam" asp-action="Create">Create assessment</a></div></div>}</div>

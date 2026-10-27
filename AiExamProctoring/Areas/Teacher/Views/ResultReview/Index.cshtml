@@ -1,0 +1,5 @@
+@model List<AiExamProctoring.Models.ExamAttempt>
+@{ViewData["Title"]="Final result review";}
+<h1>Final result review</h1><p>Review evidence before approving. Clean completed attempts are visible immediately; flagged results wait for approval. Blocked attempts stay blocked.</p>
+<form asp-action="ApproveAll" method="post"><input type="hidden" name="examId" value="@ViewBag.ExamId"/><button class="btn btn-primary mb-3">Approve all completed eligible results</button></form>
+<table class="table"><thead><tr><th>Candidate</th><th>Marks</th><th>Status</th><th>Review</th><th>Evidence</th></tr></thead><tbody>@foreach(var a in Model){<tr><td>@a.Student?.FullName</td><td>@a.TotalMarksObtained / @a.TotalMarks</td><td>@a.Status</td><td>@(a.ResultReleasedAtUtc.HasValue?"Approved":"Automatic if clean / review required if flagged")</td><td><a asp-controller="Monitoring" asp-action="ExamFolder" asp-route-examId="@a.ExamId" asp-route-studentId="@a.StudentId">Review evidence</a></td></tr>}</tbody></table>

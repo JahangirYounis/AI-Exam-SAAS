@@ -1,0 +1,36 @@
+@model AiExamProctoring.ViewModels.TeacherDashboardViewModel
+@using AiExamProctoring.Models
+@{
+    ViewData["Title"] = "Teacher dashboard";
+}
+@if (Model is null)
+{
+    <div class="alert alert-warning">Dashboard could not load. Please reload.</div>
+}
+else
+{
+    <div class="d-flex justify-content-between align-items-center flex-wrap gap-3 mb-4"><div><h1 class="h3 fw-bold">Your teaching workspace</h1><p class="text-secondary mb-0">Create tests, monitor students and review results.</p></div><a asp-controller="Exam" asp-action="Create" class="btn btn-primary">Create a test</a></div>
+    <div class="row g-3 mb-4">
+        <div class="col-6 col-lg-3"><div class="card h-100 p-3"><span class="text-secondary">Tests</span><strong class="fs-3">@Model.TotalExams</strong><a asp-controller="Exam" asp-action="Index">@Model.DraftExams drafts</a></div></div>
+        <div class="col-6 col-lg-3"><div class="card h-100 p-3"><span class="text-secondary">Question bank</span><strong class="fs-3">@Model.AvailableQuestionCount</strong><a asp-controller="Question" asp-action="Index">Browse questions</a></div></div>
+        <div class="col-6 col-lg-3"><div class="card h-100 p-3"><span class="text-secondary">Results</span><strong class="fs-3">@Model.Results</strong><a asp-controller="Results" asp-action="Index">View results</a></div></div>
+        <div class="col-6 col-lg-3"><div class="card h-100 p-3"><span class="text-secondary">Alerts to review</span><strong class="fs-3">@Model.PendingAlerts</strong><a asp-controller="Monitoring" asp-action="Index">@Model.BlockedAttempts blocked attempts</a></div></div>
+    </div>
+    <div class="card border-0 shadow-sm rounded-4 mb-4">
+        <div class="card-body p-4">
+            <div class="d-flex justify-content-between mb-3"><h2 class="h5 fw-bold">Recent tests</h2><a asp-controller="Exam" asp-action="Index">View all</a></div>
+            @if (Model.RecentExams?.Count > 0)
+            {
+                @foreach (var exam in Model.RecentExams)
+                {
+                    <div class="d-flex justify-content-between align-items-center gap-3 border-bottom py-3"><div><strong>@exam.ExamTitle</strong><div class="small text-secondary">@(exam.IsReusable ? "Always open" : exam.StartDate.ToString("dd MMM yyyy, hh:mm tt")) · @exam.TotalQuestions questions</div></div><a asp-controller="Exam" asp-action="Details" asp-route-id="@exam.ExamId" class="btn btn-sm btn-outline-primary">@(exam.IsPublished ? "Open test" : "Continue draft")</a></div>
+                }
+            }
+            else
+            {
+                <p class="text-secondary mb-0">Start with a test name, marks and time. Choose questions next; sections are prepared automatically when you publish.</p>
+            }
+        </div>
+    </div>
+    <div class="d-flex flex-wrap gap-2"><a asp-controller="Classes" asp-action="Index" class="btn btn-outline-secondary">Classes &amp; students</a><a asp-controller="Monitoring" asp-action="Live" class="btn btn-outline-secondary">Live monitoring</a><a asp-controller="Question" asp-action="Create" class="btn btn-outline-secondary">Write a question</a><a asp-controller="Catalog" asp-action="Index" class="btn btn-outline-secondary">Question subjects</a></div>
+}

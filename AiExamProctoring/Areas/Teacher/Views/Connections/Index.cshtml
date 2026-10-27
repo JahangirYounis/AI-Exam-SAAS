@@ -1,0 +1,14 @@
+@model List<AiExamProctoring.Models.ApplicationUser>
+@using AiExamProctoring.Models
+@{ ViewData["Title"] = "Teacher directory"; var connections = (List<TeacherConnection>)ViewBag.Connections; string actor = ViewBag.Actor; }
+<h1 class="h3">Teacher directory</h1><p>Connect with colleagues and coordinate exams. Manage exam-specific permissions from each exam's invitations page.</p>
+<a asp-controller="Invitations" asp-action="Index" class="btn btn-outline-primary mb-3">Exam invitations</a>
+<form method="get" class="d-flex gap-2 mb-3"><input name="search" class="form-control" placeholder="Search teachers" aria-label="Search teachers"/><button class="btn btn-primary">Search</button></form>
+<div class="row g-3">@foreach(var teacher in Model) {
+var connection = connections.FirstOrDefault(c => c.SenderId == teacher.Id || c.RecipientId == teacher.Id);
+<div class="col-md-6 col-xl-4"><div class="card p-3 h-100"><h2 class="h5">@teacher.FullName</h2><p>@teacher.Email</p>
+@if(connection is null) {<form asp-action="Connect" method="post"><input type="hidden" name="teacherId" value="@teacher.Id"/><button class="btn btn-primary">Connect</button></form>}
+else if(connection.AcceptedAtUtc.HasValue) {<a asp-action="Chat" asp-route-id="@connection.Id" class="btn btn-outline-primary">Private chat</a>}
+else if(connection.RecipientId == actor) {<form asp-action="Accept" method="post"><input type="hidden" name="id" value="@connection.Id"/><button class="btn btn-success">Accept connection</button></form>}
+else {<span>Request sent</span>}
+</div></div> }</div>

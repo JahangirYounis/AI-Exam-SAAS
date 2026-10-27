@@ -1,0 +1,5 @@
+@model AiExamProctoring.Models.AcademicClass
+@{ViewData["Title"]="Class roster";var students=ViewBag.Students as List<AiExamProctoring.Models.ApplicationUser> ?? new();}
+<h1>@Model.Name</h1><p>Select the approved students. Enrollment cannot be changed by sharing an exam code.</p>
+<form asp-action="Rename" asp-route-id="@Model.Id" method="post" class="d-flex gap-2 mb-3"><input name="name" value="@Model.Name" maxlength="120" required class="form-control"/><button class="btn btn-outline-primary">Rename class</button></form>
+<form asp-action="Roster" asp-route-id="@Model.Id" method="post"><div class="card p-3 mb-3">@foreach(var s in students){<label class="d-block mb-2"><input type="checkbox" name="studentIds" value="@s.Id" checked="@Model.Members.Any(m=>m.StudentId==s.Id&&m.IsActive)"/> @s.FullName — @s.Email</label>}</div><button class="btn btn-primary">Save approved roster</button></form>

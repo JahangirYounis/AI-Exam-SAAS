@@ -1,0 +1,1041 @@
+@model AiExamProctoring.ViewModels.Student.SessionAttemptViewModel
+@inject Microsoft.Extensions.Options.IOptions<AiExamProctoring.Services.FaceIdentity.FaceIdentityOptions> FaceIdentityOptionsAccessor
+@inject Microsoft.Extensions.Options.IOptions<AiExamProctoring.Services.BehaviorAnalysis.BehaviorAnalysisOptions> BehaviorOptionsAccessor
+@inject Microsoft.Extensions.Options.IOptions<AiExamProctoring.Services.ObjectDetection.ObjectDetectionOptions> ObjectOptionsAccessor
+@inject Microsoft.Extensions.Options.IOptions<AiExamProctoring.Services.SpeechRecognition.SpeechRecognitionOptions> SpeechOptionsAccessor
+@inject Microsoft.Extensions.Options.IOptions<AiExamProctoring.Services.Proctoring.ProctoringOptions> ProctoringOptionsAccessor
+
+@{
+    Layout = "~/Areas/Student/Views/Shared/_StudentLayout.cshtml";
+    ViewData["Title"] = "Examination session";
+    if (Model is null || Model.Exam is null || Model.Session is null ||
+        Model.SessionAttempt is null || Model.Questions is null || Model.Questions.Count == 0)
+    {
+        <section class="student-card p-4" role="alert">
+            <h1 class="h4">Your examination session could not open</h1>
+            <p>Your saved answers have not been reset. Return to your examinations and retry, or contact your teacher.</p>
+            <a asp-area="Student" asp-controller="Exam" asp-action="Available" class="btn btn-primary">My examinations</a>
+        </section>
+        return;
+    }
+    Model.ExistingAnswers ??= new System.Collections.Generic.Dictionary<int, string?>();
+    Model.ReviewedQuestionIds ??= new System.Collections.Generic.HashSet<int>();
+    ViewData["Title"] = $"{Model.Session.SessionTitle} · {Model.Exam.ExamTitle}";
+    var resumeQuestionId = ViewBag.ResumeQuestionId is int savedQuestionId &&
+        Model.Questions.Any(question => question.QuestionId == savedQuestionId)
+        ? savedQuestionId : Model.Questions[0].QuestionId;
+    var faceIdentityOptions = FaceIdentityOptionsAccessor.Value;
+    var behaviorOptions = BehaviorOptionsAccessor.Value;
+    var objectOptions = ObjectOptionsAccessor.Value;
+    var objectDetectionReady = ViewBag.ObjectDetectionReady == true;
+    var speechOptions = SpeechOptionsAccessor.Value;
+    var speechRecognitionReady = ViewBag.SpeechRecognitionReady == true;
+    var enforcementText = Model.Exam.BlockingMode == AiExamProctoring.Models.ExamBlockingMode.MANUAL_ONLY
+        ? "Alerts and evidence are sent to your teacher. Your teacher decides whether to lock your exam."
+        : "Standard violations produce three warnings. The fourth locks your exam. Confirmed identity replacement also locks it. Your teacher can review and resume a lock.";
+}
+
+<form asp-action="PauseOwnAttempt" asp-controller="Exam" asp-area="Student" method="post" class="mb-3"
+      onsubmit="return confirm('Pause your test? Saved answers will remain. Your teacher must release the test before you can resume.');">
+    <input type="hidden" name="attemptId" value="@Model.SessionAttempt.AttemptId" />
+    <button class="btn btn-outline-secondary btn-sm" type="submit">Pause my test — teacher help required</button>
+</form>
+<div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-3">
+    <div>
+        <span class="badge-soft soft-primary">
+            Session @Model.SessionIndex of @Model.TotalSessions
+        </span>
+
+        <h2 class="fw-bold mb-0 mt-2">
+            @Model.Session.SessionTitle
+        </h2>
+
+        <div class="small soft-muted">
+            @Model.Exam.ExamTitle · @Model.Questions.Count questions
+        </div>
+    </div>
+
+    <div class="text-end">
+        <div class="small soft-muted">Time remaining</div>
+
+        <div id="timer" class="fs-2 timer-pill">
+            --:--
+        </div>
+
+        <div id="saveStatus" class="small text-success">
+            All answers saved
+        </div>
+    </div>
+</div>
+
+<div class="alert alert-info border-0 rounded-4 small">
+    <i class="bi bi-shield-check me-2"></i>
+
+    @(string.IsNullOrWhiteSpace(Model.Session.Instructions)
+        ? "Answer each question carefully. Your progress is saved automatically."
+        : Model.Session.Instructions)
+</div>
+
+<div id="proctoringWarning" class="alert alert-warning proctoring-warning-toast d-none" role="alert" aria-live="assertive">
+    <div class="d-flex gap-3">
+        <i class="bi bi-exclamation-triangle-fill fs-4"></i>
+        <div>
+            <div class="fw-bold" id="proctoringWarningTitle">Exam notice</div>
+            <div class="small" id="proctoringWarningMessage">Please stay on the examination page.</div>
+        </div>
+    </div>
+</div>
+
+<div class="student-card p-3 mb-3">
+    <div class="d-flex justify-content-between align-items-center flex-wrap gap-3">
+        <div>
+            <div class="fw-semibold"><i class="bi bi-shield-lock-fill text-primary me-2"></i>Exam session controls</div>
+            <div class="small soft-muted">Keep your face visible, work alone and follow your teacher’s instructions about allowed materials. @enforcementText</div>
+        </div>
+        <div class="d-flex flex-wrap gap-2">
+            <span id="fullscreenStatusPill" class="badge text-bg-light border px-3 py-2"><i class="bi bi-arrows-fullscreen me-1"></i>Fullscreen: click here to enter</span>
+        </div>
+    </div>
+    <div class="mt-3 ai-session-monitor">
+        <div class="ai-camera-frame">
+            <video id="proctorCamera" autoplay muted playsinline></video>
+            <div class="ai-camera-label"><span class="ai-live-dot"></span>Candidate camera</div>
+        </div>
+        <div class="ai-monitor-copy">
+            <div class="d-flex align-items-center gap-2 flex-wrap">
+                <span class="ai-status-pill ai-status-initializing" id="identityMonitorStatus"><i class="bi bi-person-check"></i>Model 1 starting</span>
+                <span class="ai-status-pill ai-status-initializing" id="behaviorMonitorStatus"><i class="bi bi-activity"></i>Model 2 starting</span>
+                <button type="button" id="calibrateScreenView" class="btn btn-sm btn-outline-secondary">Calibrate screen view</button>
+                <span class="ai-status-pill @(objectDetectionReady ? "ai-status-initializing" : "ai-status-warning")" id="objectMonitorStatus"><i class="bi bi-phone"></i>@(objectDetectionReady ? "Model 3 starting" : "Model 3 training pending")</span>
+                <span class="ai-status-pill @(speechRecognitionReady ? "ai-status-initializing" : "ai-status-warning")" id="speechMonitorStatus"><i class="bi bi-soundwave"></i>@(speechRecognitionReady ? "Model 4 starting" : "Model 4 unavailable")</span>
+                <span class="small soft-muted">Model 5 integrated · @(ProctoringOptionsAccessor.Value.Enabled ? "PROCTORING ACTIVE" : "PROCTORING DISABLED")</span>
+            </div>
+            <div class="fw-semibold mt-2" id="mediaStatus">Starting camera...</div>
+            <div class="small mt-1" id="evidenceStatus" role="status" aria-live="polite">Preparing short camera + microphone evidence clips…</div>
+            <div id="sharedReminderStatus" class="small fw-semibold mt-2" role="status">Your strike count and warnings appear above. Voice alerts use Urdu.</div>
+            <div class="small soft-muted mt-1">Models 1–3 monitor identity, face direction and objects. Models 4–5 analyze speech and question context. Blocking mode: @Model.Exam.BlockingMode. @enforcementText</div>
+        </div>
+    </div>
+</div>
+
+<form asp-area="Student"
+      asp-controller="Exam"
+      asp-action="SubmitSession"
+      method="post"
+      id="examForm"
+      data-session-attempt="@Model.SessionAttempt.SessionAttemptId"
+      data-attempt="@Model.SessionAttempt.AttemptId">
+
+    @Html.AntiForgeryToken()
+
+    <input type="hidden"
+           name="sessionAttemptId"
+           value="@Model.SessionAttempt.SessionAttemptId" />
+
+    <input type="hidden" name="autoSubmitted" id="autoSubmitted" value="false" />
+
+    <div class="row g-4">
+
+        <!-- =====================================================
+             QUESTIONS
+        ====================================================== -->
+
+        <div class="col-xl-8 exam-question-stage">
+
+            @for (int i = 0; i < Model.Questions.Count; i++)
+            {
+                var q = Model.Questions[i];
+
+                var selected =
+                Model.ExistingAnswers.TryGetValue(
+                q.QuestionId,
+                out var existingAnswer)
+                ? existingAnswer
+                : null;
+
+                <section class="question-card exam-question-panel p-4 mb-3 @(q.QuestionId == resumeQuestionId ? "active" : "")"
+                         id="question-@q.QuestionId"
+                         data-question="@q.QuestionId"
+                         data-question-index="@i"
+                         aria-hidden="@(q.QuestionId == resumeQuestionId ? "false" : "true")"
+                         aria-labelledby="question-title-@q.QuestionId">
+
+                    <!-- Question Header -->
+                    <div class="d-flex justify-content-between align-items-center flex-wrap gap-2">
+
+                        <span class="badge-soft soft-primary">
+                            Question @(i + 1) of @Model.Questions.Count
+                        </span>
+
+                        <div class="d-flex align-items-center gap-2">
+
+                            <!-- IMPORTANT:
+                                 ExamMarks comes from examination/session
+                                 configuration, NOT from Question model.
+                            -->
+                            <span class="badge-soft soft-warning">
+                                @q.ExamMarks mark@(q.ExamMarks == 1 ? "" : "s")
+                            </span>
+
+                            <button type="button"
+                                    class="btn btn-sm @(Model.ReviewedQuestionIds.Contains(q.QuestionId) ? "btn-warning" : "btn-light") rounded-pill review-btn"
+                                    data-question-id="@q.QuestionId"
+                                    data-marked="@(Model.ReviewedQuestionIds.Contains(q.QuestionId) ? "true" : "false")">
+
+                                <i class="bi @(Model.ReviewedQuestionIds.Contains(q.QuestionId) ? "bi-bookmark-fill" : "bi-bookmark") me-1"></i>
+                                Review
+                            </button>
+
+                        </div>
+                    </div>
+
+                    <!-- Question Text -->
+                    <h5 class="fw-bold mt-3 mb-3" id="question-title-@q.QuestionId" tabindex="-1">
+                        @q.QuestionText
+                    </h5>
+
+                    <!-- Question Image -->
+                    @if (!string.IsNullOrWhiteSpace(q.ImagePath))
+                    {
+                        <img src="@q.ImagePath"
+                             class="img-fluid rounded-4 mb-3"
+                             alt="Question image"
+                             loading="lazy" />
+                    }
+
+                    <!-- Options -->
+                    <div class="vstack gap-2">
+
+                        @foreach (var opt in new[]
+                                            {
+                                        ("A", q.OptionA),
+                                        ("B", q.OptionB),
+                                        ("C", q.OptionC),
+                                        ("D", q.OptionD),
+                                        ("E", q.OptionE)
+                                        })
+                        {
+                            if (!string.IsNullOrWhiteSpace(opt.Item2))
+                            {
+                                <label class="option-label @(selected == opt.Item1 ? "selected" : "")">
+
+                                    <input class="form-check-input answer-option"
+                                           type="radio"
+                                           name="answers[@q.QuestionId]"
+                                           value="@opt.Item1"
+                                           data-question-id="@q.QuestionId"
+                                           @(selected == opt.Item1 ? "checked" : "") />
+
+                                    <span>
+                                        <strong>@opt.Item1.</strong>
+                                        @opt.Item2
+                                    </span>
+
+                                </label>
+                            }
+                        }
+
+                        <!-- Clear Answer -->
+                        <button type="button"
+                                class="btn btn-sm btn-link text-secondary text-decoration-none align-self-start clear-answer"
+                                data-question-id="@q.QuestionId">
+
+                            <i class="bi bi-eraser me-1"></i>
+                            Clear response
+                        </button>
+
+                    </div>
+
+                    <div class="rough-work-panel mt-3">
+                        <div class="d-flex justify-content-between align-items-center gap-2 mb-2">
+                            <label class="small fw-bold mb-0" for="rough-@q.QuestionId">
+                                <i class="bi bi-pencil-square me-1"></i>Rough Work
+                            </label>
+                            <button type="button" class="btn btn-sm btn-link text-secondary text-decoration-none p-0 clear-rough" data-question-id="@q.QuestionId">
+                                Clear rough work
+                            </button>
+                        </div>
+                        <textarea id="rough-@q.QuestionId"
+                              class="form-control rough-work"
+                              rows="3"
+                              data-question-id="@q.QuestionId"
+                              spellcheck="false"
+                              autocomplete="off"
+                              placeholder="Use this private scratch area for calculations or short notes. It is not submitted or graded."></textarea>
+                        <div class="small soft-muted mt-1">
+                            Stored only in this browser for the current session attempt; it is never treated as an answer.
+                        </div>
+                    </div>
+                </section>
+            }
+
+            <nav class="question-step-controls mb-3" aria-label="Question navigation">
+                <button type="button" class="btn btn-outline-primary rounded-pill px-3" id="previousQuestion">
+                    <i class="bi bi-arrow-left me-1"></i>Previous
+                </button>
+                <div class="question-step-summary" aria-live="polite">
+                    <strong id="currentQuestionText">Question 1 of @Model.Questions.Count</strong>
+                    <span class="small soft-muted d-block">Select an answer to save it and open the next question.</span>
+                </div>
+                <button type="button" class="btn btn-outline-secondary rounded-pill px-3" id="skipQuestion">Skip</button>
+                <button type="button" class="btn btn-primary rounded-pill px-3" id="nextQuestion">
+                    Next<i class="bi bi-arrow-right ms-1"></i>
+                </button>
+            </nav>
+
+            <!-- Submit Area -->
+            <div class="d-flex justify-content-between align-items-center gap-2">
+
+                <span class="small soft-muted">
+                    When the timer reaches zero, this session is submitted automatically.
+                </span>
+
+                <button type="submit"
+                        class="btn btn-primary rounded-pill px-4"
+                        id="submitSession">
+
+                    <i class="bi bi-send-check me-1"></i>
+                    Submit Session
+                </button>
+
+            </div>
+
+        </div>
+
+
+        <!-- =====================================================
+             QUESTION NAVIGATOR
+        ====================================================== -->
+
+        <div class="col-xl-4">
+
+            <div class="student-card p-4 sticky-exam">
+
+                <div class="d-flex justify-content-between align-items-center">
+
+                    <h5 class="fw-bold mb-0">
+                        Question Navigator
+                    </h5>
+
+                    <span id="progressText"
+                          class="small soft-muted">
+                        0 / @Model.Questions.Count
+                    </span>
+
+                </div>
+
+                <!-- Question Palette -->
+                <div class="question-palette mt-3">
+
+                    @for (int i = 0; i < Model.Questions.Count; i++)
+                    {
+                        <button type="button"
+                                class="palette-btn @(Model.ReviewedQuestionIds.Contains(Model.Questions[i].QuestionId) ? "review" : "") @(Model.Questions[i].QuestionId == resumeQuestionId ? "current" : "")"
+                                data-target="question-@Model.Questions[i].QuestionId"
+                                data-index="@i"
+                                aria-label="Open question @(i + 1)"
+                                aria-current="@(Model.Questions[i].QuestionId == resumeQuestionId ? "step" : "false")">
+
+                            @(i + 1)
+
+                        </button>
+                    }
+
+                </div>
+
+                <div class="small soft-muted mt-3">
+
+                    <span class="badge-soft soft-success me-1">
+                        Answered
+                    </span>
+
+                    <span class="badge-soft soft-warning">
+                        Review
+                    </span>
+
+                    <span class="badge-soft soft-primary ms-1">
+                        Current
+                    </span>
+
+                    <span class="badge-soft ms-1 navigator-unanswered">
+                        Remaining
+                    </span>
+
+                </div>
+
+                <hr />
+
+                <!-- Total Questions -->
+                <div class="d-flex justify-content-between">
+                    <span>Questions</span>
+                    <strong>
+                        @Model.Questions.Count
+                    </strong>
+                </div>
+
+                <!-- =====================================================
+                     IMPORTANT FIX:
+                     Question model does NOT contain Marks.
+                     Marks belong to examination configuration.
+
+                     Therefore use ExamMarks.
+                ====================================================== -->
+
+                <div class="d-flex justify-content-between mt-2">
+
+                    <span>Session marks</span>
+
+                    <strong>
+                        @Model.Questions.Sum(x => x.ExamMarks)
+                    </strong>
+
+                </div>
+
+                <hr />
+
+                <div class="d-flex gap-2 small">
+
+                    <i class="bi bi-cloud-check text-success"></i>
+
+                    <span>
+                        Responses are saved automatically after you select an option.
+                    </span>
+
+                </div>
+
+                <div class="d-flex gap-2 small mt-2">
+
+                    <i class="bi bi-shield-check text-primary"></i>
+
+                    <span>
+                        Camera and microphone are recorded in short session clips for teacher review. Upload interruptions are shown here.
+                    </span>
+
+                </div>
+
+            </div>
+
+        </div>
+
+    </div>
+
+</form>
+
+
+@section Scripts
+{
+    <script src="~/js/speech-stream.js" asp-append-version="true"></script>
+    <script src="~/js/exam-browser-guard.js" asp-append-version="true"></script>
+    <script src="~/js/live-proctoring.js" asp-append-version="true"></script>
+    <script src="~/lib/signalr/signalr.min.js" asp-append-version="true"></script>
+    <script src="~/js/proctoring-client.js" asp-append-version="true"></script>
+    <script>
+        (() => {
+            // Do not retain the short-lived entry proof in browser history.
+            const pageUrl = new URL(window.location.href);
+            pageUrl.searchParams.delete('entryTicket');
+            window.history.replaceState(null, '', pageUrl);
+
+            // ============================================================
+            // BASIC ELEMENTS
+            // ============================================================
+
+            const form = document.getElementById('examForm');
+
+            if (!form) {
+                return;
+            }
+
+            const tokenElement =
+                form.querySelector('input[name="__RequestVerificationToken"]');
+
+            const token =
+                tokenElement ? tokenElement.value : '';
+
+            const sid = form.dataset.sessionAttempt;
+            const aid = form.dataset.attempt;
+            const resumeQuestionId = @resumeQuestionId;
+
+            const timer =
+                document.getElementById('timer');
+
+            const saveStatus =
+                document.getElementById('saveStatus');
+
+            const submit =
+                document.getElementById('submitSession');
+
+            const progressText =
+                document.getElementById('progressText');
+
+            const previousQuestion = document.getElementById('previousQuestion');
+            const nextQuestion = document.getElementById('nextQuestion');
+            const currentQuestionText = document.getElementById('currentQuestionText');
+            const questionCards = [...document.querySelectorAll('.exam-question-panel[data-question]')];
+            const paletteButtons = [...document.querySelectorAll('.palette-btn')];
+            let currentQuestionIndex = Math.max(0,
+                questionCards.findIndex(card => Number(card.dataset.question) === Number(resumeQuestionId)));
+
+
+            // ============================================================
+            // EXAM EXPIRATION
+            // ============================================================
+
+            const remainingAtRender = Math.max(0,
+                new Date('@Model.ExpiresAt.ToUniversalTime().ToString("O")').getTime() -
+                new Date('@Model.ServerNow.ToUniversalTime().ToString("O")').getTime());
+            const monotonicStart = performance.now();
+
+            let submitted = false;
+
+
+            // ============================================================
+            // POST HELPER
+            // ============================================================
+
+            let answerWriteQueue = Promise.resolve();
+            const post = (url, data, options = {}) => {
+
+                const send = () => fetch(url, {
+                    method: 'POST',
+
+                    headers: {
+                        'Content-Type':
+                            'application/x-www-form-urlencoded; charset=UTF-8',
+
+                        'RequestVerificationToken':
+                            token
+                    },
+
+                    body: new URLSearchParams(data),
+                    credentials: 'same-origin',
+                    keepalive: options.keepalive === true
+                }).then(async response => {
+                    if (response.status === 428) {
+                        const result = await response.clone().json();
+                        if (result.identityRequired && !window.ProctoringRealtime?.blocked) verifyActiveIdentity();
+                    }
+                    return response;
+                });
+
+                // Keep rapid answer changes in order. Otherwise an older,
+                // slower request can overwrite the candidate's latest choice.
+                if (/\/(SaveAnswer|ToggleReview)(?:\?|$)/.test(url)) {
+                    const pending = answerWriteQueue.then(send, send);
+                    answerWriteQueue = pending.catch(() => undefined);
+                    return pending;
+                }
+                return send();
+
+            };
+
+            let positionSaveTimer = 0;
+            const saveQuestionPosition = questionId => {
+                if (!questionId || submitted) return;
+                window.clearTimeout(positionSaveTimer);
+                positionSaveTimer = window.setTimeout(() => {
+                    post('@Url.Action("SavePosition", "Exam")', {
+                        sessionAttemptId: sid,
+                        questionId
+                    }, { keepalive: true }).catch(() => { });
+                }, 450);
+            };
+
+            const showQuestion = (requestedIndex, moveFocus = false) => {
+                if (!questionCards.length) return;
+                const nextIndex = Math.max(0, Math.min(questionCards.length - 1, Number(requestedIndex) || 0));
+                currentQuestionIndex = nextIndex;
+
+                questionCards.forEach((card, index) => {
+                    const active = index === currentQuestionIndex;
+                    card.classList.toggle('active', active);
+                    card.setAttribute('aria-hidden', active ? 'false' : 'true');
+                });
+
+                paletteButtons.forEach((button, index) => {
+                    const active = index === currentQuestionIndex;
+                    button.classList.toggle('current', active);
+                    button.setAttribute('aria-current', active ? 'step' : 'false');
+                });
+
+                if (previousQuestion) previousQuestion.hidden = currentQuestionIndex === 0;
+                if (nextQuestion) nextQuestion.textContent = currentQuestionIndex === questionCards.length - 1 ? 'Review & finish' : 'Next';
+                if (currentQuestionText)
+                    currentQuestionText.textContent = `Question ${currentQuestionIndex + 1} of ${questionCards.length}`;
+
+                const activeCard = questionCards[currentQuestionIndex];
+                saveQuestionPosition(activeCard?.dataset.question);
+                activeCard?.scrollIntoView({ behavior: moveFocus ? 'smooth' : 'auto', block: 'start' });
+                if (moveFocus)
+                    window.setTimeout(() => activeCard?.querySelector('h5')?.focus?.({ preventScroll: true }), 320);
+            };
+
+
+            // ============================================================
+            // UPDATE QUESTION PROGRESS
+            // ============================================================
+
+            function updateProgress() {
+
+                const answered =
+                    new Set(
+                        [
+                            ...document.querySelectorAll(
+                                '.answer-option:checked'
+                            )
+                        ].map(x => x.dataset.questionId)
+                    );
+
+
+                if (progressText) {
+
+                    progressText.textContent =
+                        `${answered.size} / @Model.Questions.Count`;
+
+                }
+
+
+                paletteButtons.forEach(button => {
+
+                        const questionId =
+                            button.dataset.target
+                                .replace('question-', '');
+
+                        button.classList.toggle(
+                            'answered',
+                            answered.has(questionId)
+                        );
+
+                        const position = Number(button.dataset.index) + 1;
+                        const state = answered.has(questionId) ? 'answered' : 'remaining';
+                        button.dataset.state = state;
+                        button.setAttribute('aria-label', `Open question ${position}, ${state}`);
+
+                    });
+
+            }
+
+
+            // ============================================================
+            // ANSWER SELECTION
+            // ============================================================
+
+            document
+                .querySelectorAll('.answer-option')
+                .forEach(input => {
+
+                    input.addEventListener('change', () => {
+
+                        const selectionIndex = currentQuestionIndex;
+                        const selectionCard = input.closest('.question-card');
+                        const revision = Number(selectionCard.dataset.saveRevision || 0) + 1;
+                        selectionCard.dataset.saveRevision = String(revision);
+
+                        const questionId =
+                            input.dataset.questionId;
+
+
+                        // Remove selected state from all options
+                        document
+                            .querySelectorAll(
+                                `[data-question-id="${questionId}"]`
+                            )
+                            .forEach(element => {
+
+                                element
+                                    .closest('.option-label')
+                                    ?.classList
+                                    .remove('selected');
+
+                            });
+
+
+                        // Add selected state
+                        input
+                            .closest('.option-label')
+                            ?.classList
+                            .add('selected');
+
+
+                        if (saveStatus) {
+                            saveStatus.textContent = 'Saving...';
+                        }
+
+
+                        // Save answer
+                        post(
+                            '@Url.Action("SaveAnswer", "Exam")',
+                            {
+                                sessionAttemptId: sid,
+                                questionId: questionId,
+                                selectedOption: input.value
+                            }
+                        )
+                        .then(async response => {
+                            const data = await response.json();
+                            if (response.status === 428 && data.identityRequired && data.redirectUrl) {
+                                if (!window.ProctoringRealtime?.blocked) verifyActiveIdentity();
+                                return data;
+                            }
+                            if (response.status === 423 && data.blocked && data.redirectUrl) {
+                                await window.ProctoringRealtime?.sync();
+                                return data;
+                            }
+                            if (response.status === 409 && data.expired && !submitted) {
+                                submitted = true;
+                                form.submit();
+                            }
+                            return data;
+                        })
+                        .then(data => {
+                            if (saveStatus) saveStatus.textContent = data.ok ? 'Saved just now' : 'Save failed';
+                            if (data.ok && !submitted && input.checked &&
+                                Number(selectionCard.dataset.saveRevision) === revision &&
+                                currentQuestionIndex === selectionIndex && selectionIndex < questionCards.length - 1)
+                                showQuestion(selectionIndex + 1, true);
+                        })
+                        .catch(() => {
+
+                            if (saveStatus) {
+
+                                saveStatus.textContent =
+                                    'Connection issue - please retry';
+
+                            }
+
+                        });
+
+
+                        updateProgress();
+
+                    });
+
+                });
+
+
+            // ============================================================
+            // CLEAR ANSWER
+            // ============================================================
+
+            document
+                .querySelectorAll('.clear-answer')
+                .forEach(button => {
+
+                    button.addEventListener('click', () => {
+
+                        const questionId =
+                            button.dataset.questionId;
+
+
+                        document
+                            .querySelectorAll(
+                                `input[data-question-id="${questionId}"]`
+                            )
+                            .forEach(input => {
+
+                                input.checked = false;
+
+                                input
+                                    .closest('.option-label')
+                                    ?.classList
+                                    .remove('selected');
+
+                            });
+
+
+                        post(
+                            '@Url.Action("SaveAnswer", "Exam")',
+                            {
+                                sessionAttemptId: sid,
+                                questionId: questionId,
+                                selectedOption: ''
+                            }
+                        )
+                        .then(async response => {
+                            const result = await response.json();
+                            if (!response.ok || !result.ok) throw new Error('Answer could not be cleared. Please retry.');
+
+                            if (saveStatus) {
+                                saveStatus.textContent =
+                                    'Saved just now';
+                            }
+
+                            updateProgress();
+
+                        })
+                        .catch(() => {
+
+                            if (saveStatus) {
+                                saveStatus.textContent =
+                                    'Connection issue';
+                            }
+
+                        });
+
+                    });
+
+                });
+
+
+            // ============================================================
+            // ROUGH WORK (LOCAL SCRATCHPAD ONLY)
+            // ============================================================
+
+            const roughStoragePrefix = `examguard:rough:${sid}:`;
+
+            document.querySelectorAll('.rough-work').forEach(textarea => {
+                const questionId = textarea.dataset.questionId;
+                const storageKey = roughStoragePrefix + questionId;
+
+                try {
+                    textarea.value = sessionStorage.getItem(storageKey) || '';
+                } catch { }
+
+                textarea.addEventListener('input', () => {
+                    try {
+                        sessionStorage.setItem(storageKey, textarea.value);
+                    } catch { }
+                });
+            });
+
+            document.querySelectorAll('.clear-rough').forEach(button => {
+                button.addEventListener('click', () => {
+                    const questionId = button.dataset.questionId;
+                    const textarea = document.querySelector(`.rough-work[data-question-id="${questionId}"]`);
+                    if (textarea) textarea.value = '';
+                    try {
+                        sessionStorage.removeItem(roughStoragePrefix + questionId);
+                    } catch { }
+                });
+            });
+
+            // ============================================================
+            // QUESTION NAVIGATOR
+            // ============================================================
+
+            paletteButtons.forEach(button => {
+
+                    button.addEventListener('click', () => {
+                        showQuestion(Number(button.dataset.index), true);
+
+                    });
+
+                });
+
+            previousQuestion?.addEventListener('click', () => showQuestion(currentQuestionIndex - 1, true));
+            const nextOrReview = () => {
+                if (currentQuestionIndex < questionCards.length - 1) showQuestion(currentQuestionIndex + 1, true);
+                else document.getElementById('submitSession')?.focus();
+            };
+            document.getElementById('skipQuestion')?.addEventListener('click', nextOrReview);
+            nextQuestion?.addEventListener('click', nextOrReview);
+            showQuestion(currentQuestionIndex);
+
+
+            // ============================================================
+            // REVIEW / BOOKMARK
+            // ============================================================
+
+            document
+                .querySelectorAll('.review-btn')
+                .forEach(button => {
+
+                    button.addEventListener('click', () => {
+
+                        const marked =
+                            button.dataset.marked !== 'true';
+
+                        const questionId =
+                            button.dataset.questionId;
+
+
+                        post(
+                            '@Url.Action("ToggleReview", "Exam")',
+                            {
+                                sessionAttemptId: sid,
+                                questionId: questionId,
+                                marked: marked
+                            }
+                        )
+                        .then(response => response.json())
+                        .then(data => {
+
+                            if (!data.ok) {
+                                return;
+                            }
+
+
+                            button.dataset.marked =
+                                marked.toString();
+
+
+                            button.classList.toggle(
+                                'btn-warning',
+                                marked
+                            );
+
+                            button.classList.toggle(
+                                'btn-light',
+                                !marked
+                            );
+
+
+                            const icon =
+                                button.querySelector('i');
+
+
+                            if (icon) {
+
+                                icon.className =
+                                    marked
+                                        ? 'bi bi-bookmark-fill me-1'
+                                        : 'bi bi-bookmark me-1';
+
+                            }
+
+
+                            const paletteButton =
+                                document.querySelector(
+                                    `.palette-btn[data-target="question-${questionId}"]`
+                                );
+
+
+                            paletteButton?.classList.toggle(
+                                'review',
+                                marked
+                            );
+
+                        });
+
+                    });
+
+                });
+
+
+            const monitoring = ExamProctoring.start({
+                attemptId: Number(aid), sessionId: Number(sid),
+                identityFrames: @faceIdentityOptions.ContinuousVerificationFrames,
+                baselineFrames: @behaviorOptions.BaselineFrames,
+                submitted: () => submitted,
+                question: () => questionCards[currentQuestionIndex]?.dataset.question,
+                urls: {
+                    identity: '@Url.Action("VerifyActiveIdentity", "Exam")',
+                    baseline: '@Url.Action("StartBehaviorSession", "Exam")',
+                    behavior: '@Url.Action("AnalyzeBehavior", "Exam")',
+                    objects: '@Url.Action("AnalyzeObjects", "Exam")',
+                    speech: '@Url.Action("SpeechStream", "Exam")',
+                    transcribe: '@Url.Action("TranscribeSpeech", "Exam")',
+                    log: '@Url.Action("LogProctoring", "Exam")',
+                    health: '@Url.Action("DeviceHealth", "Exam")',
+                    evidence: '@Url.Action("AttachProctoringEvidence", "Exam")',
+                    recording: '@Url.Action("UploadRecordingSegment", "Exam")'
+                }
+            });
+            function verifyActiveIdentity() { return monitoring.identity(); }
+
+            // ============================================================
+            // TIMER
+            // ============================================================
+
+            function tick() {
+                if (window.ProctoringRealtime?.blocked) return;
+
+                const left = Math.max(0, remainingAtRender - (performance.now() - monotonicStart));
+
+
+                const sec =
+                    Math.floor(left / 1000);
+
+                const minutes =
+                    Math.floor(sec / 60);
+
+                const seconds =
+                    sec % 60;
+
+
+                if (timer) {
+
+                    timer.textContent =
+                        String(minutes).padStart(2, '0')
+                        + ':'
+                        + String(seconds).padStart(2, '0');
+
+
+                    timer.classList.toggle(
+                        'timer-warning',
+                        left < 300000 &&
+                        left > 60000
+                    );
+
+
+                    timer.classList.toggle(
+                        'timer-danger',
+                        left <= 60000
+                    );
+
+                }
+
+
+                // Auto submit
+                if (left <= 0 && !submitted) {
+
+                    submitted = true;
+
+                    if (submit) {
+                        submit.disabled = true;
+                    }
+
+                    const autoField = document.getElementById('autoSubmitted');
+                    if (autoField) autoField.value = 'true';
+                    form.submit();
+
+                }
+
+            }
+
+
+            // ============================================================
+            // INITIALIZE
+            // ============================================================
+
+            updateProgress();
+
+            tick();
+
+            setInterval(
+                tick,
+                1000
+            );
+
+
+            // ============================================================
+            // MANUAL SUBMIT
+            // ============================================================
+
+            form.addEventListener(
+                'submit',
+                async event => {
+                    event.preventDefault();
+                    if (submitted || window.ProctoringRealtime?.blocked) return;
+                    submitted = true;
+                    if (submit) {
+
+                        submit.disabled = true;
+
+                        submit.innerHTML =
+                            '<span class="spinner-border spinner-border-sm me-2"></span>' +
+                            'Submitting...';
+
+                    }
+                    // Let the last selected option reach the server before grading.
+                    // The normal form POST retains browser redirects and error pages.
+                    await answerWriteQueue;
+                    if (window.ProctoringRealtime?.blocked) { submitted = false; return; }
+                    monitoring.stop();
+                    HTMLFormElement.prototype.submit.call(form);
+                }
+            );
+
+        })();
+    </script>
+}

@@ -1,0 +1,19 @@
+@{ ViewData["Title"] = "Common Questions"; }
+<section class="page-hero"><div class="container"><span class="section-kicker">Common questions</span><h1>Answers to the questions users ask most often.</h1><p>Read these answers before contacting the administrator.</p></div></section>
+@{
+    var faqs = new (string, string)[] {
+        ("Who can create an account?", "Students and Teachers can register. Student accounts are available immediately. Teacher accounts need administrator approval."),
+        ("Why are several face photos required?", "Model 1 combines 3 to 10 clear photos into one 512-value identity template. Five varied but natural photos are recommended for a more stable comparison."),
+        ("What should I do before an exam?", "Use a supported browser, charge your device, check your internet, and allow the requested camera and microphone permissions. Entire Screen sharing is not requested."),
+        ("Are answers saved automatically?", "Yes. Answers are saved while you work, but you should still use the Submit button when you finish a session."),
+        ("What happens between exam sessions?", "A break page appears after a session. You may continue when ready, or the next session starts when the allowed break ends."),
+        ("Are AI observations active?", "Face identity, behavior and local speech modules can record review-only observations and guidance reminders when their services are running. Model 3 remains unavailable until its trained object weights are installed."),
+        ("Will an AI warning prove cheating?", "No. An observation or transcript is an indicator for an authorized Teacher to review with its evidence. It does not automatically prove cheating, fail or block a candidate."),
+        ("Can a normal website stop every form of cheating?", "No. Browser security has limits, and a website cannot fully control another physical device. The system combines monitoring, rules and human review to reduce risk."),
+        ("Where can I see my result?", "Open My Results in the Student Portal after the examination has been submitted and processed."),
+        ("What if my account is blocked?", "Read the message shown on screen and contact the Teacher or Administrator responsible for the examination.")
+    };
+}
+<section class="public-section bg-white"><div class="container"><div class="accordion faq-accordion mx-auto" id="faqAccordion">
+@for (var i = 0; i < faqs.Length; i++) { var id = $"faq{i}"; <div class="accordion-item"><h2 class="accordion-header"><button class="accordion-button @(i > 0 ? "collapsed" : "")" type="button" data-bs-toggle="collapse" data-bs-target="#@id">@faqs[i].Item1</button></h2><div id="@id" class="accordion-collapse collapse @(i == 0 ? "show" : "")" data-bs-parent="#faqAccordion"><div class="accordion-body">@faqs[i].Item2</div></div></div> }
+</div></div></section>

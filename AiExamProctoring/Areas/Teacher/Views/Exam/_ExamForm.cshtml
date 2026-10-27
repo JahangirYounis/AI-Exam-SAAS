@@ -1,0 +1,68 @@
+@model AiExamProctoring.Models.Exam
+@using AiExamProctoring.Models
+@{
+    var posts = ViewBag.PostRecords as List<Post> ?? new();
+}
+<div asp-validation-summary="All" class="text-danger mb-3" role="alert"></div>
+<div class="card border-0 shadow-sm rounded-4 mb-3">
+    <div class="card-body p-4">
+        <h2 class="h5 fw-bold mb-3">Test details</h2>@if (Model.ExamId == 0) {<label for="invigilatorEmails">Invite co-teachers (registered emails, separated by commas)</label><input id="invigilatorEmails" name="invigilatorEmails" class="form-control mb-3" /><label class="me-3"><input type="checkbox" name="inviteQuestions" value="true" checked /> Questions</label><label><input type="checkbox" name="inviteMonitoring" value="true" checked /> Live monitoring</label><p class="small">After accepting, teachers can help build the draft paper and monitor the live exam. Manage invitations from exam details.</p>}
+        <div class="row g-3">
+            <div class="col-12"><label asp-for="ExamTitle" class="form-label">Test name</label><input asp-for="ExamTitle" class="form-control" maxlength="200" placeholder="e.g. Mathematics — Class 10" required /><span asp-validation-for="ExamTitle" class="text-danger"></span></div>
+            <div class="col-md-6"><label asp-for="Audience" class="form-label">Who can take this test?</label><select asp-for="Audience" class="form-select"><option value="Private">Private — my class or selected candidates</option><option value="Public">Public — all approved students</option></select></div>
+            <div class="col-md-6"><label asp-for="Purpose" class="form-label">Test type</label><select asp-for="Purpose" class="form-select"><option value="AcademicClass">Class test</option><option value="Recruitment">Job / recruitment</option><option value="Practice">Practice / mock test</option><option value="Certification">Certification</option><option value="Entrance">Entry test</option><option value="Other">Other</option></select></div>
+            <div class="col-12" id="privateAccess"><partial name="_ManagementOptions" model="Model" /></div>
+            <div class="col-12" id="recruitmentFields"><div class="row g-3">
+                <div class="col-md-4"><label asp-for="RecruitmentDepartment">Department</label><input asp-for="RecruitmentDepartment" class="form-control" maxlength="150" /><span asp-validation-for="RecruitmentDepartment" class="text-danger"></span></div>
+                <div class="col-md-4"><label asp-for="RecruitmentPost">Job title</label><input asp-for="RecruitmentPost" class="form-control" maxlength="150" /><span asp-validation-for="RecruitmentPost" class="text-danger"></span></div>
+                <div class="col-md-4"><label asp-for="RecruitmentGrade">Grade</label><input asp-for="RecruitmentGrade" class="form-control" maxlength="30" placeholder="e.g. BPS-14" /><span asp-validation-for="RecruitmentGrade" class="text-danger"></span></div>
+            </div></div>
+            <div class="col-md-4"><label asp-for="QuestionLimit">Number of MCQs</label><input asp-for="QuestionLimit" class="form-control" type="number" min="1" max="1000" required /><span asp-validation-for="QuestionLimit" class="text-danger"></span><div class="form-text">Only this many questions can be added to the paper.</div></div>
+            <div class="col-md-4"><label asp-for="DurationMinutes" class="form-label">Duration (minutes)</label><input asp-for="DurationMinutes" class="form-control" type="number" min="1" max="600" required /><span asp-validation-for="DurationMinutes" class="text-danger"></span></div>
+            <div class="col-md-4"><label asp-for="TotalMarks" class="form-label">Total marks</label><input asp-for="TotalMarks" class="form-control" type="number" min="0.01" max="100000" step="0.01" required /><span asp-validation-for="TotalMarks" class="text-danger"></span></div>
+            <div class="col-md-4"><label asp-for="PassingPercentage" class="form-label">Pass mark (%)</label><input asp-for="PassingPercentage" class="form-control" type="number" min="0" max="100" step="0.01" required /><span asp-validation-for="PassingPercentage" class="text-danger"></span></div>
+        </div>
+    </div>
+</div>
+<div class="card border-0 shadow-sm rounded-4 mb-3">
+    <div class="card-body p-4">
+        <h2 class="h5 fw-bold mb-3">When can students start?</h2>
+        <div id="practiceFields" class="mb-3"><div class="form-check"><input asp-for="IsReusable" class="form-check-input" /><label asp-for="IsReusable" class="form-check-label">Always-open public practice test</label></div><p class="small text-secondary mb-0">Students can repeat this practice test after finishing their current attempt.</p></div>
+        <div id="scheduleFields" class="row g-3">
+            <div class="col-md-4"><label asp-for="ExamDate" class="form-label">Date</label><input asp-for="ExamDate" class="form-control" type="date" min="@DateTime.Today.ToString("yyyy-MM-dd")" /><span asp-validation-for="ExamDate" class="text-danger"></span></div>
+            <div class="col-md-4"><label asp-for="StartTime" class="form-label">Start time</label><input asp-for="StartTime" class="form-control" type="time" /><span asp-validation-for="StartTime" class="text-danger"></span></div>
+            <div class="col-md-4"><label asp-for="EntryWindowMinutes" class="form-label">Late entry allowance (minutes)</label><input asp-for="EntryWindowMinutes" class="form-control" type="number" min="0" max="1440" /><span asp-validation-for="EntryWindowMinutes" class="text-danger"></span></div>
+        </div>
+        <p class="small text-secondary mt-3 mb-0">Use the exam server's time zone. Each admitted student receives the full test duration.</p>
+    </div>
+</div>
+<details class="card border-0 shadow-sm rounded-4 mb-3" open="@(!ViewData.ModelState.IsValid ? "open" : null)">
+    <summary class="p-4 fw-semibold">More settings — sections, marking and monitoring</summary>
+    <div class="card-body px-4 pt-0">
+        <div class="row g-3">
+            <input type="hidden" asp-for="NumberOfSessions" />
+            <p class="small">Configure sections after saving the draft, before Publish and Lock.</p>
+            <div class="col-md-6"><label asp-for="NegativeMarksPerWrongAnswer" class="form-label">Deduction per wrong answer</label><input asp-for="NegativeMarksPerWrongAnswer" class="form-control" type="number" min="0" max="100" step="0.01" /><div class="form-text">Leave 0 for no negative marking.</div><span asp-validation-for="NegativeMarksPerWrongAnswer" class="text-danger"></span></div>
+            <div class="col-12"><label asp-for="BlockingMode" class="form-label">Monitoring response</label><select asp-for="BlockingMode" class="form-select"><option value="BOTH">Automatic block and teacher controls</option><option value="MANUAL_ONLY">Teacher decides when to block</option><option value="AUTO_ONLY">Automatic block</option></select><span asp-validation-for="BlockingMode" class="text-danger"></span><p class="small text-secondary mt-2">Automatic modes give three warnings for standard violations; the fourth blocks the test. Confirmed identity replacement blocks immediately. Your teacher can review and resume a blocked test. Manual mode keeps alerts and evidence available for teacher review.</p></div>
+            <div class="col-md-6"><div class="form-check"><input asp-for="ShuffleOptions" class="form-check-input" /><label asp-for="ShuffleOptions" class="form-check-label">Shuffle answer options</label></div></div>
+            <div class="col-12"><label asp-for="ClassName" class="form-label">Group / batch label (optional)</label><input asp-for="ClassName" class="form-control" maxlength="150" /><div class="form-text">Selecting a class uses its name automatically.</div></div>
+        </div>
+    </div>
+</details>
+<p class="small text-secondary">Camera, microphone and fullscreen are required. Question order is individual to each candidate, and time expiry submits the section automatically.</p>
+
+<script>
+(() => {
+    const date = document.getElementById('ExamDate'), time = document.getElementById('StartTime');
+    if (!date || !time) return;
+    const serverNow = new Date('@DateTime.Now.ToString("yyyy-MM-ddTHH:mm:ss")'), loaded = Date.now();
+    function update() {
+        const now = new Date(serverNow.getTime() + Date.now() - loaded);
+        const pad = n => String(n).padStart(2, '0');
+        const today = `${now.getFullYear()}-${pad(now.getMonth()+1)}-${pad(now.getDate())}`;
+        date.min = today;
+        time.min = date.value === today ? `${pad(now.getHours())}:${pad(now.getMinutes())}` : '';
+    }
+    date.addEventListener('change', update); update(); setInterval(update, 30000);
+})();
+</script>

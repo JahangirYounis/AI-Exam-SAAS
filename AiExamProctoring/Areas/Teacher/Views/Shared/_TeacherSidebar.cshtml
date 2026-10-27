@@ -1,0 +1,16 @@
+@model string?
+@{ string Active(string name) => string.Equals(Model, name, StringComparison.OrdinalIgnoreCase) ? "active" : ""; }
+<nav class="sidebar-nav">
+  <div class="sidebar-section">Teacher Workspace</div>
+  <a class="sidebar-link @Active("Dashboard")" asp-area="Teacher" asp-controller="Dashboard" asp-action="Index"><i class="bi bi-grid-1x2-fill"></i><span>Dashboard</span></a>
+  <a class="sidebar-link @Active("Exam")" asp-area="Teacher" asp-controller="Exam" asp-action="Index"><i class="bi bi-journal-check"></i><span>My Examinations</span></a>
+  <a class="sidebar-link @Active("Question")" asp-area="Teacher" asp-controller="Question" asp-action="Index"><i class="bi bi-patch-question"></i><span>My Question Bank</span></a>
+  <a class="sidebar-link" href="/Teacher/Classes">Classes &amp; students</a><a class="sidebar-link" href="/Teacher/Invitations">Exam collaborations</a>
+  <div class="sidebar-section">Monitoring</div>
+  <a class="sidebar-link @Active("Results")" asp-area="Teacher" asp-controller="Results" asp-action="Index"><i class="bi bi-bar-chart-line"></i><span>Results</span></a>
+  <a class="sidebar-link @Active("Monitoring")" asp-area="Teacher" asp-controller="Monitoring" asp-action="Index"><i class="bi bi-folder2-open"></i><span>Candidate Evidence</span></a>
+  <div class="sidebar-section">Account</div>
+  <a class="sidebar-link @Active("Profile")" asp-area="Teacher" asp-controller="Profile" asp-action="Index"><i class="bi bi-person-circle"></i><span>My Profile</span></a>
+<a class="sidebar-link" asp-area="Teacher" asp-controller="Connections" asp-action="Index"><i class="bi bi-people"></i> Teacher connections</a>
+
+</nav>

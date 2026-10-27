@@ -1,0 +1,25 @@
+/* Shared device layout: no viewport-wide clipping or fixed control widths. */
+*,*::before,*::after{box-sizing:border-box}
+html{max-width:100%;text-size-adjust:100%;-webkit-text-size-adjust:100%}
+body{min-width:0}
+main,.admin-main,.student-main,.dashboard-card,.card-body,.container-fluid,.row>[class*="col-"],.dashboard-hero-content{min-width:0}
+img,canvas{max-width:100%}video{max-width:100%;object-fit:contain}audio{max-width:100%}
+input,select,textarea{max-width:100%}
+.table-responsive{max-width:100%;overflow-x:auto;-webkit-overflow-scrolling:touch}
+.alert,.card,.dashboard-card,.modal-body{overflow-wrap:anywhere}
+.btn{white-space:normal}.modal-dialog{max-width:calc(100vw - 2rem)}
+.offcanvas{max-width:90vw}
+@media(max-width:991.98px){
+.admin-main,.student-main{margin-left:0!important;width:100%!important;max-width:100%;padding:1rem!important}
+.admin-topbar .container-fluid{flex-wrap:wrap;gap:.5rem!important}
+.dashboard-hero-content{flex-wrap:wrap}.dashboard-hero{padding:1.25rem!important}
+}
+@media(max-width:575.98px){
+body{font-size:1rem}.card-body,.dashboard-card-body{padding:1rem!important}
+.brand strong{font-size:.85rem;display:block;max-width:12rem}.brand small{font-size:.75rem}
+h1,.h1{font-size:1.65rem}h2,.h2{font-size:1.4rem}
+.form-control,.form-select{font-size:16px;min-height:44px}
+.btn{min-height:40px}.pagination{flex-wrap:wrap}.input-group{min-width:0}
+.modal-dialog{margin:.5rem;max-width:calc(100vw - 1rem)}
+}
+@media(prefers-reduced-motion:reduce){*,*::before,*::after{scroll-behavior:auto!important;animation-duration:.01ms!important;transition-duration:.01ms!important}}

@@ -1,0 +1,74 @@
+@model AiExamProctoring.Models.Exam
+@{
+    Layout = "~/Areas/Student/Views/Shared/_StudentLayout.cshtml";
+    ViewData["Title"] = "Read before your test";
+}
+<main class="student-card p-3 p-md-4 mx-auto" style="max-width:1050px">
+    <h1 class="h3">Before you begin</h1>
+    <h2 class="h5 mt-3">@Model.ExamTitle</h2>
+    <p>Time: <strong>@Model.DurationMinutes minutes</strong> · Total marks: <strong>@Model.TotalMarks</strong> · Marks lost for each wrong answer: <strong>@Model.NegativeMarksPerWrongAnswer</strong></p>
+    <p class="text-secondary">Read the rules below. You can choose Urdu or Sindhi. Tick the box when you understand, then continue to the camera check.</p>
+    <nav class="d-flex flex-wrap gap-2 mb-4" aria-label="Instruction languages">
+        <button type="button" class="btn btn-primary" data-instruction-language="english" aria-pressed="true" aria-controls="instructions-english">Easy English</button>
+        <button type="button" class="btn btn-outline-primary" data-instruction-language="urdu" aria-pressed="false" aria-controls="instructions-urdu">اردو</button>
+        <button type="button" class="btn btn-outline-primary" data-instruction-language="sindhi" aria-pressed="false" aria-controls="instructions-sindhi">سنڌي</button>
+    </nav>
+    @if (!string.IsNullOrWhiteSpace(Model.Instructions))
+    {
+        <aside class="alert alert-info"><strong>Teacher instructions</strong><p class="mb-0" style="white-space:pre-wrap">@Model.Instructions</p></aside>
+    }
+    <section id="instructions-sindhi" hidden lang="sd" dir="rtl" class="border rounded-3 p-3 mb-3" style="scroll-margin-top:110px">
+        <h2 class="h4">سنڌي — امتحان جون هدايتون</h2>
+        <ol class="lh-lg">
+            <li>امتحان پاڻ ڏيو. پنهنجي جاءِ تي ٻئي ماڻهو کي نه ويهاريو ۽ ڪنهن کان جواب نه پڇو. رڳو استاد جي اجازت وارو سامان استعمال ڪريو؛ بنا اجازت موبائل، ڪتاب، نوٽس يا ڪيلڪيوليٽر نه رکو.</li>
+            <li>ڪيمرا ۽ مائڪروفون جي اجازت ڏيو. چهرو صاف روشني ۾ نظر اچڻ گهرجي. ڪيمرا جي شروعاتي ترتيب وقت سڌو سکرين جي وچ تي ڪجهه سيڪنڊ ڏسو. عينڪ پائڻ منع ناهي؛ تيز چمڪ ۽ ڌنڌلي تصوير کان بچو.</li>
+            <li>AI چهري کي رجسٽر ٿيل سڃاڻپ سان ڀيٽي ٿو ۽ امتحان دوران لڳ ڀڳ هر منٽ ٻيهر چيڪ ڪري ٿو. سر ۽ اکين جو رخ، ٻيا چهرا ۽ نظر ايندڙ شيون پڻ ڏسي ٿو. اهڙو مشاهدو پاڻمرادو نقل جو ثبوت ناهي.</li>
+            <li>خاموش رهو، جيستائين استاد ڳالهائڻ جي اجازت نه ڏئي. مائڪ مان ٻڌل ڳالهه کي لکت ۾ بدلائي موجوده سوال ۽ جوابن سان ڀيٽيو وڃي ٿو. پس منظر جي آواز تي به مشاهدو ٿي سگهي ٿو؛ AI هميشه ڳالهائيندڙ جي سڃاڻپ نٿو ڪري سگهي.</li>
+            <li>ڪيمرا ۽ مائڪروفون جا ننڍا ڪلپ استاد جي جائزي لاءِ محفوظ ٿين ٿا. امتحان جو استاد لائيو ڪيمرا ڏسي سگهي ٿو. پنهنجي ڪمري مان ذاتي شيون هٽايو. رسائي، رڪارڊ رکڻ ۽ ڪنهن مسئلي بابت استاد يا منتظم کان پڇو.</li>
+            <li>سڄي امتحان ۾ سڀني قسمن جون گڏيل ٽي تنبيهون ملن ٿيون. چوٿين ڀڃڪڙي تي امتحان لاڪ ٿيندو. ٻئي ماڻهو جي تصديق ٿيڻ تي فوراً لاڪ ٿيندو. رڳو استاد ٻيهر کولي سگهي ٿو. آواز واري تنبيه ڊوائيس جي آواز ۽ ٻولي جي سهولت تي دارومدار رکي ٿي.</li>
+            <li>جواب چونڊڻ کان پوءِ محفوظ ٿيڻ تي اڳيون سوال کلي ٿو. Skip سان سوال ڇڏي اڳتي وڃو؛ Back سان اڳيون ڏنل سوال ڏسو، پهرين سوال تي Back ناهي. آخر ۾ جواب چيڪ ڪري امتحان جمع ڪريو. وقت پورو ٿيڻ تي سرور موجود محفوظ جوابن سان سيشن بند ڪري ٿو.</li>
+            <li>ضرورت هجي ته Pause my test استعمال ڪريو؛ ٻيهر جاري ڪرڻ لاءِ استاد جي اجازت گهرجي. محفوظ جواب برقرار رهن ٿا. انٽرنيٽ يا ڪيمرا خراب ٿئي ته پيغام پڙهو، ٻيهر ڪوشش ڪريو ۽ استاد کي ٻڌايو. پاڻمرادو نئين ڪوشش شروع نه ڪريو.</li>
+            <li>سرڪاري امتحان عام طور هڪ ڀيرو آهي؛ رڳو ورجائڻ جي اجازت وارو مشق امتحان ٻيهر ڏئي سگهجي ٿو. مڪمل سکرين گهربل هجي ته ان ۾ رهو ۽ ٻيا ٽيب نه کوليو. خاص ضرورت، صحت يا سهولت لاءِ امتحان کان اڳ استاد سان ڳالهايو.</li>
+        </ol>
+    </section>
+    <section id="instructions-urdu" hidden lang="ur" dir="rtl" class="border rounded-3 p-3 mb-3" style="scroll-margin-top:110px">
+        <h2 class="h4">اردو — امتحان کی ہدایات</h2>
+        <ol class="lh-lg">
+            <li>امتحان خود دیں۔ اپنی جگہ کسی اور کو نہ بٹھائیں اور کسی سے جواب نہ پوچھیں۔ صرف استاد کا اجازت دیا ہوا سامان استعمال کریں؛ بغیر اجازت موبائل، کتاب، نوٹس یا کیلکولیٹر نہ رکھیں۔</li>
+            <li>کیمرے اور مائیکروفون کی اجازت دیں۔ چہرہ اچھی روشنی میں واضح رہے۔ شروع میں کیمرے کی ترتیب کے دوران چند سیکنڈ سکرین کے درمیان سیدھا دیکھیں۔ چشمہ پہننا منع نہیں؛ تیز چمک اور دھندلی تصویر سے بچیں۔</li>
+            <li>AI چہرے کو رجسٹرڈ شناخت سے ملاتا ہے اور امتحان کے دوران تقریباً ہر منٹ دوبارہ جانچتا ہے۔ سر اور آنکھوں کا رخ، دوسرے چہرے اور نظر آنے والی چیزیں بھی دیکھتا ہے۔ صرف یہ مشاہدہ نقل کا ثبوت نہیں ہوتا۔</li>
+            <li>خاموش رہیں، جب تک استاد بولنے کی اجازت نہ دے۔ مائیکروفون سے سنی گئی بات کو متن میں بدل کر موجودہ سوال اور جوابات سے ملایا جاتا ہے۔ پس منظر کی آواز پر بھی مشاہدہ ہو سکتا ہے؛ AI ہمیشہ بولنے والے کی شناخت نہیں کر سکتا۔</li>
+            <li>کیمرے اور مائیکروفون کے مختصر کلپس استاد کے جائزے کے لیے محفوظ ہوتے ہیں۔ امتحان کا استاد لائیو کیمرہ دیکھ سکتا ہے۔ کمرے سے ذاتی چیزیں ہٹا دیں۔ رسائی، ریکارڈ رکھنے اور کسی مسئلے کے بارے میں استاد یا منتظم سے پوچھیں۔</li>
+            <li>پورے امتحان میں تمام اقسام کی ملا کر تین تنبیہات ملتی ہیں۔ چوتھی خلاف ورزی پر امتحان لاک ہو جاتا ہے۔ کسی دوسرے شخص کی تصدیق ہونے پر فوراً لاک ہوتا ہے۔ صرف استاد دوبارہ کھول سکتا ہے۔ آواز والی تنبیہ ڈیوائس کی آواز اور زبان کی سہولت پر منحصر ہے۔</li>
+            <li>جواب منتخب کرنے پر محفوظ ہونے کے بعد اگلا سوال کھلتا ہے۔ Skip سے سوال چھوڑیں؛ Back سے پچھلے سوال پر جائیں، پہلے سوال پر Back نہیں ہوتا۔ آخر میں جوابات دیکھ کر جمع کریں۔ وقت ختم ہونے پر سرور موجود محفوظ جوابات کے ساتھ سیشن بند کرتا ہے۔</li>
+            <li>ضرورت پر Pause my test استعمال کریں؛ دوبارہ جاری کرنے کے لیے استاد کی اجازت چاہیے۔ محفوظ جواب برقرار رہتے ہیں۔ انٹرنیٹ یا کیمرہ خراب ہو تو پیغام پڑھیں، دوبارہ کوشش کریں اور استاد کو بتائیں۔ خود سے نئی کوشش شروع نہ کریں۔</li>
+            <li>سرکاری امتحان عام طور پر ایک بار ہے؛ صرف دوبارہ دینے کی اجازت والا مشق امتحان دہرایا جا سکتا ہے۔ مکمل سکرین ضروری ہو تو اسی میں رہیں اور دوسرے ٹیب نہ کھولیں۔ خصوصی ضرورت، صحت یا سہولت کے لیے پہلے استاد سے بات کریں۔</li>
+        </ol>
+    </section>
+    <section id="instructions-english" lang="en" class="border rounded-3 p-3 mb-4" style="scroll-margin-top:110px">
+        <h2 class="h4">Easy English — test instructions</h2>
+        <ol class="lh-lg">
+            <li>Take the test yourself. Do not ask someone for answers or let another person take your place. Use only materials allowed by your teacher. Keep unapproved phones, books, notes and calculators away.</li>
+            <li>Allow camera and microphone access when requested. Keep your face clear and well lit. Look at the middle of the screen for a few seconds during camera setup. Glasses are allowed; avoid glare and a blurred image.</li>
+            <li>AI checks your face against your registered photos throughout the test. It also observes head and eye direction, other face regions and visible objects. An observation alone does not prove cheating.</li>
+            <li>Stay quiet unless your teacher allows speaking. Microphone speech is transcribed and compared with the current questions and answers. Background speech may also be noticed. AI cannot always tell who spoke.</li>
+            <li>Short camera and microphone clips are saved for teacher review. The exam's teacher can watch your live camera. Move private items out of view. Ask your teacher or administrator about access, recording retention or a concern.</li>
+            <li>You get three warnings in total across the whole exam. A fourth violation locks your test. A confirmed change of person locks it immediately. Only your teacher can unlock it. Spoken warnings depend on your device's sound and language support.</li>
+            <li>Choosing an answer saves it and then opens the next question. Use Skip to leave a question for later and Back to return; the first question has no Back button. Review and submit at the end. When time runs out, the server ends the session using the saved answers available.</li>
+            <li>Use Pause my test if you need help. Your teacher must release it before you resume. Saved answers remain. If the internet or camera fails, read the message, retry and tell your teacher. Do not start a new attempt yourself.</li>
+            <li>Official tests normally allow one attempt. Only repeatable practice tests can be taken again. Stay in fullscreen when required and do not open other tabs. Discuss access needs, health concerns or accommodations with your teacher before starting.</li>
+        </ol>
+    </section>
+    <form asp-area="Student" asp-controller="Exam" asp-action="AcceptInstructions" method="post">
+        <input type="hidden" name="examId" value="@Model.ExamId" />
+        <div class="form-check mb-3">
+            <input class="form-check-input" type="checkbox" name="understood" value="true" id="understood" required />
+            <label class="form-check-label" for="understood">I have read and understood these instructions.</label>
+        </div>
+        <button class="btn btn-primary" type="submit">Continue to camera check</button>
+    </form>
+</main>
+
+@section Scripts {
+    <script src="~/js/exam-instructions.js" asp-append-version="true"></script>
+}

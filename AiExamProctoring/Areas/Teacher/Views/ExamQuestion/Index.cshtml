@@ -1,0 +1,203 @@
+@model IReadOnlyCollection<AiExamProctoring.Models.Question>
+@using AiExamProctoring.Models
+@{
+    var exam = ViewBag.Exam as Exam;
+    var subjects = ViewBag.Subjects as List<Subject> ?? new List<Subject>();
+    var counts = ViewBag.SubjectCounts as Dictionary<int, int> ?? new Dictionary<int, int>();
+    int? subjectId = ViewBag.SubjectId as int?;
+    var search = ViewBag.Search as string ?? string.Empty;
+    var currentPage = ViewBag.Page == null ? 1 : Convert.ToInt32(ViewBag.Page);
+    var totalPages = ViewBag.TotalPages == null ? 1 : Convert.ToInt32(ViewBag.TotalPages);
+    var totalQuestions = ViewBag.TotalQuestions == null ? 0 : Convert.ToInt32(ViewBag.TotalQuestions);
+    var selectedCount = ViewBag.SelectedCount == null ? 0 : Convert.ToInt32(ViewBag.SelectedCount);
+    ViewData["Title"] = "Exam Paper Builder";
+}
+@if (exam == null)
+{
+    <div class="alert alert-danger">Examination not found.</div>
+    return;
+}
+
+<div class="d-flex gap-2 flex-wrap mb-3">
+@if(exam.CreatedBy == User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value) { <a class="btn btn-outline-primary" asp-controller="Invitations" asp-action="Manage" asp-route-examId="@exam.ExamId">Invite co-teachers</a> }
+<a class="btn btn-outline-primary" asp-controller="Invitations" asp-action="Team" asp-route-examId="@exam.ExamId">Team discussion</a></div>
+<div class="d-flex flex-column flex-xl-row justify-content-between align-items-xl-end gap-3 mb-4">
+    <div>
+        <span class="eyebrow">Exam paper builder</span>
+        <h2 class="fw-bold mt-1 mb-1">@exam.ExamTitle</h2>
+        <p class="text-secondary mb-0">Choose existing questions below, or use Write a new question to add your own MCQ directly to this paper. You can combine both. Subject and topic are optional when writing a question.</p>
+    </div>
+    <div class="d-flex flex-wrap gap-2">
+        @if (!exam.IsPublished && !exam.IsLocked && (!exam.QuestionLimit.HasValue || selectedCount < exam.QuestionLimit))
+        {
+            <a asp-controller="Question" asp-action="Create" asp-route-examId="@exam.ExamId" asp-route-subjectId="@subjectId" class="btn btn-primary rounded-pill px-3"><i class="bi bi-plus-circle me-1"></i>Write a new question</a>
+        }
+
+        @if (exam.CreatedBy == User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value) {<a asp-controller="Exam" asp-action="Details" asp-route-id="@exam.ExamId" class="btn btn-light border rounded-pill px-3">Review &amp; publish</a>} else {<a asp-controller="Invitations" asp-action="Index" class="btn btn-light border rounded-pill px-3">My collaborations</a>}
+        <a asp-action="Selected" asp-route-examId="@exam.ExamId" class="btn btn-outline-primary rounded-pill px-3"><i class="bi bi-check2-square me-1"></i>Selected Questions <span id="selectedCountBadge" class="badge text-bg-primary ms-1">@selectedCount</span></a>
+    </div>
+</div>
+
+<div class="row g-3 mb-4">
+    <div class="col-md-4"><div class="metric-card"><strong id="selectedCountMetric">@selectedCount</strong><span>Selected Questions</span></div></div>
+    <div class="col-md-4"><div class="metric-card"><strong>@exam.TotalMarks.ToString("0.##")</strong><span>Total Exam Marks</span></div></div>
+    <div class="col-md-4"><div class="metric-card"><strong id="marksPerQuestion">@(selectedCount == 0 ? "—" : (exam.TotalMarks / selectedCount).ToString("0.####"))</strong><span>Approx. Marks per Question</span></div></div>
+</div>
+
+<div class="alert alert-info border-0 rounded-4 d-flex gap-3 align-items-start">
+    <i class="bi bi-lightning-charge-fill fs-4"></i>
+    <div><strong>Instant paper building:</strong> checking a question saves it immediately. Example: if Total Marks = 50 and you select 100 questions, each question receives 0.50 marks. For totals that do not divide exactly, the system distributes hundredths fairly while keeping the exact exam total.</div>
+</div>
+
+<div class="portal-panel p-4 mb-4">
+    <div class="d-flex justify-content-between align-items-start flex-wrap gap-2 mb-3">
+        <div><span class="eyebrow">Subjects</span><h4 class="fw-bold mb-1">Filter questions by subject</h4><p class="small text-secondary mb-0">Filter by subject or search the question bank. Counts show questions still available for this test.</p></div>
+        @if (subjectId.HasValue)
+        {
+            <a asp-action="Index" asp-route-examId="@exam.ExamId" class="btn btn-sm btn-light border rounded-pill">Show all subjects</a>
+        }
+    </div>
+    <div class="subject-folder-grid">
+        @foreach (var subject in subjects)
+        {
+            var count = counts.TryGetValue(subject.SubjectId, out var n) ? n : 0;
+            <a asp-action="Index" asp-route-examId="@exam.ExamId" asp-route-subjectId="@subject.SubjectId" class="subject-folder @(subjectId == subject.SubjectId ? "active" : "")">
+                <span class="subject-folder-icon"><i class="bi bi-folder2-open"></i></span>
+                <span class="subject-folder-copy"><strong>@subject.SubjectName</strong><small><span id="subject-count-@subject.SubjectId">@count</span> MCQs available</small></span>
+                <i class="bi bi-chevron-right"></i>
+            </a>
+        }
+    </div>
+</div>
+
+<div class="card border-0 shadow-sm rounded-4 overflow-hidden">
+    <div class="card-body p-3 p-lg-4">
+        <form asp-action="Index" method="get" class="row g-3 align-items-end mb-4">
+            <input type="hidden" name="examId" value="@exam.ExamId" />
+            <div class="col-lg-4">
+                <label class="form-label fw-semibold">Subject</label>
+                <select name="subjectId" class="form-select" onchange="this.form.submit()">
+                    <option value="">All Subjects</option>
+                    @foreach (var subject in subjects)
+                    {
+                        var count = counts.TryGetValue(subject.SubjectId, out var n) ? n : 0;
+                        if (subjectId == subject.SubjectId)
+                        {
+                            <option value="@subject.SubjectId" selected>@subject.SubjectName (@count available)</option>
+                        }
+                        else
+                        {
+                            <option value="@subject.SubjectId">@subject.SubjectName (@count available)</option>
+                        }
+                    }
+                </select>
+            </div>
+            <div class="col-lg-6">
+                <label class="form-label fw-semibold">Search Question, Topic or Tag</label>
+                <div class="input-group"><span class="input-group-text bg-white"><i class="bi bi-search"></i></span><input name="search" value="@search" class="form-control" placeholder="e.g. photosynthesis, algebra, Pakistan history" /></div>
+            </div>
+            <div class="col-lg-2 d-grid"><button class="btn btn-outline-primary" type="submit"><i class="bi bi-funnel me-1"></i>Filter</button></div>
+        </form>
+
+        <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 border-top border-bottom py-3 mb-2">
+            <div><strong id="availableTotal">@totalQuestions</strong> available question(s) match this filter.</div>
+            <small class="text-secondary">Already selected questions are hidden. Paper limit: @(exam.QuestionLimit?.ToString() ?? "Not set").</small>
+        </div>
+
+        <form id="antiForgeryForm" class="d-none">@Html.AntiForgeryToken()</form>
+        <div class="table-responsive">
+            <table class="table align-middle table-hover builder-table mb-0">
+                <thead><tr><th style="width:70px">Add</th><th style="min-width:180px">Subject / Topic</th><th>Question & Options</th><th style="width:95px">Answer</th></tr></thead>
+                <tbody id="questionRows">
+                    @if (!Model.Any())
+                    {
+                        <tr><td colspan="4"><div class="text-center py-5 text-secondary"><i class="bi bi-check2-circle fs-1 d-block mb-2"></i><h5 class="fw-semibold">No available questions here</h5><p class="mb-0">All matching questions may already be selected, or the filter has no results.</p></div></td></tr>
+                    }
+                    else
+                    {
+                        foreach (var question in Model)
+                        {
+                            <tr id="question-row-@question.QuestionId" data-question-row data-subject-id="@question.SubjectId">
+                                <td><input type="checkbox" class="form-check-input instant-question-check" data-question-id="@question.QuestionId" aria-label="Add question to examination" disabled="@(exam.IsPublished || exam.IsLocked || (exam.QuestionLimit.HasValue && selectedCount >= exam.QuestionLimit.Value) ? "disabled" : null)" /></td>
+                                <td><span class="badge rounded-pill subject-badge">@(question.Subject?.SubjectName ?? "No Subject")</span>@if(!string.IsNullOrWhiteSpace(question.Topic)){
+                                <div class="small text-secondary mt-2">@question.Topic</div>
+                            }
+    </td>
+                            <td><div class="fw-semibold mb-2">@question.QuestionText</div><div class="small text-secondary d-flex flex-wrap gap-x-3 gap-2"><span><b>A.</b> @question.OptionA</span><span><b>B.</b> @question.OptionB</span><span><b>C.</b> @question.OptionC</span><span><b>D.</b> @question.OptionD</span>@if(!string.IsNullOrWhiteSpace(question.OptionE)){
+                            <span><b>E.</b> @question.OptionE</span>
+                        }
+</div></td>
+                        <td><span class="answer-chip">@question.CorrectAnswer</span></td>
+                    </tr>
+                                        }
+                                        }
+                </tbody>
+            </table>
+        </div>
+
+        @if (totalPages > 1)
+        {
+            var firstPage = Math.Max(1, currentPage - 2);
+            var lastPage = Math.Min(totalPages, currentPage + 2);
+            <nav class="d-flex justify-content-between align-items-center flex-wrap gap-3 pt-4" aria-label="Question pages">
+                <small class="text-secondary">Page @currentPage of @totalPages</small>
+                <ul class="pagination pagination-sm mb-0">
+                    <li class="page-item @(currentPage <= 1 ? "disabled" : "")"><a class="page-link" asp-action="Index" asp-route-examId="@exam.ExamId" asp-route-subjectId="@subjectId" asp-route-search="@search" asp-route-page="@(currentPage - 1)">Previous</a></li>
+                    @for (var p = firstPage; p <= lastPage; p++)
+                    {
+                        <li class="page-item @(p == currentPage ? "active" : "")"><a class="page-link" asp-action="Index" asp-route-examId="@exam.ExamId" asp-route-subjectId="@subjectId" asp-route-search="@search" asp-route-page="@p">@p</a></li>
+                    }
+                    <li class="page-item @(currentPage >= totalPages ? "disabled" : "")"><a class="page-link" asp-action="Index" asp-route-examId="@exam.ExamId" asp-route-subjectId="@subjectId" asp-route-search="@search" asp-route-page="@(currentPage + 1)">Next</a></li>
+                </ul>
+            </nav>
+        }
+    </div>
+</div>
+
+@section Scripts {
+    <script>
+        (() => {
+            const token = document.querySelector('#antiForgeryForm input[name="__RequestVerificationToken"]')?.value;
+            const examId = @exam.ExamId;
+            const questionLimit = @(exam.QuestionLimit ?? 1000);
+            const badge = document.getElementById('selectedCountBadge');
+            const metric = document.getElementById('selectedCountMetric');
+            const marks = document.getElementById('marksPerQuestion');
+            const availableTotal = document.getElementById('availableTotal');
+
+            document.querySelectorAll('.instant-question-check').forEach(box => {
+                box.addEventListener('change', async function () {
+                    if (!this.checked) return;
+                    const questionId = this.dataset.questionId;
+                    const row = document.getElementById(`question-row-${questionId}`);
+                    this.disabled = true;
+                    row?.classList.add('opacity-50');
+                    try {
+                        const body = new URLSearchParams({ examId: examId.toString(), questionId: questionId, __RequestVerificationToken: token ?? '' });
+                        const response = await fetch('@Url.Action("AddQuestion", "ExamQuestion", new { area = "Teacher" })', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8', 'X-Requested-With': 'XMLHttpRequest' },
+                            body
+                        });
+                        const data = await response.json();
+                        if (!data.success) throw new Error(data.message || 'Question could not be added.');
+                        if (data.selectedCount >= questionLimit) document.querySelectorAll(".instant-question-check").forEach(x => x.disabled = true);
+                        badge.textContent = data.selectedCount;
+                        metric.textContent = data.selectedCount;
+                        marks.textContent = data.selectedCount > 0 ? Number(data.marksPerQuestion).toFixed(4).replace(/0+$/, '').replace(/\.$/, '') : '—';
+                        if (availableTotal) availableTotal.textContent = Math.max(0, Number(availableTotal.textContent || 0) - 1).toString();
+                        const subjectCounter = document.getElementById(`subject-count-${row?.dataset.subjectId}`);
+                        if (subjectCounter) subjectCounter.textContent = Math.max(0, Number(subjectCounter.textContent || 0) - 1).toString();
+                        row?.animate([{ opacity: 0.5, transform: 'translateX(0)' }, { opacity: 0, transform: 'translateX(20px)' }], { duration: 220, easing: 'ease-out' });
+                        setTimeout(() => row?.remove(), 210);
+                    } catch (error) {
+                        this.checked = false;
+                        this.disabled = false;
+                        row?.classList.remove('opacity-50');
+                        alert(error.message || 'Question could not be added.');
+                    }
+                });
+            });
+        })();
+    </script>
+}

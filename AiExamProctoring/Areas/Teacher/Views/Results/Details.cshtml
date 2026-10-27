@@ -1,0 +1,15 @@
+@model AiExamProctoring.Models.ExamResult
+@{
+    ViewData["Title"] = "Result Details";
+    var logs = (IReadOnlyCollection<AiExamProctoring.Models.ProctoringLog>)ViewBag.Logs;
+}
+<div class="d-flex justify-content-between align-items-start flex-wrap gap-3 mb-4"><div><span class="eyebrow">Result details</span><h2 class="fw-bold mt-1">@Model.Attempt?.Student?.FullName</h2><p class="text-secondary">@Model.Attempt?.Exam?.ExamTitle</p></div><a asp-action="Index" class="btn btn-light border rounded-pill">Back</a></div>
+<div class="row g-3 mb-4"><div class="col-md-3"><div class="metric-card"><strong>@Model.Percentage%</strong><span>Final Score</span></div></div><div class="col-md-3"><div class="metric-card"><strong>@Model.CorrectAnswers</strong><span>Correct</span></div></div><div class="col-md-3"><div class="metric-card"><strong>@logs.Count</strong><span>Historical Events</span></div></div><div class="col-md-3"><div class="metric-card"><strong>@Model.Attempt?.Status</strong><span>Final attempt status</span></div></div></div>
+<div class="card border-0 shadow-sm rounded-4"><div class="card-body p-4"><h5 class="fw-bold">Recorded Proctoring Events</h5><div class="table-responsive mt-3"><table class="table align-middle"><thead><tr><th>Time</th><th>Event</th><th>Severity</th><th>Description</th><th>Evidence</th></tr></thead><tbody>
+@if (logs.Count == 0){<tr><td colspan="5" class="text-center text-muted py-4">No violations recorded.</td></tr>}
+@foreach (var log in logs)
+{
+    var legacyRecording = log.RecordingPath is null && log.ScreenshotPath?.EndsWith(".webm", StringComparison.OrdinalIgnoreCase) == true;
+    <tr><td>@log.CreatedDate.ToString("dd MMM, HH:mm:ss")</td><td>@log.AlertTypeDisplay</td><td><span class="badge @log.SeverityBadgeClass">@log.Severity</span></td><td>@log.Description @if(log.WarningNumber.HasValue){<div>Warning @log.WarningNumber of 3</div>} @if(log.ConfidenceScore.HasValue){<div class="small text-secondary">Score: @log.ConfidenceScore.Value.ToString("0.0000")</div>}</td><td class="text-nowrap">@if(!string.IsNullOrWhiteSpace(log.ScreenshotPath) && !legacyRecording){<a asp-controller="Monitoring" asp-action="Evidence" asp-route-id="@log.LogId" asp-route-kind="screenshot" target="_blank" class="btn btn-sm btn-outline-primary">Screenshot</a>}@if(!string.IsNullOrWhiteSpace(log.RecordingPath) || legacyRecording){<a asp-controller="Monitoring" asp-action="Evidence" asp-route-id="@log.LogId" asp-route-kind="recording" target="_blank" class="btn btn-sm btn-outline-dark ms-1">Clip @(log.RecordingIncludesAudio ? "+ audio" : "")</a>}</td></tr>
+}
+</tbody></table></div></div></div>

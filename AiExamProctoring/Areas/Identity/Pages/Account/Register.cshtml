@@ -1,0 +1,109 @@
+@page
+@model RegisterModel
+@{
+    ViewData["Title"] = "Create Account";
+}
+<style>
+.registration-card{max-width:900px}.registration-card .form-section-card{padding:1.25rem}.registration-card .camera-box{aspect-ratio:4/3;min-height:200px;max-height:320px}.registration-card .role-choice-card{padding:1rem}.registration-card .role-choice-card i{font-size:1.7rem}.registration-card .form-section-card,.registration-card .alert{scroll-margin-top:110px}.photo-thumbnails{display:flex;gap:12px;flex-wrap:wrap;margin-top:12px}.photo-thumbnails figure{margin:0}.photo-thumbnails img{width:96px;height:96px;object-fit:cover;border-radius:10px;border:2px solid #dce6f2}.photo-thumbnails figcaption{font-size:.8rem;color:#53657a}
+</style>
+<section class="auth-page py-4">
+    <div class="container py-lg-4">
+        <div class="auth-card mx-auto overflow-hidden registration-card">
+            <div class="row g-0">
+                <div class="col-12 bg-white p-4 p-lg-5">
+                    <div class="d-flex justify-content-between align-items-start gap-3 mb-4">
+                        <div><span class="section-kicker">Get started</span><h2 class="fw-bold mt-1 mb-1">Create account</h2><p class="text-secondary mb-0">Choose your role, enter your details and add your photos.</p></div>
+                    </div>
+                    <div asp-validation-summary="All" class="alert alert-danger" role="alert" tabindex="-1" id="registrationErrors"></div>
+                    <form method="post" enctype="multipart/form-data" asp-route-returnUrl="@Model.ReturnUrl" id="registerForm">
+                        @Html.AntiForgeryToken()
+                        <div class="form-section-card mb-4">
+                            <div class="form-section-head"><span>1</span><div><h5>Choose account type</h5><p>Select the option that matches how you will use the system.</p></div></div>
+                            <div class="role-choice-grid">
+                                <label class="role-choice">
+                                    <input asp-for="Input.AccountType" type="radio" id="roleStudent" value="Student" />
+                                    <span class="role-choice-card"><i class="bi bi-mortarboard-fill"></i><strong>Student / Candidate</strong><small>Take a class test or apply for a job test</small></span>
+                                </label>
+                                <label class="role-choice">
+                                    <input asp-for="Input.AccountType" type="radio" id="roleTeacher" value="Teacher" />
+                                    <span class="role-choice-card"><i class="bi bi-person-workspace"></i><strong>Teacher</strong><small>Create and manage examinations after approval</small></span>
+                                </label>
+                            </div>
+                            <span asp-validation-for="Input.AccountType" class="text-danger small"></span>
+                        </div>
+                        <div class="form-section-card">
+                            <div class="form-section-head"><span>2</span><div><h5>Basic information</h5><p>Use your real name, CNIC and contact details.</p></div></div>
+                            <div class="row g-3">
+                                <div class="col-md-6"><label asp-for="Input.FirstName" class="form-label fw-semibold"></label><input asp-for="Input.FirstName" class="form-control" autocomplete="given-name"/><span asp-validation-for="Input.FirstName" class="text-danger small"></span></div>
+                                <div class="col-md-6"><label asp-for="Input.LastName" class="form-label fw-semibold"></label><input asp-for="Input.LastName" class="form-control" autocomplete="family-name"/><span asp-validation-for="Input.LastName" class="text-danger small"></span></div>
+                                <div class="col-md-6"><label asp-for="Input.CNIC" class="form-label fw-semibold"></label><input asp-for="Input.CNIC" class="form-control" placeholder="42101-1234567-1" inputmode="numeric"/><span asp-validation-for="Input.CNIC" class="text-danger small"></span></div>
+                                <div class="col-md-6"><label asp-for="Input.PhoneNumber" class="form-label fw-semibold"></label><input asp-for="Input.PhoneNumber" class="form-control" autocomplete="tel" placeholder="03xx-xxxxxxx"/><span asp-validation-for="Input.PhoneNumber" class="text-danger small"></span></div>
+                                <div class="col-12"><label asp-for="Input.Email" class="form-label fw-semibold"></label><input asp-for="Input.Email" class="form-control" autocomplete="email" placeholder="you@example.com"/><span asp-validation-for="Input.Email" class="text-danger small"></span></div>
+                            </div>
+                        </div>
+
+                        <div class="form-section-card mt-4">
+                            <div class="form-section-head"><span>3</span><div><h5 id="photoHeading">Your identity photos</h5><p id="photoHelp">Add 5 to 10 different photos of yourself. Keep one clear face visible in good lighting.</p></div></div>
+                            <details class="alert alert-info" open>
+                                <summary class="fw-bold">How to take your 5–10 identity photos / شناختی تصاویر کیسے لیں</summary>
+                                <ol class="mt-2 mb-2">
+                                    <li>Clean the lens and sit facing a window or a lamp. Use even light on your face; avoid a bright window behind you, deep shadows and direct glare.</li>
+                                    <li>Use your own recent photos: 1 straight ahead, 2 slightly left, 3 slightly right, 4 slightly upward, 5 slightly downward. Keep both eyes visible; avoid side profiles or large turns.</li>
+                                    <li>For photos 6–10, repeat these small angles with natural variations. If you wear glasses during exams, include clear photos with your usual glasses, without reflections.</li>
+                                    <li>Keep your whole face in frame, move closer if it looks small, hold still and wait for focus before each capture. An ordinary webcam is fine when the face is clear.</li>
+                                    <li>Only you should be visible. Cover background portraits. Do not use beauty filters, screenshots of faces, masks, or repeated copies of one photo.</li>
+                                    <li>Review every thumbnail; use Remove to replace an individual photo. Supply 5–10 photos: at least 5 must pass face and live-camera checks. Unusable photos are excluded; all accepted references are compared during verification. Teachers need one profile photo.</li>
+                                </ol>
+                                <p lang="ur" dir="rtl" class="mb-0">طالب علم اپنی پانچ سے دس مختلف، حالیہ تصاویر دیں۔ لینز صاف کریں اور روشنی چہرے کے سامنے رکھیں۔ پہلے سیدھا، پھر تھوڑا بائیں، دائیں، اوپر اور نیچے دیکھ کر تصویر لیں۔ دونوں آنکھیں نظر آئیں۔ چشمہ استعمال کرتے ہیں تو اس کے ساتھ بھی صاف تصاویر لیں۔ تیز انعکاس، دھندلی تصویر، بہت کم روشنی اور فلٹر سے بچیں۔ صرف اپنا چہرہ دکھائیں، پس منظر کی تصاویر ڈھانپ دیں۔ ہر تصویر لینے سے پہلے ساکن رہیں اور کیمرے کو فوکس کرنے دیں۔</p>
+                            </details>
+                            <input asp-for="Input.CapturedEnrollmentPhotosJson" type="hidden" id="capturedEnrollmentPhotos" />
+                            <div class="identity-photo-grid">
+                                <div class="camera-box" id="cameraBox">
+                                    <video id="cameraPreview" playsinline autoplay muted></video>
+                                    <canvas id="photoCanvas" class="d-none"></canvas>
+                                    <img id="capturedPreview" class="d-none" alt="Latest captured candidate photo" />
+                                    <div class="camera-placeholder" id="cameraPlaceholder"><i class="bi bi-person-bounding-box"></i><strong>Capture multiple current photos</strong><small>Look straight, then make small natural left/right changes.</small></div>
+                                </div>
+                                <div class="d-flex flex-column gap-2 justify-content-center">
+                                    <button class="btn btn-dark rounded-pill" type="button" id="startCamera"><i class="bi bi-camera-video me-2"></i>Open camera</button>
+                                    <button class="btn btn-primary rounded-pill d-none" type="button" id="capturePhoto"><i class="bi bi-camera me-2"></i>Capture next photo</button>
+                                    <button class="btn btn-outline-secondary rounded-pill d-none" type="button" id="retakePhoto"><i class="bi bi-trash3 me-2"></i>Clear all photos</button>
+                                    <div id="captureCount" role="status" aria-live="polite" class="small fw-semibold text-primary">0 photos captured</div>
+                                    <div class="text-center text-secondary small my-1">or upload</div>
+                                    <label for="Input_FaceEnrollmentImages" class="small fw-semibold">Choose photos from your device</label><input asp-for="Input.FaceEnrollmentImages" type="file" accept="image/jpeg,image/png" multiple class="form-control" />
+                                    <span asp-validation-for="Input.FaceEnrollmentImages" class="text-danger small"></span>
+                                    <small class="text-secondary">JPG/PNG, maximum 5 MB each. Every image must contain exactly one clear face. Do not use group photos, masks or filters.</small>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="form-section-card mt-4">
+                            <div class="form-section-head"><span>4</span><div><h5>Create a password</h5><p>Use at least 8 characters, including a lowercase letter and a number.</p></div></div>
+                            <div class="row g-3">
+                                <div class="col-md-6"><label asp-for="Input.Password" class="form-label fw-semibold"></label><div class="password-wrap"><input asp-for="Input.Password" class="form-control" autocomplete="new-password"/><button type="button" class="password-toggle" aria-label="Show password"><i class="bi bi-eye"></i></button></div><span asp-validation-for="Input.Password" class="text-danger small"></span></div>
+                                <div class="col-md-6"><label asp-for="Input.ConfirmPassword" class="form-label fw-semibold"></label><div class="password-wrap"><input asp-for="Input.ConfirmPassword" class="form-control" autocomplete="new-password"/><button type="button" class="password-toggle" aria-label="Show password"><i class="bi bi-eye"></i></button></div><span asp-validation-for="Input.ConfirmPassword" class="text-danger small"></span></div>
+                            </div>
+                        </div>
+
+                        <div class="alert alert-info mt-4 small">
+                            <strong>Before you register</strong><p class="mb-2">Accepted student photos and their biometric references are saved privately for verification and your profile gallery. An administrator must authorize replacing an enrolled identity. Student photos verify your identity before a test. During tests, screenshots and short camera clips with microphone sound may be saved for your teacher and authorized administrators to review. Observations do not prove cheating. Contact your teacher if you need an adjustment.</p>
+                            <label class="form-check"><input asp-for="Input.AcceptMonitoringNotice" class="form-check-input" data-val="false" required /><span class="form-check-label">I have read and accept this camera and evidence notice.</span></label>
+                            <span asp-validation-for="Input.AcceptMonitoringNotice" class="text-danger"></span>
+                        </div>
+                        <div class="d-flex flex-column flex-sm-row align-items-sm-center justify-content-between gap-3 mt-4">
+                            <p class="small text-secondary mb-0"><i class="bi bi-info-circle me-1"></i>You can complete the rest of your profile after signing in.</p>
+                            <button class="btn btn-primary btn-lg rounded-pill px-4" type="submit"><i class="bi bi-person-check me-2"></i>Create account</button>
+                        </div>
+                        <div class="text-center mt-4 small">Already registered? <a asp-page="./Login" asp-route-returnUrl="@Model.ReturnUrl" class="fw-semibold">Sign in</a></div>
+                    </form>
+                </div>
+            </div>
+        </div>
+    </div>
+</section>
+@section Scripts {
+    <partial name="_ValidationScriptsPartial" />
+    <script src="~/js/identity.js" asp-append-version="true"></script>
+}
+
+<script>window.addEventListener("pageshow", function (event) { if (event.persisted) window.location.reload(); });</script>

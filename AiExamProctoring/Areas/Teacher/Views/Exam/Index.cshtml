@@ -1,0 +1,41 @@
+@model IEnumerable<AiExamProctoring.Models.Exam>
+@using AiExamProctoring.Models
+@{
+    ViewData["Title"] = "My tests";
+    var exams = Model?.ToList() ?? new();
+    var past = ViewBag.Past is bool value && value;
+    var now = DateTime.Now;
+}
+<div class="d-flex justify-content-between align-items-start flex-wrap gap-3 mb-4">
+    <div><h1 class="h3 fw-bold">My tests</h1><p class="text-secondary mb-0">Create a draft, choose questions, then review and publish.</p></div>
+    <a asp-action="Create" class="btn btn-primary">Create a test</a>
+</div>
+<div class="d-flex flex-wrap gap-2 mb-3">
+    <a asp-action="Index" asp-route-past="false" class="btn @(past ? "btn-outline-primary" : "btn-primary")">Current tests</a>
+    <a asp-action="Index" asp-route-past="true" class="btn @(past ? "btn-primary" : "btn-outline-primary")">Past tests</a>
+    <a asp-controller="Monitoring" asp-action="Live" class="btn btn-outline-secondary">Live monitoring</a>
+    <a asp-controller="Results" asp-action="Index" class="btn btn-outline-secondary">Results</a>
+</div>
+<div class="card border-0 shadow-sm rounded-4 table-responsive">
+    <table class="table align-middle mb-0">
+        <thead class="table-light"><tr><th>Test</th><th>Schedule</th><th>Paper</th><th>Status</th><th><span class="visually-hidden">Actions</span></th></tr></thead>
+        <tbody>
+            @if (exams.Count == 0)
+            {
+                <tr><td colspan="5" class="text-center text-secondary py-5">@(past ? "No past tests." : "No tests yet. Create your first test to get started.")</td></tr>
+            }
+            @foreach (var exam in exams)
+            {
+                var state = exam.Status == ExamStatus.Cancelled ? "Cancelled" : !exam.IsReusable && exam.Status == ExamStatus.Completed ? "Completed" :
+                !exam.IsPublished ? "Draft" : exam.IsReusable ? "Open" : now < exam.StartDate ? "Scheduled" : now <= exam.LatestStartDate ? "Entry open" : "Entry closed";
+                <tr>
+                    <td><strong>@exam.ExamTitle</strong><div class="small text-secondary">@exam.AudienceDisplay</div></td>
+                    <td>@(exam.IsReusable ? "Always open" : exam.StartDate.ToString("dd MMM yyyy, hh:mm tt"))</td>
+                    <td>@exam.TotalQuestions questions<div class="small text-secondary">@exam.TotalMarks.ToString("0.##") marks · @exam.DurationMinutes min</div></td>
+                    <td><span class="badge @(exam.IsPublished ? "text-bg-success" : "text-bg-secondary")">@state</span></td>
+                    <td class="text-end"><a asp-action="Details" asp-route-id="@exam.ExamId" class="btn btn-sm btn-outline-primary">@(exam.IsPublished ? "Open" : "Continue draft")</a></td>
+                </tr>
+            }
+        </tbody>
+    </table>
+</div>

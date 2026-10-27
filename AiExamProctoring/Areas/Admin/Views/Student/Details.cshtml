@@ -1,0 +1,629 @@
+﻿@model AiExamProctoring.Models.ApplicationUser
+@using AiExamProctoring.Models
+
+@{
+    ViewData["Title"] = "Student Details";
+    Layout = "~/Areas/Admin/Views/Shared/_AdminLayout.cshtml";
+
+    var attempts = ViewBag.Attempts as List<ExamAttempt> ?? new List<ExamAttempt>();
+}
+
+<div class="container-fluid">
+
+@if (TempData["Success"] != null)
+{
+        <div class="alert alert-success alert-dismissible fade show">
+            <i class="bi bi-check-circle-fill me-2"></i>
+            @TempData["Success"]
+            <button class="btn-close" data-bs-dismiss="alert"></button>
+        </div>
+}
+
+@if (TempData["Error"] != null)
+{
+        <div class="alert alert-danger alert-dismissible fade show">
+            <i class="bi bi-exclamation-circle-fill me-2"></i>
+            @TempData["Error"]
+            <button class="btn-close" data-bs-dismiss="alert"></button>
+        </div>
+}
+
+@if (TempData["Info"] != null)
+{
+        <div class="alert alert-info alert-dismissible fade show">
+            <i class="bi bi-info-circle-fill me-2"></i>
+            @TempData["Info"]
+            <button class="btn-close" data-bs-dismiss="alert"></button>
+        </div>
+}
+
+    <div class="d-flex justify-content-between align-items-center mb-4">
+
+        <div>
+
+            <h2 class="fw-bold mb-1">
+
+                <i class="bi bi-person-badge-fill text-primary me-2"></i>
+
+                Student Details
+
+            </h2>
+
+            <p class="text-muted mb-0">
+
+                View student profile, academic information and examination history.
+
+            </p>
+
+        </div>
+
+        <a asp-action="Index"
+           class="btn btn-outline-secondary">
+
+            <i class="bi bi-arrow-left me-2"></i>
+
+            Back
+
+        </a>
+
+    </div>
+
+    <div class="row g-4 mb-4">
+
+        <div class="col-xl-3 col-md-6">
+
+            <div class="card border-0 shadow rounded-4">
+
+                <div class="card-body text-center">
+
+                    <h6>Total Exams</h6>
+
+                    <h2 class="fw-bold text-primary">
+
+                        @ViewBag.TotalAttempts
+
+                    </h2>
+
+                </div>
+
+            </div>
+
+        </div>
+
+        <div class="col-xl-3 col-md-6">
+
+            <div class="card border-0 shadow rounded-4">
+
+                <div class="card-body text-center">
+
+                    <h6>Completed</h6>
+
+                    <h2 class="fw-bold text-success">
+
+                        @ViewBag.Completed
+
+                    </h2>
+
+                </div>
+
+            </div>
+
+        </div>
+
+        <div class="col-xl-3 col-md-6">
+
+            <div class="card border-0 shadow rounded-4">
+
+                <div class="card-body text-center">
+
+                    <h6>Passed</h6>
+
+                    <h2 class="fw-bold text-success">
+
+                        @ViewBag.Passed
+
+                    </h2>
+
+                </div>
+
+            </div>
+
+        </div>
+
+        <div class="col-xl-3 col-md-6">
+
+            <div class="card border-0 shadow rounded-4">
+
+                <div class="card-body text-center">
+
+                    <h6>Failed</h6>
+
+                    <h2 class="fw-bold text-danger">
+
+                        @ViewBag.Failed
+
+                    </h2>
+
+                </div>
+
+            </div>
+
+        </div>
+
+    </div>
+
+    <div class="card border-0 shadow-sm rounded-4 mb-4">
+        <div class="card-body p-4 d-flex justify-content-between align-items-center flex-wrap gap-3">
+            <div><div class="small text-uppercase fw-bold text-primary">AI Model 1</div><h5 class="fw-bold mb-1">Face Identity Verification</h5><div class="text-muted small">@if (ViewBag.FaceIdentityServiceReady != true){<span>@(ViewBag.FaceIdentityMessage ?? "Service unavailable")</span>}else if(ViewBag.FaceIdentityEnrolled == true){<span>Multi-photo biometric template is enrolled.</span>}else{<span>No identity template is enrolled.</span>}</div></div>
+            <div class="d-flex align-items-center gap-2"><span class="badge @(ViewBag.FaceIdentityEnrolled == true ? "bg-success" : "bg-warning text-dark")">@(ViewBag.FaceIdentityEnrolled == true ? "Enrolled" : "Not enrolled")</span>@if(ViewBag.FaceIdentityEnrolled == true){<form asp-action="ResetFaceIdentity" method="post" onsubmit="return confirm('Reset this biometric template? The student must enroll again before the next exam.');">@Html.AntiForgeryToken()<input type="hidden" name="id" value="@Model.Id"/><button class="btn btn-outline-danger btn-sm rounded-pill" type="submit">Reset identity</button></form>}</div>
+        </div>
+    </div>
+
+    <div class="card shadow border-0 rounded-4">
+
+        <div class="card-header bg-primary text-white py-3">
+
+            <div class="d-flex justify-content-between align-items-center">
+
+                <h4 class="mb-0">
+
+                    <i class="bi bi-person-circle me-2"></i>
+
+                    Student Profile
+
+                </h4>
+
+                <div>
+
+                    @if (Model.IsApproved)
+                    {
+                        <span class="badge bg-success me-2">
+                            Approved
+                        </span>
+                    }
+                    else
+                    {
+                        <span class="badge bg-warning text-dark me-2">
+                            Pending
+                        </span>
+                    }
+
+                    @if (Model.IsBlocked)
+                    {
+                        <span class="badge bg-danger">
+                            Blocked
+                        </span>
+                    }
+                    else
+                    {
+                        <span class="badge bg-success">
+                            Active
+                        </span>
+                    }
+
+                </div>
+
+            </div>
+
+        </div>
+
+        <div class="card-body">
+
+            <div class="row">
+
+                <div class="col-lg-3 text-center">
+
+                    <div class="rounded-circle bg-primary text-white d-flex justify-content-center align-items-center mx-auto mb-3"
+                         style="width:120px;height:120px;font-size:42px;font-weight:bold;">
+
+                        @(string.IsNullOrWhiteSpace(Model.FullName)
+                                                ? "?"
+                                                : Model.FullName.Substring(0, 1).ToUpper())
+
+                    </div>
+
+                    <h4 class="fw-bold">
+
+                        @Model.FullName
+
+                    </h4>
+
+                    <p class="text-muted">
+
+                        @Model.Email
+
+                    </p>
+
+                </div>
+
+                <div class="col-lg-9">
+
+                    <div class="row">
+                        <div class="col-md-6 mb-3">
+                            <label class="fw-semibold text-muted">Full Name</label>
+                            <div class="form-control bg-light">
+                                @Model.FullName
+                            </div>
+                        </div>
+
+                        <div class="col-md-6 mb-3">
+                            <label class="fw-semibold text-muted">Email</label>
+                            <div class="form-control bg-light">
+                                @Model.Email
+                            </div>
+                        </div>
+
+                        <div class="col-md-6 mb-3">
+                            <label class="fw-semibold text-muted">Phone Number</label>
+                            <div class="form-control bg-light">
+                                @(string.IsNullOrWhiteSpace(Model.PhoneNumber) ? "-" : Model.PhoneNumber)
+                            </div>
+                        </div>
+
+                        <div class="col-md-6 mb-3">
+                            <label class="fw-semibold text-muted">CNIC</label>
+                            <div class="form-control bg-light">
+                                @(string.IsNullOrWhiteSpace(Model.CNIC) ? "-" : Model.CNIC)
+                            </div>
+                        </div>
+
+                        <div class="col-md-6 mb-3">
+                            <label class="fw-semibold text-muted">Registration Number</label>
+                            <div class="form-control bg-light">
+                                @(string.IsNullOrWhiteSpace(Model.RegistrationNumber) ? "-" : Model.RegistrationNumber)
+                            </div>
+                        </div>
+
+                        <div class="col-md-6 mb-3">
+                            <label class="fw-semibold text-muted">Roll Number</label>
+                            <div class="form-control bg-light">
+                                @(string.IsNullOrWhiteSpace(Model.RollNumber) ? "-" : Model.RollNumber)
+                            </div>
+                        </div>
+
+                        <div class="col-md-6 mb-3">
+                            <label class="fw-semibold text-muted">Father Name</label>
+                            <div class="form-control bg-light">
+                                @(string.IsNullOrWhiteSpace(Model.FatherName) ? "-" : Model.FatherName)
+                            </div>
+                        </div>
+
+                        <div class="col-md-6 mb-3">
+                            <label class="fw-semibold text-muted">Gender</label>
+                            <div class="form-control bg-light">
+                                @(string.IsNullOrWhiteSpace(Model.Gender) ? "-" : Model.Gender)
+                            </div>
+                        </div>
+
+                        <div class="col-md-6 mb-3">
+                            <label class="fw-semibold text-muted">Date of Birth</label>
+                            <div class="form-control bg-light">
+                                @(Model.DateOfBirth?.ToString("dd MMM yyyy") ?? "-")
+                            </div>
+                        </div>
+
+                        <div class="col-md-6 mb-3">
+                            <label class="fw-semibold text-muted">Department</label>
+                            <div class="form-control bg-light">
+                                @(string.IsNullOrWhiteSpace(Model.Department) ? "-" : Model.Department)
+                            </div>
+                        </div>
+
+                        <div class="col-md-6 mb-3">
+                            <label class="fw-semibold text-muted">Batch</label>
+                            <div class="form-control bg-light">
+                                @(string.IsNullOrWhiteSpace(Model.Batch) ? "-" : Model.Batch)
+                            </div>
+                        </div>
+
+                        <div class="col-md-6 mb-3">
+                            <label class="fw-semibold text-muted">Semester</label>
+                            <div class="form-control bg-light">
+                                @(string.IsNullOrWhiteSpace(Model.Semester) ? "-" : Model.Semester)
+                            </div>
+                        </div>
+
+                        <div class="col-md-6 mb-3">
+                            <label class="fw-semibold text-muted">Session</label>
+                            <div class="form-control bg-light">
+                                @(string.IsNullOrWhiteSpace(Model.Session) ? "-" : Model.Session)
+                            </div>
+                        </div>
+
+                        <div class="col-md-6 mb-3">
+                            <label class="fw-semibold text-muted">University</label>
+                            <div class="form-control bg-light">
+                                @(string.IsNullOrWhiteSpace(Model.University) ? "-" : Model.University)
+                            </div>
+                        </div>
+
+                        <div class="col-md-6 mb-3">
+                            <label class="fw-semibold text-muted">Highest Qualification</label>
+                            <div class="form-control bg-light">
+                                @(string.IsNullOrWhiteSpace(Model.HighestQualification) ? "-" : Model.HighestQualification)
+                            </div>
+                        </div>
+
+                        <div class="col-md-6 mb-3">
+                            <label class="fw-semibold text-muted">Employment Status</label>
+                            <div class="form-control bg-light">
+                                @(Model.CurrentStatus?.ToString() ?? "-")
+                            </div>
+                        </div>
+
+                        <div class="col-md-6 mb-3">
+                            <label class="fw-semibold text-muted">Organization</label>
+                            <div class="form-control bg-light">
+                                @(string.IsNullOrWhiteSpace(Model.OrganizationName) ? "-" : Model.OrganizationName)
+                            </div>
+                        </div>
+
+                        <div class="col-md-6 mb-3">
+                            <label class="fw-semibold text-muted">Address</label>
+                            <div class="form-control bg-light">
+                                @(string.IsNullOrWhiteSpace(Model.Address) ? "-" : Model.Address)
+                            </div>
+                        </div>
+
+                        <div class="col-md-6 mb-3">
+                            <label class="fw-semibold text-muted">City</label>
+                            <div class="form-control bg-light">
+                                @(string.IsNullOrWhiteSpace(Model.City) ? "-" : Model.City)
+                            </div>
+                        </div>
+
+                        <div class="col-md-6 mb-3">
+                            <label class="fw-semibold text-muted">Country</label>
+                            <div class="form-control bg-light">
+                                @(string.IsNullOrWhiteSpace(Model.Country) ? "-" : Model.Country)
+                            </div>
+                        </div>
+
+                        <div class="col-md-6 mb-3">
+                            <label class="fw-semibold text-muted">Created Date</label>
+                            <div class="form-control bg-light">
+                                @Model.CreatedDate.ToString("dd MMM yyyy hh:mm tt")
+                            </div>
+                        </div>
+
+                        <div class="col-md-6 mb-3">
+                            <label class="fw-semibold text-muted">Last Login</label>
+                            <div class="form-control bg-light">
+                                @(Model.LastLoginDate?.ToString("dd MMM yyyy hh:mm tt") ?? "Never")
+                            </div>
+                        </div>
+
+                    </div>
+
+                </div>
+
+                <div class="card-footer d-flex gap-2">
+
+                    <a asp-action="Edit"
+                       asp-route-id="@Model.Id"
+                       class="btn btn-warning">
+
+                        <i class="bi bi-pencil-square me-2"></i>
+
+                        Edit
+
+                    </a>
+
+                    <a asp-action="Delete"
+                       asp-route-id="@Model.Id"
+                       class="btn btn-danger">
+
+                        <i class="bi bi-trash me-2"></i>
+
+                        Delete
+
+                    </a>
+
+                    <a asp-area="Admin" asp-controller="Exam" asp-action="Index"
+                       class="btn btn-primary">
+
+                        <i class="bi bi-journal-check me-2"></i>
+
+                        View Exam Oversight
+
+                    </a>
+
+                </div>
+
+            </div>
+            <div class="card shadow border-0 rounded-4 mt-4">
+
+                <div class="card-header bg-white py-3">
+                    <h5 class="fw-bold mb-0">
+                        <i class="bi bi-clock-history me-2"></i>
+                        Exam History
+                    </h5>
+                </div>
+
+                <div class="card-body">
+
+                    @if (attempts.Any())
+                    {
+                        <div class="table-responsive">
+
+                            <table class="table table-hover align-middle">
+
+                                <thead class="table-light">
+
+                                    <tr>
+                                        <th>Exam</th>
+                                        <th>Started</th>
+                                        <th>Finished</th>
+                                        <th>Status</th>
+                                        <th>Score</th>
+                                        <th>Result</th>
+                                        <th width="120">Action</th>
+                                    </tr>
+
+                                </thead>
+
+                                <tbody>
+
+                                    @foreach (var item in attempts)
+                                    {
+                                        <tr>
+
+                                            <td>
+
+                                                <strong>
+
+                                                    @(item.Exam?.Title ?? "-")
+
+                                                </strong>
+
+                                            </td>
+
+                                            <td>
+
+                                                @item.StartTime.ToString("dd MMM yyyy hh:mm tt")
+
+                                            </td>
+
+                                            <td>
+
+                                                @(item.EndTime?.ToString("dd MMM yyyy hh:mm tt") ?? "-")
+
+                                            </td>
+
+                                            <td>
+
+                                                @switch (item.Status)
+                                                {
+                                                    case AttemptStatus.Completed:
+                                                        <span class="badge bg-success">
+                                                            Completed
+                                                        </span>
+                                                        break;
+
+                                                    case AttemptStatus.AutoSubmitted:
+                                                        <span class="badge bg-warning text-dark">
+                                                            Auto Submitted
+                                                        </span>
+                                                        break;
+
+                                                    case AttemptStatus.ProctoringBlocked:
+                                                        <span class="badge bg-danger">
+                                                            <i class="bi bi-shield-lock me-1"></i>
+                                                            Proctoring Hold
+                                                        </span>
+                                                        break;
+
+                                                    default:
+                                                        <span class="badge bg-primary">
+                                                            In Progress
+                                                        </span>
+                                                        break;
+                                                }
+
+                                            </td>
+
+                                            <td>
+
+                                                @if (item.Result != null)
+                                                {
+                                                    <strong>
+
+                                                        @item.Result.TotalMarksObtained / @item.Result.TotalMarks
+
+                                                    </strong>
+                                                }
+                                                else
+                                                {
+                                                    <span>-</span>
+                                                }
+
+                                            </td>
+
+                                            <td>
+
+                                                @if (item.Result != null)
+                                                {
+                                                    if (item.Result.IsPassed)
+                                                    {
+                                                        <span class="badge bg-success">
+
+                                                            Passed
+
+                                                        </span>
+                                                    }
+                                                    else
+                                                    {
+                                                        <span class="badge bg-danger">
+
+                                                            Failed
+
+                                                        </span>
+                                                    }
+                                                }
+                                                else
+                                                {
+                                                    <span class="badge bg-secondary">
+
+                                                        Pending
+
+                                                    </span>
+                                                }
+
+                                            </td>
+
+                                            <td>
+
+                                                <a asp-action="ReviewPaper"
+                                                   asp-route-attemptId="@item.AttemptId"
+                                                   class="btn btn-outline-primary btn-sm">
+
+                                                    <i class="bi bi-eye"></i>
+
+                                                </a>
+
+                                            </td>
+
+                                        </tr>
+                                    }
+
+                                </tbody>
+
+                            </table>
+
+                        </div>
+                    }
+                    else
+                    {
+                        <div class="text-center py-5">
+
+                            <i class="bi bi-journal-x display-4 text-secondary"></i>
+
+                            <h5 class="mt-3">
+
+                                No Exam Attempts Found
+
+                            </h5>
+
+                            <p class="text-muted">
+
+                                This student has not attempted any examination yet.
+
+                            </p>
+
+                        </div>
+                    }
+
+                </div>
+
+            </div>
+
+        </div>
+
+    </div>
+</div>
+
+@section Scripts{
+
+            <partial name="_ValidationScriptsPartial" />
+
+}

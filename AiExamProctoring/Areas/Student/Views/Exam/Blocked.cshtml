@@ -1,0 +1,104 @@
+@using System
+@using System.Linq
+@using AiExamProctoring.ViewModels.Student
+@model AiExamProctoring.ViewModels.Student.BlockedExamViewModel
+@{
+    Layout = "~/Areas/Student/Views/Shared/_StudentLayout.cshtml";
+    ViewData["Title"] = "Exam lock review";
+    if (Model is null || Model.AttemptId <= 0)
+    {
+        <section class="student-card p-4" role="alert">
+            <h1 class="h4">Your exam review could not open</h1>
+            <p>Return to your examinations and open the attempt again, or contact your teacher.</p>
+            <a asp-area="Student" asp-controller="Exam" asp-action="Available" class="btn btn-primary">My examinations</a>
+        </section>
+        return;
+    }
+    var incidents = (Model.Incidents ?? Array.Empty<BlockedExamIncident>())
+        .Where(incident => incident != null)
+        .OrderBy(incident => incident.Timestamp).ThenBy(incident => incident.Id).ToList();
+}
+@section Styles {
+    <link rel="stylesheet" href="~/css/exam-blocked.css" asp-append-version="true" />
+}
+<div class="lock-audit" data-proctoring-attempt="@Model.AttemptId" data-blocked="true">
+    <header class="lock-audit-heading">
+        <div><p class="lock-eyebrow">EXAM REVIEW · AUDIT RECORD</p><h1>Exam lock review</h1><p>@Model.ExamTitle</p></div>
+        <span class="lock-reference">ATTEMPT #@Model.AttemptId</span>
+    </header>
+    <section class="lock-summary" aria-labelledby="lock-summary-title">
+        <div class="lock-summary-top">
+            <span class="lock-symbol" aria-hidden="true"><i class="bi bi-shield-lock-fill"></i></span>
+            <div><span class="lock-badge">LOCKED FOR INSTRUCTOR REVIEW</span><h2 id="lock-summary-title">Your exam is locked</h2><p>The timer has stopped. Only your instructor can authorize resumption.</p></div>
+        </div>
+        <div class="lock-reason"><span>PRIMARY REASON</span><p>@(string.IsNullOrWhiteSpace(Model.Reason) ? "Your instructor must review this attempt before it can resume." : Model.Reason)</p></div>
+        <dl class="lock-details">
+            <div><dt>Attempt ID</dt><dd>#@Model.AttemptId</dd></div>
+            <div><dt>Student name</dt><dd>@Model.StudentName</dd></div>
+            <div><dt>Frozen time remaining</dt><dd id="frozenTime">@Model.FrozenTime</dd></div>
+            <div><dt>Saved answers</dt><dd>@Model.SavedAnswers <small>responses</small></dd></div>
+            <div><dt>Lock timestamp</dt><dd>@(Model.LockedAt?.ToString("dd MMM yyyy") ?? "Not recorded")<small>@Model.LockedAt?.ToString("hh:mm:ss tt")</small></dd></div>
+        </dl>
+    </section>
+    <section class="lock-evidence" aria-labelledby="audit-title">
+        <div class="lock-section-heading"><div><p class="lock-eyebrow">CAPTURED EVENTS</p><h2 id="audit-title">Audit timeline</h2><p>Recorded incidents and instructor actions, in chronological order.</p></div><span class="lock-count">@incidents.Count records</span></div>
+        <div class="lock-toolbar"><label for="auditFilter">Show</label><select id="auditFilter"><option value="all">All audit records</option><option value="strike">Strikes &amp; final actions</option><option value="media">Records with evidence</option></select><span id="auditVisible" role="status">@incidents.Count of @incidents.Count records</span></div>
+        @if (incidents.Count == 0)
+        {
+            <div class="lock-empty"><i class="bi bi-folder2-open" aria-hidden="true"></i><h3>No audit records available</h3><p>The attempt is still locked. Your instructor can review the session and its lock status.</p></div>
+        }
+        else
+        {
+            <ol class="lock-timeline">
+                @foreach (var incident in incidents)
+                {
+                    <li class="lock-event @(incident.FinalAction ? "lock-event-final" : "")" data-strike="@(((incident.Stage ?? string.Empty).StartsWith("Strike", StringComparison.OrdinalIgnoreCase) || (incident.Stage ?? string.Empty).StartsWith("Violation", StringComparison.OrdinalIgnoreCase) || incident.FinalAction).ToString().ToLowerInvariant())" data-media="@((!string.IsNullOrWhiteSpace(incident.ScreenshotUrl) || !string.IsNullOrWhiteSpace(incident.AudioUrl) || !string.IsNullOrWhiteSpace(incident.VideoUrl)).ToString().ToLowerInvariant())">
+                        <div class="lock-event-marker" aria-hidden="true">@(incident.FinalAction ? "!" : "•")</div>
+                        <div class="lock-event-meta"><span class="lock-stage">@(string.IsNullOrWhiteSpace(incident.Stage) ? "Audit update" : incident.Stage)</span><time datetime="@incident.Timestamp.ToString("O")">@incident.Timestamp.ToString("hh:mm:ss tt")<small>@incident.Timestamp.ToString("dd MMM yyyy")</small></time><span class="lock-record-id">RECORD #@incident.Id</span></div>
+                        <div class="lock-event-content">
+                            <h3>@incident.Category</h3><details><summary>View recorded description</summary><p>@incident.Description</p></details>
+                            @if (!string.IsNullOrWhiteSpace(incident.Transcript))
+                            {
+                                <details><summary>Speech transcript and question match</summary><p style="white-space:pre-wrap">@incident.Transcript</p><p>Matched question: @(incident.MatchedQuestionId?.ToString() ?? "Not recorded") · Similarity: @(incident.Similarity?.ToString("0.000") ?? "Not recorded")</p></details>
+                            }
+                            <div class="lock-event-media">
+                                @if (!string.IsNullOrWhiteSpace(incident.ScreenshotUrl))
+                                {
+                                    <a class="lock-snapshot" href="@incident.ScreenshotUrl" data-evidence="image" data-caption="@incident.Category · @incident.Timestamp.ToString("hh:mm:ss tt")"><img src="@incident.ScreenshotUrl" alt="Captured webcam evidence for @incident.Category" loading="lazy" /><span><i class="bi bi-arrows-fullscreen" aria-hidden="true"></i> View snapshot</span></a>
+                                }
+                                @if (!string.IsNullOrWhiteSpace(incident.AudioUrl))
+                                {
+                                    <div class="lock-audio"><span><i class="bi bi-soundwave" aria-hidden="true"></i> Recorded microphone audio</span><audio controls preload="none" aria-label="Audio evidence for @incident.Category"><source src="@incident.AudioUrl" />Your browser cannot play this recording.</audio><a href="@incident.AudioUrl" target="_blank" rel="noopener">Open audio recording</a></div>
+                                }
+                                @if (!string.IsNullOrWhiteSpace(incident.VideoUrl))
+                                {
+                                    <div class="lock-video-link"><a href="@(incident.VideoUrl + "#t=0")" data-evidence="video" data-caption="@incident.Category · @incident.Timestamp.ToString("hh:mm:ss tt")"><i class="bi bi-play-circle-fill" aria-hidden="true"></i> @incident.Timestamp.ToString("hh:mm:ss tt") · View event clip</a><small>Opens the associated clip at 00:00. An exact within-clip incident offset was not recorded.</small></div>
+                                }
+                                @if (string.IsNullOrWhiteSpace(incident.ScreenshotUrl) && string.IsNullOrWhiteSpace(incident.AudioUrl) && string.IsNullOrWhiteSpace(incident.VideoUrl))
+                                {
+                                    <p class="lock-media-missing">No media attached to this record.</p>
+                                }
+                            </div>
+                        </div>
+                    </li>
+                }
+            </ol>
+            <p id="auditNoMatches" class="lock-empty" hidden>No records match this filter.</p>
+        }
+    </section>
+    <section class="lock-next" aria-labelledby="next-steps-title">
+        <div class="lock-next-icon" aria-hidden="true"><i class="bi bi-chat-left-text"></i></div><div>
+            <p class="lock-eyebrow">INSTRUCTOR REVIEW</p><h2 id="next-steps-title">What happens next?</h2><p>The saved-answer count and frozen time are shown above. Ask your instructor to review the recorded events and decide whether to resume this attempt. A lock or recorded observation is not itself a final misconduct decision.</p>
+            <form id="appealForm" asp-action="AppealLock" asp-controller="Exam" asp-area="Student" method="post"><input type="hidden" name="attemptId" value="@Model.AttemptId" /><button class="lock-appeal" type="submit" disabled="@Model.ReviewRequested"><i class="bi bi-send" aria-hidden="true"></i> @(Model.ReviewRequested ? "Instructor review requested" : "Appeal Lock / Request Instructor Review")</button></form>
+            <a class="btn btn-outline-secondary my-3" asp-area="Student" asp-controller="Exam" asp-action="Available">Exit exam</a><p>Your saved answers and frozen time stay safe when you exit.</p>
+            <p id="appealStatus" role="status">@(Model.ReviewRequested ? "Your request is saved in the audit log. Please wait for your instructor’s review." : "A request notifies your instructor; it does not unlock the exam automatically.")</p>
+            <div class="lock-status-row"><span id="reviewStatus" role="status">Waiting for instructor review…</span><button type="button" id="checkStatus">Check status <i class="bi bi-arrow-repeat" aria-hidden="true"></i></button></div>
+        </div>
+    </section>
+</div>
+<dialog id="evidenceLightbox" class="lock-lightbox" aria-labelledby="evidenceCaption"><header><h2 id="evidenceCaption">Evidence preview</h2><button type="button" id="closeEvidence" aria-label="Close evidence preview"><i class="bi bi-x-lg" aria-hidden="true"></i></button></header><div id="evidenceContent"></div><p id="evidenceError" role="status"></p></dialog>
+@section Scripts {
+    <script src="~/lib/signalr/signalr.min.js" asp-append-version="true"></script>
+    <script src="~/js/proctoring-client.js" asp-append-version="true"></script>
+    <script src="~/js/exam-blocked.js" asp-append-version="true"></script>
+}

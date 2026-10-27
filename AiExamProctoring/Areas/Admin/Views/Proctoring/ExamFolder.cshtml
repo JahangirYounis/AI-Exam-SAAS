@@ -1,0 +1,44 @@
+@model AiExamProctoring.ViewModels.ProctoringExamFolderPageViewModel
+@{
+    ViewData["Title"] = "Exam Evidence Folder";
+    var candidate = Model.Candidate;
+    var folder = Model.ExamFolder;
+}
+
+<nav class="small mb-3"><a asp-action="Index">Candidate folders</a><span class="mx-2 text-secondary">/</span><a asp-action="Candidate" asp-route-studentId="@candidate.StudentId">@candidate.CandidateName</a><span class="mx-2 text-secondary">/</span><span>@folder.ExamTitle</span></nav>
+<div class="d-flex justify-content-between align-items-start flex-wrap gap-3 mb-4">
+    <div><span class="eyebrow">Admin review</span><h2 class="fw-bold mt-1 mb-1"><i class="bi bi-folder2-open text-warning me-2"></i>@folder.ExamTitle</h2><p class="text-secondary mb-0">@candidate.CandidateName · @candidate.CandidateNumber · Teacher: @folder.TeacherName</p></div>
+    <div class="d-flex gap-2"><a asp-action="ExamFolder" asp-route-studentId="@candidate.StudentId" asp-route-examId="@folder.ExamId" class="btn @(Model.PendingOnly ? "btn-light border" : "btn-primary") rounded-pill">All events</a><a asp-action="ExamFolder" asp-route-studentId="@candidate.StudentId" asp-route-examId="@folder.ExamId" asp-route-pendingOnly="true" class="btn @(Model.PendingOnly ? "btn-warning" : "btn-outline-warning") rounded-pill">Pending only</a></div>
+</div>
+
+<partial name="_EvidenceResumeControl" model="Model" />
+
+<div class="row g-3 mb-4"><div class="col-6 col-xl-3"><div class="metric-card"><strong>@folder.AlertCount</strong><span>Events</span></div></div><div class="col-6 col-xl-3"><div class="metric-card"><strong>@folder.ViolationCount</strong><span>Accepted violations</span></div></div><div class="col-6 col-xl-3"><div class="metric-card"><strong>@folder.EvidenceCount</strong><span>Evidence events</span></div></div><div class="col-6 col-xl-3"><div class="metric-card"><strong class="text-warning">@folder.PendingCount</strong><span>Teacher review pending</span></div></div></div>
+<div class="alert alert-light border rounded-4"><i class="bi bi-eye me-2"></i>Admin provides platform-wide security oversight. The owning Teacher handles routine review; Admin may release an authorized escalation without losing time, answers or the candidate's saved question.</div>
+
+<div class="card border-0 shadow-sm rounded-4"><div class="table-responsive"><table class="table align-middle mb-0">
+    <thead><tr><th>Time</th><th>Alert</th><th>Attempt / Session</th><th>Description</th><th>Saved evidence</th><th>Admin action</th></tr></thead>
+    <tbody>
+    @foreach (var log in Model.Logs)
+    {
+        var legacyRecording = log.RecordingPath is null && log.ScreenshotPath?.EndsWith(".webm", StringComparison.OrdinalIgnoreCase) == true;
+        var hasScreenshot = !string.IsNullOrWhiteSpace(log.ScreenshotPath) && !legacyRecording;
+        var hasRecording = !string.IsNullOrWhiteSpace(log.RecordingPath) || legacyRecording;
+        <tr class="@(!log.IsReviewed ? "table-warning" : null)">
+            <td class="text-nowrap">@log.CreatedDate.ToString("dd MMM yyyy")<div class="small text-secondary">@log.CreatedDate.ToString("hh:mm:ss tt")</div></td>
+            <td><span class="badge @log.AlertBadgeClass">@log.AlertTypeDisplay</span><div class="small mt-1"><span class="badge @log.SeverityBadgeClass">@log.Severity</span></div></td>
+            <td>#@(log.AttemptId?.ToString() ?? "—")<div class="small text-secondary">@(log.SessionAttempt?.Session?.SessionTitle ?? "Pre-exam / exam level")</div></td>
+            <td style="min-width:300px"><div>@log.Description</div><small class="@(log.CountsAsViolation ? "text-danger" : "text-secondary")">@(log.CountsAsViolation ? "Counts as violation" : "Observation / recovery event")</small></td>
+            <td class="text-nowrap">
+                @if (hasScreenshot){<a asp-action="Evidence" asp-route-id="@log.LogId" asp-route-kind="screenshot" target="_blank" class="btn btn-sm btn-outline-primary rounded-pill"><i class="bi bi-image me-1"></i>Screenshot</a>}
+                @if (hasRecording){<a asp-action="Evidence" asp-route-id="@log.LogId" asp-route-kind="recording" target="_blank" class="btn btn-sm btn-outline-dark rounded-pill ms-1"><i class="bi bi-camera-video me-1"></i>Clip @(log.RecordingIncludesAudio ? "+ audio" : "")</a>}
+                @if (!hasScreenshot && !hasRecording){<span class="text-secondary small">None</span>}
+            </td>
+            <td class="text-nowrap">
+                <a asp-action="Details" asp-route-id="@log.LogId" class="btn btn-sm btn-light border rounded-pill">Details</a>
+            </td>
+        </tr>
+    }
+    @if (Model.Logs.Count == 0){<tr><td colspan="6" class="text-center py-5 text-secondary">No events match this folder view.</td></tr>}
+    </tbody>
+</table></div></div>

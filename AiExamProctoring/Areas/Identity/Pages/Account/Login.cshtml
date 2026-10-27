@@ -1,0 +1,39 @@
+@page
+@model LoginModel
+@{ ViewData["Title"] = "Sign in"; }
+<section class="auth-page py-5">
+  <div class="container py-lg-5">
+    <div class="auth-card mx-auto overflow-hidden" style="max-width:980px">
+      <div class="row g-0">
+        <div class="col-lg-5 auth-side-panel p-4 p-lg-5 d-flex flex-column justify-content-between">
+          <div>
+            <a asp-area="" asp-controller="Home" asp-action="Index" class="auth-brand"><span class="public-brand-mark"><i class="bi bi-journal-check"></i></span><strong>AI Based Online Examination System</strong></a>
+            <span class="section-kicker text-info d-block mt-5">Sign in</span>
+            <h1 class="display-6 fw-bold mt-2">Welcome back</h1>
+            <p class="text-white-50">Use the same sign-in page for the Admin, Teacher and Student portals.</p>
+          </div>
+          <div class="auth-trust-list mt-4"><span><i class="bi bi-envelope"></i>Enter your registered email</span><span><i class="bi bi-key"></i>Enter your password</span><span><i class="bi bi-arrow-right-circle"></i>Open your portal</span></div>
+        </div>
+        <div class="col-lg-7 bg-white p-4 p-lg-5">
+          <div class="mb-4"><span class="section-kicker">Account access</span><h2 class="fw-bold mt-1">Sign in to continue</h2><p class="text-secondary">Enter the email address and password used during registration.</p></div>
+          @if (TempData["Success"] is string success)
+          {
+            <div class="alert alert-success" role="status">@success</div>
+          }
+          <form id="account" method="post">
+            @Html.AntiForgeryToken()<input type="hidden" asp-for="ReturnUrl" />
+            <div asp-validation-summary="All" class="alert alert-danger"></div>
+            <div class="mb-3"><label asp-for="Input.Email" class="form-label fw-semibold"></label><input asp-for="Input.Email" class="form-control form-control-lg" autocomplete="username" placeholder="name@example.com"/><span asp-validation-for="Input.Email" class="text-danger small"></span></div>
+            <div class="mb-3"><div class="d-flex justify-content-between"><label asp-for="Input.Password" class="form-label fw-semibold"></label><a asp-page="./ForgotPassword" class="small text-decoration-none">Forgot password?</a></div><div class="password-wrap"><input asp-for="Input.Password" class="form-control form-control-lg" autocomplete="current-password"/><button type="button" class="password-toggle" aria-label="Show password"><i class="bi bi-eye"></i></button></div><span asp-validation-for="Input.Password" class="text-danger small"></span></div>
+            <div class="form-check mb-4"><input class="form-check-input" asp-for="Input.RememberMe"/><label class="form-check-label" asp-for="Input.RememberMe"></label></div>
+            <button id="login-submit" type="submit" class="btn btn-primary btn-lg w-100 rounded-pill"><i class="bi bi-box-arrow-in-right me-2"></i>Sign In</button>
+          </form>
+          <div class="text-center mt-4 small text-secondary">New student or teacher? <a asp-page="./Register" asp-route-returnUrl="@Model.ReturnUrl" class="fw-semibold">Create an account</a></div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+@section Scripts { <partial name="_ValidationScriptsPartial" /> <script src="~/js/identity.js" asp-append-version="true"></script> }
+
+<script>window.addEventListener("pageshow", function (event) { if (event.persisted) window.location.reload(); });</script>

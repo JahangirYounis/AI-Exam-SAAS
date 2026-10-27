@@ -1,0 +1,14 @@
+@model AiExamProctoring.Models.ExamResult
+@{ Layout="~/Areas/Admin/Views/Shared/_AdminLayout.cshtml"; ViewData["Title"]="Result Details"; }
+<div class="d-flex justify-content-between align-items-center mb-4"><div><h2 class="fw-bold">Result Details</h2><p class="text-muted mb-0">Official examination result and session performance.</p></div><a asp-action="Index" class="btn btn-outline-secondary rounded-pill">Back</a></div>
+<div class="row g-4">
+<div class="col-lg-8"><div class="card border-0 shadow-sm rounded-4"><div class="card-body p-4">
+<h4 class="fw-bold">@Model.Attempt?.Exam?.ExamTitle</h4><p class="text-muted">@Model.Attempt?.Student?.FullName</p>
+<div class="row g-3">
+<div class="col-md-3"><div class="small text-muted">Obtained</div><div class="fs-4 fw-bold">@Model.TotalMarksObtained</div></div>
+<div class="col-md-3"><div class="small text-muted">Total</div><div class="fs-4 fw-bold">@Model.TotalMarks</div></div>
+<div class="col-md-3"><div class="small text-muted">Percentage</div><div class="fs-4 fw-bold">@Model.Percentage.ToString("0.##")%</div></div>
+<div class="col-md-3"><div class="small text-muted">Status</div><div class="fs-5 fw-bold @(Model.IsPassed?"text-success":"text-danger")">@(Model.IsPassed?"PASSED":"FAILED")</div></div>
+</div></div></div></div>
+<div class="col-lg-4"><div class="card border-0 shadow-sm rounded-4"><div class="card-body p-4"><div class="mb-3"><span class="text-muted">Correct</span><strong class="float-end">@Model.CorrectAnswers</strong></div><div class="mb-3"><span class="text-muted">Wrong</span><strong class="float-end">@Model.WrongAnswers</strong></div><div class="mb-3"><span class="text-muted">Skipped</span><strong class="float-end">@Model.SkippedAnswers</strong></div><div><span class="text-muted">Generated</span><strong class="float-end">@Model.GeneratedDate.ToString("g")</strong></div></div></div></div>
+</div>

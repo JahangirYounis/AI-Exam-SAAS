@@ -1,0 +1,26 @@
+@model AiExamProctoring.ViewModels.ExamAuditViewModel
+@using AiExamProctoring.Models
+@{
+    var finished = Model.Attempts.Where(a => a.Status is AttemptStatus.Completed or AttemptStatus.AutoSubmitted).ToList();
+    var candidateResults = finished.GroupBy(a => a.StudentId).Select(g => g.OrderByDescending(a => a.CompletedAt).ThenByDescending(a => a.AttemptId).First()).ToList();
+}
+<section class="card shadow-sm my-4"><div class="card-body p-4">
+<h2 class="h4">Exam history and review</h2>
+<p><strong>Created by:</strong> @Model.Creator</p>
+<p class="small">Creator live dashboard: @(Model.CreatorFirstMonitoringAtUtc?.ToLocalTime().ToString("dd MMM yyyy HH:mm") ?? "Not recorded") — @(Model.CreatorLastMonitoringAtUtc?.ToLocalTime().ToString("dd MMM yyyy HH:mm") ?? "Not recorded")</p>
+<p><strong>Question authors:</strong> @string.Join(", ", Model.QuestionAuthors)</p>
+<details class="mb-3"><summary>Invited teachers (@Model.Team.Count)</summary>
+<p class="small text-secondary">Invitation acceptance records team access. It does not prove attendance in live monitoring.</p>
+<ul>@foreach(var teacher in Model.Team) {<li>@teacher.Teacher?.FullName — @(teacher.AcceptedAtUtc.HasValue ? (teacher.IsActive ? "Accepted" : "Access revoked") : "Not accepted") · Questions: @teacher.CanEditQuestions · Monitoring: @teacher.CanMonitor · Live dashboard first opened: @(teacher.FirstMonitoringAtUtc?.ToLocalTime().ToString("dd MMM yyyy HH:mm") ?? "Not recorded") · Last activity: @(teacher.LastMonitoringAtUtc?.ToLocalTime().ToString("dd MMM yyyy HH:mm") ?? "Not recorded") · Invited @teacher.InvitedAtUtc.ToLocalTime().ToString("dd MMM yyyy HH:mm")</li>}</ul>
+</details>
+<div class="d-flex flex-wrap gap-3 mb-3"><span>Selected: <strong>@Model.Selected</strong></span><span>Participated: <strong>@Model.Attempts.Where(a => a.Status != AttemptStatus.NotStarted).Select(a => a.StudentId).Distinct().Count()</strong></span><span>Completed candidates: <strong>@candidateResults.Count</strong></span><span>Failed candidates (latest completed attempt): <strong>@candidateResults.Count(a => !a.IsPassed)</strong></span></div>
+<div class="table-responsive"><table class="table"><thead><tr><th>Candidate</th><th>Attempt</th><th>Marks</th><th>Status</th><th>Result</th></tr></thead><tbody>
+@foreach(var attempt in Model.Attempts) {<tr><td>@attempt.Student?.FullName</td><td>#@attempt.AttemptId</td><td>@attempt.TotalMarksObtained / @attempt.TotalMarks</td><td>@attempt.Status</td><td>@(attempt.Status is AttemptStatus.Completed or AttemptStatus.AutoSubmitted ? (attempt.IsPassed ? "Passed" : "Failed") : "Not final")</td></tr>}
+</tbody></table></div>
+<h3 class="h5 mt-4">Violations, blocks and resume decisions</h3>
+<p class="small">Model alerts are observations for review, not proof of cheating. Historical records without an actor or reason are not reconstructed.</p>
+<div class="table-responsive"><table class="table"><thead><tr><th>Time</th><th>Candidate / attempt</th><th>Event</th><th>Reason and recorded reviewer</th></tr></thead><tbody>
+@foreach(var item in Model.Events) {<tr><td class="text-nowrap">@item.CreatedDate.ToString("dd MMM yyyy HH:mm:ss")</td><td>@item.Student?.FullName / #@item.AttemptId</td><td>@item.AlertTypeDisplay</td><td style="min-width:240px">@if (!string.IsNullOrWhiteSpace(item.ActionByName)) {<strong>@item.ActionByName</strong><br />}@item.Description</td></tr>}
+@if(Model.Events.Count == 0) {<tr><td colspan="4">No recorded violations or lock decisions.</td></tr>}
+</tbody></table></div>
+</div></section>

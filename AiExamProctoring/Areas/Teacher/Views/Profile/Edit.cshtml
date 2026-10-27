@@ -1,0 +1,61 @@
+@model AiExamProctoring.ViewModels.TeacherProfileViewModel
+@{
+    ViewData["Title"] = "Edit Teacher Profile";
+    var image = string.IsNullOrWhiteSpace(Model.ProfileImage) ? Url.Content("~/images/default-user.svg") : Url.Content(Model.ProfileImage);
+}
+
+<div class="d-flex justify-content-between align-items-end flex-wrap gap-3 mb-4">
+    <div><span class="eyebrow">My account</span><h1 class="h2 fw-bold mb-1">Edit Teacher Profile</h1><p class="text-secondary mb-0">Keep your professional identity clear and up to date.</p></div>
+    <a asp-action="Index" class="btn btn-light border rounded-pill px-4"><i class="bi bi-arrow-left me-1"></i>Back to profile</a>
+</div>
+
+<form asp-action="Edit" method="post" enctype="multipart/form-data" data-prevent-double-submit>
+    @Html.AntiForgeryToken()
+    <div asp-validation-summary="All" class="alert alert-danger rounded-4"></div>
+    <div class="row g-4">
+        <div class="col-xl-4">
+            <section class="dashboard-card p-4 text-center sticky-top" style="top:90px">
+                <img id="teacherPhotoPreview" src="@image" width="150" height="150" class="rounded-circle object-fit-cover border border-4 border-white shadow" alt="Teacher profile preview" onerror="this.onerror=null;this.src='@Url.Content("~/images/default-user.svg")';" />
+                <h2 class="h5 fw-bold mt-3">Professional photo</h2>
+                <p class="small text-secondary">Use a recent, clear front-facing photo. It appears in your Teacher workspace.</p>
+                <input asp-for="ImageFile" id="teacherPhotoInput" class="form-control" accept="image/jpeg,image/png" />
+                <span asp-validation-for="ImageFile" class="text-danger small"></span>
+                <div class="small text-secondary mt-2">JPG/PNG · maximum 5 MB</div>
+            </section>
+        </div>
+        <div class="col-xl-8">
+            <section class="dashboard-card">
+                <div class="dashboard-card-header"><div><span class="eyebrow">PERSONAL &amp; PROFESSIONAL</span><h2 class="h5 fw-bold mb-0 mt-1">Profile information</h2></div></div>
+                <div class="dashboard-card-body">
+                    <div class="row g-3">
+                        <div class="col-md-6"><label asp-for="FirstName" class="form-label"></label><input asp-for="FirstName" class="form-control" /><span asp-validation-for="FirstName" class="text-danger small"></span></div>
+                        <div class="col-md-6"><label asp-for="LastName" class="form-label"></label><input asp-for="LastName" class="form-control" /><span asp-validation-for="LastName" class="text-danger small"></span></div>
+                        <div class="col-md-6"><label asp-for="Email" class="form-label"></label><input asp-for="Email" class="form-control" readonly /></div>
+                        <div class="col-md-3"><label asp-for="PhoneNumber" class="form-label">Phone</label><input asp-for="PhoneNumber" class="form-control" /></div>
+                        <div class="col-md-3"><label asp-for="CNIC" class="form-label"></label><input asp-for="CNIC" class="form-control" placeholder="42101-1234567-1" /></div>
+                        <div class="col-md-6"><label asp-for="HighestQualification" class="form-label">Highest qualification</label><input asp-for="HighestQualification" class="form-control" placeholder="e.g. MS Computer Science" /></div>
+                        <div class="col-md-6"><label asp-for="Department" class="form-label">Department / specialization</label><input asp-for="Department" class="form-control" placeholder="e.g. Information Technology" /></div>
+                        <div class="col-md-6"><label asp-for="OrganizationName" class="form-label">School / College / University</label><input asp-for="OrganizationName" class="form-control" /></div>
+                        <div class="col-md-3"><label asp-for="City" class="form-label"></label><input asp-for="City" class="form-control" /></div>
+                        <div class="col-md-3"><label asp-for="Country" class="form-label"></label><input asp-for="Country" class="form-control" /></div>
+                        <div class="col-12"><label asp-for="Address" class="form-label"></label><textarea asp-for="Address" class="form-control" rows="3"></textarea></div>
+                    </div>
+                    <div class="text-end mt-4"><button class="btn btn-primary rounded-pill px-5" type="submit"><i class="bi bi-check2-circle me-1"></i>Save Profile</button></div>
+                </div>
+            </section>
+        </div>
+    </div>
+</form>
+
+@section Scripts {
+    <partial name="_ValidationScriptsPartial" />
+    <script>
+        document.getElementById('teacherPhotoInput')?.addEventListener('change', event => {
+            const file = event.target.files?.[0];
+            if (!file) return;
+            const reader = new FileReader();
+            reader.onload = value => document.getElementById('teacherPhotoPreview').src = value.target.result;
+            reader.readAsDataURL(file);
+        });
+    </script>
+}

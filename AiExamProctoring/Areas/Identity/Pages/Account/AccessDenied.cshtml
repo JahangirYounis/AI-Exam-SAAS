@@ -1,0 +1,34 @@
+@page
+@model AccessDeniedModel
+@{
+    ViewData["Title"] = "Access Denied";
+}
+
+<div class="container py-5">
+    <div class="row justify-content-center">
+        <div class="col-md-8 col-lg-6">
+            <div class="card border-0 shadow-lg rounded-4 text-center overflow-hidden">
+                <div class="card-body p-5">
+                    <div class="display-1 text-danger mb-3">
+                        <i class="bi bi-shield-x"></i>
+                    </div>
+                    <h1 class="fw-bold mb-3">You cannot open this page</h1>
+                    <p class="text-muted fs-5 mb-4">
+                        Your account does not have permission for this page. Return to your portal or sign in with the correct account.
+                    </p>
+                    <a asp-area="" asp-controller="Home" asp-action="Index"
+                       class="btn btn-primary px-4">
+                        <i class="bi bi-house-door me-2"></i>Go to Home Page
+                    </a>
+                    @if (User.Identity?.IsAuthenticated == true)
+                    {
+                        <a asp-page="/Account/Logout" asp-area="Identity"
+                           class="btn btn-outline-secondary px-4 ms-2">
+                            Sign Out
+                        </a>
+                    }
+                </div>
+            </div>
+        </div>
+    </div>
+</div>

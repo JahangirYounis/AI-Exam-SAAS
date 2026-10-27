@@ -1,0 +1,57 @@
+@model AiExamProctoring.ViewModels.TeacherProfileViewModel
+@{
+    ViewData["Title"] = "My Profile";
+    var image = string.IsNullOrWhiteSpace(Model.ProfileImage) ? Url.Content("~/images/default-user.svg") : Url.Content(Model.ProfileImage);
+}
+
+<section class="dashboard-hero teacher-hero mb-4">
+    <div class="dashboard-hero-content align-items-center">
+        <div class="d-flex flex-column flex-md-row align-items-center gap-4">
+            <img src="@image" width="118" height="118" class="rounded-circle object-fit-cover border border-4 border-white shadow" alt="Teacher profile" onerror="this.onerror=null;this.src='@Url.Content("~/images/default-user.svg")';" />
+            <div class="text-center text-md-start">
+                <div class="eyebrow text-white-50">Teacher profile</div>
+                <h1 class="fw-bold text-white mb-1">@Model.FullName</h1>
+                <p class="text-white-50 mb-2">@Model.Email</p>
+                <span class="badge rounded-pill @(Model.IsApproved ? "text-bg-success" : "text-bg-warning")">@(Model.IsApproved ? "Approved Teacher" : "Approval pending")</span>
+            </div>
+        </div>
+        <a asp-action="Edit" class="btn btn-light rounded-pill px-4"><i class="bi bi-pencil-square me-1"></i>Edit Profile</a>
+    </div>
+</section>
+
+<div class="row g-4">
+    <div class="col-xl-8">
+        <section class="dashboard-card h-100">
+            <div class="dashboard-card-header"><div><span class="eyebrow">Profile details</span><h2 class="h5 fw-bold mb-0 mt-1">Teacher information</h2></div><i class="bi bi-person-vcard fs-3 text-primary"></i></div>
+            <div class="dashboard-card-body">
+                <div class="profile-info-grid">
+                    <div><small>Full name</small><strong>@Model.FullName</strong></div>
+                    <div><small>CNIC</small><strong>@(Model.CNIC ?? "—")</strong></div>
+                    <div><small>Phone</small><strong>@(Model.PhoneNumber ?? "—")</strong></div>
+                    <div><small>Qualification</small><strong>@(Model.HighestQualification ?? "—")</strong></div>
+                    <div><small>Department / Specialization</small><strong>@(Model.Department ?? "—")</strong></div>
+                    <div><small>Organization</small><strong>@(Model.OrganizationName ?? "—")</strong></div>
+                    <div><small>City / Country</small><strong>@($"{Model.City ?? "—"}, {Model.Country ?? "—"}")</strong></div>
+                    <div><small>Address</small><strong>@(Model.Address ?? "—")</strong></div>
+                </div>
+            </div>
+        </section>
+    </div>
+    <div class="col-xl-4">
+        <section class="dashboard-card mb-4">
+            <div class="dashboard-card-header"><div><span class="eyebrow">Activity</span><h2 class="h5 fw-bold mb-0 mt-1">Your activity</h2></div></div>
+            <div class="dashboard-card-body">
+                <div class="snapshot-row"><span><i class="bi bi-journal-check"></i> Examinations</span><strong>@Model.ExaminationCount</strong></div>
+                <div class="snapshot-row"><span><i class="bi bi-patch-question"></i> Questions</span><strong>@Model.QuestionCount</strong></div>
+                <div class="snapshot-row"><span><i class="bi bi-people"></i> Candidates</span><strong>@Model.CandidateCount</strong></div>
+            </div>
+        </section>
+        <section class="dashboard-card">
+            <div class="dashboard-card-body">
+                <div class="small text-secondary">Profile photo updated</div><strong>@(Model.ProfilePhotoCapturedAt?.ToString("dd MMM yyyy, hh:mm tt") ?? "No recent photo recorded")</strong>
+                <div class="small text-secondary mt-3">Member since</div><strong>@Model.CreatedDate.ToString("dd MMM yyyy")</strong>
+                <div class="small text-secondary mt-3">Last login</div><strong>@(Model.LastLoginDate?.ToString("dd MMM yyyy, hh:mm tt") ?? "—")</strong>
+            </div>
+        </section>
+    </div>
+</div>

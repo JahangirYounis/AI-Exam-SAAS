@@ -1,0 +1,115 @@
+@using Microsoft.AspNetCore.Identity
+@inject SignInManager<AiExamProctoring.Models.ApplicationUser> SignInManager
+@{
+    var controller = ViewContext.RouteData.Values["controller"]?.ToString();
+    var action = ViewContext.RouteData.Values["action"]?.ToString();
+    string Active(string target) => controller == "Home" && action == target ? "active" : "";
+}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="theme-color" content="#163b65" />
+    <meta name="description" content="AI Based Online Examination System for creating, taking and monitoring online examinations." />
+    <title>@ViewData["Title"] - AI Based Online Examination System</title>
+    <link rel="stylesheet" href="~/lib/bootstrap/dist/css/bootstrap.min.css" asp-append-version="true" />
+    <link rel="stylesheet" href="/lib/bootstrap-icons/bootstrap-icons.min.css" />
+    <link rel="stylesheet" href="~/css/site.css" asp-append-version="true" />
+    @await RenderSectionAsync("Styles", required: false)
+    <link rel="stylesheet" href="~/css/experience.css" asp-append-version="true" />
+<link rel="stylesheet" href="~/css/device-layout.css" asp-append-version="true" />
+</head>
+<body class="public-body">
+<a class="skip-link" href="#main-content">Skip to main content</a>
+<header class="public-header sticky-top">
+    <nav class="navbar navbar-expand-lg navbar-dark public-navbar">
+        <div class="container">
+            <a class="navbar-brand public-brand" asp-area="" asp-controller="Home" asp-action="Index">
+                <span class="public-brand-mark"><i class="bi bi-journal-check"></i></span>
+                <span><strong>AI Based Online Examination System</strong><small>Simple, secure online exams</small></span>
+            </a>
+            <button class="navbar-toggler border-0 shadow-none" type="button" data-bs-toggle="collapse" data-bs-target="#publicNav" aria-controls="publicNav" aria-expanded="false" aria-label="Toggle navigation">
+                <span class="navbar-toggler-icon"></span>
+            </button>
+            <div class="collapse navbar-collapse" id="publicNav">
+                <ul class="navbar-nav mx-auto gap-lg-1">
+                    <li class="nav-item"><a class="nav-link @Active("Index")" asp-area="" asp-controller="Home" asp-action="Index">Home</a></li>
+                    <li class="nav-item"><a class="nav-link @Active("About")" asp-area="" asp-controller="Home" asp-action="About">About</a></li>
+                    <li class="nav-item"><a class="nav-link @Active("HowItWorks")" asp-area="" asp-controller="Home" asp-action="HowItWorks">How it works</a></li>
+                    <li class="nav-item"><a class="nav-link @Active("Features")" asp-area="" asp-controller="Home" asp-action="Features">Features</a></li>
+                    <li class="nav-item"><a class="nav-link @Active("Faq")" asp-area="" asp-controller="Home" asp-action="Faq">Common questions</a></li>
+                    <li class="nav-item"><a class="nav-link @Active("Contact")" asp-area="" asp-controller="Home" asp-action="Contact">Help</a></li>
+                </ul>
+                <div class="d-flex align-items-center gap-2 mt-3 mt-lg-0">
+                    @if (SignInManager.IsSignedIn(User))
+                    {
+                        if (User.IsInRole("Admin"))
+                        {
+                            <a class="btn btn-primary rounded-pill px-3" asp-area="Admin" asp-controller="Dashboard" asp-action="Index"><i class="bi bi-grid me-1"></i>Dashboard</a>
+                        }
+                        else if (User.IsInRole("Student"))
+                        {
+                            <a class="btn btn-primary rounded-pill px-3" asp-area="Student" asp-controller="Dashboard" asp-action="Index"><i class="bi bi-grid me-1"></i>Dashboard</a>
+                        }
+                        else if (User.IsInRole("Teacher"))
+                        {
+                            <a class="btn btn-primary rounded-pill px-3" asp-area="Teacher" asp-controller="Dashboard" asp-action="Index"><i class="bi bi-grid me-1"></i>Dashboard</a>
+                        }
+                        <form asp-area="Identity" asp-page="/Account/Logout" method="post" class="m-0" data-prevent-double-submit="false">
+                            <button class="btn btn-outline-secondary rounded-pill px-3" type="submit">Sign out</button>
+                        </form>
+                    }
+                    else
+                    {
+                        <a class="btn btn-outline-primary rounded-pill px-3" asp-area="Identity" asp-page="/Account/Login">Sign in</a>
+                        <a class="btn btn-primary rounded-pill px-3" asp-area="Identity" asp-page="/Account/Register">Create account</a>
+                    }
+                </div>
+            </div>
+        </div>
+    </nav>
+</header>
+
+<main id="main-content" tabindex="-1">@RenderBody()</main>
+
+<footer class="public-footer">
+    <div class="container py-5">
+        <div class="row g-4">
+            <div class="col-lg-5">
+                <a class="public-brand text-white" asp-area="" asp-controller="Home" asp-action="Index">
+                    <span class="public-brand-mark"><i class="bi bi-journal-check"></i></span>
+                    <span><strong>AI Based Online Examination System</strong><small>Simple, secure online exams</small></span>
+                </a>
+                <p class="footer-copy mt-3 mb-0">Create exams, manage candidates, take tests and review results from one clear system.</p>
+            </div>
+            <div class="col-6 col-lg-2">
+                <h6>Platform</h6>
+                <a asp-area="" asp-controller="Home" asp-action="Features">Features</a>
+                <a asp-area="" asp-controller="Home" asp-action="HowItWorks">How it works</a>
+                <a asp-area="" asp-controller="Home" asp-action="Faq">Common questions</a>
+            </div>
+            <div class="col-6 col-lg-2">
+                <h6>Information</h6>
+                <a asp-area="" asp-controller="Home" asp-action="About">About</a>
+                <a asp-area="" asp-controller="Home" asp-action="Contact">Help</a>
+                <a asp-area="" asp-controller="Home" asp-action="Privacy">Privacy</a>
+            </div>
+            <div class="col-lg-3">
+                <h6>Get started</h6>
+                <p class="footer-copy small">Create an account, complete the device check and take an available examination.</p>
+                <a class="btn btn-outline-light btn-sm rounded-pill px-3" asp-area="Identity" asp-page="/Account/Register">Create account</a>
+            </div>
+        </div>
+        <div class="footer-bottom mt-4 pt-4 d-flex flex-column flex-md-row justify-content-between gap-2">
+            <span>&copy; @DateTime.Now.Year AI Based Online Examination System</span>
+            <span>Made for learning. Designed for clarity.</span>
+        </div>
+    </div>
+</footer>
+<script src="~/lib/jquery/dist/jquery.min.js"></script>
+<script src="~/lib/bootstrap/dist/js/bootstrap.bundle.min.js"></script>
+<script src="~/js/site.js" asp-append-version="true"></script>
+@await RenderSectionAsync("Scripts", required: false)
+</body>
+</html>

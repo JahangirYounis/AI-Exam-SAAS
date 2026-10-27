@@ -1,0 +1,39 @@
+.teacher-body .admin-main {
+    min-width: 0
+}
+
+.teacher-body #teacherExamForm .form-control, .teacher-body #teacherExamForm .form-select {
+    min-width: 0;
+    max-width: 100%
+}
+
+.teacher-body [hidden] {
+    display: none !important
+}
+
+@media(max-width:575.98px) {
+    .teacher-topbar .brand > span:last-child {
+        display: none
+    }
+
+    .teacher-topbar > .container-fluid {
+        gap: .5rem !important
+    }
+
+    .teacher-topbar .brand {
+        min-width: 0
+    }
+
+    .teacher-topbar .user-menu {
+        padding: .25rem
+    }
+
+    .teacher-topbar #invitationBadge {
+        white-space: nowrap
+    }
+
+    .teacher-body .admin-main {
+        padding-left: 1rem;
+        padding-right: 1rem
+    }
+}

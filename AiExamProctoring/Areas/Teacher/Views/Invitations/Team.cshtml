@@ -1,0 +1,11 @@
+@model List<AiExamProctoring.Models.ExamTeamMessage>
+@{ ViewData["Title"] = "Exam team discussion"; }
+<h1>Exam team discussion</h1>
+<p>Coordinate subjects, question preparation and live monitoring with accepted teachers.</p>
+<div class="d-flex gap-2 flex-wrap mb-3"><a class="btn btn-outline-primary" asp-controller="ExamQuestion" asp-action="Index" asp-route-examId="@ViewBag.ExamId">Question paper</a><a class="btn btn-outline-primary" asp-controller="Monitoring" asp-action="Live" asp-route-examId="@ViewBag.ExamId">Live monitoring</a><a class="btn btn-outline-secondary" asp-action="Team" asp-route-examId="@ViewBag.ExamId">Refresh messages</a></div>
+<div id="live-chat" data-kind="team" data-room="@ViewBag.ExamId">
+@foreach (var message in Model) {
+ <article class="card p-3 mb-2" data-message-id="@message.Id"><small>@(((Dictionary<string,string>)ViewBag.Names).GetValueOrDefault(message.SenderId, "Teacher")) · @message.SentAtUtc.ToLocalTime().ToString("dd MMM yyyy HH:mm")</small><p style="white-space:pre-wrap;overflow-wrap:anywhere">@message.Body</p></article>
+}
+</div>
+<form asp-action="Message" method="post"><input type="hidden" name="examId" value="@ViewBag.ExamId"/><label for="teamMessage">Message to exam teachers</label><textarea id="teamMessage" class="form-control mb-2" name="body" maxlength="2000" rows="3" required></textarea><button class="btn btn-primary">Send message</button></form>

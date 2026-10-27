@@ -1,0 +1,136 @@
+@model AiExamProctoring.Models.Exam
+@using AiExamProctoring.Models
+@{
+    ViewData["Title"] = "Review & publish";
+}
+@if (Model is null)
+{
+    <div class="alert alert-warning">Test details could not load. Return to your test list.</div>
+    <a asp-action="Index" class="btn btn-primary">All tests</a>
+}
+else
+{
+    var selected = Model.ExamQuestions?.Where(q => q.IsActive).ToList() ?? new();
+    var assigned = Model.Assignments?.Count(a => a.IsActive) ?? 0;
+    var ended = Model.Status == ExamStatus.Cancelled || (!Model.IsReusable && Model.Status == ExamStatus.Completed);
+    var editable = !Model.IsPublished && !Model.IsLocked && !ended;
+    var sectionsValid = Model.NumberOfSessions >= 1 && Model.NumberOfSessions <= selected.Count && Model.DurationMinutes >= Model.NumberOfSessions;
+    var audienceReady = Model.Audience == ExamAudience.Public || Model.AcademicClassId.HasValue || assigned > 0;
+    var windowOpen = Model.IsReusable || DateTime.Now <= Model.LatestStartDate;
+    var canPublish = editable && sectionsValid && audienceReady && windowOpen && (!Model.QuestionLimit.HasValue || selected.Count == Model.QuestionLimit.Value);
+    <div class="d-flex justify-content-between align-items-start flex-wrap gap-3 mb-4">
+        <div><span class="badge @(Model.IsPublished ? "text-bg-success" : "text-bg-secondary")">@(ended? Model.Status.ToString() : Model.IsPublished ? "Published" : "Draft")</span><h1 class="h3 fw-bold mt-2">@Model.ExamTitle</h1><p class="text-secondary mb-0">@Model.AudienceDisplay · @Model.PurposeDisplay</p></div>
+        <a asp-action="Index" class="btn btn-outline-secondary">All tests</a>
+    </div>
+    @if (Model.QuestionLimit.HasValue) {<p class="alert alert-info">Paper: @selected.Count / @Model.QuestionLimit questions selected. Select exactly this number before publishing.</p>}
+    @if (Model.Purpose == ExamPurpose.Recruitment) {<p>Department: @Model.RecruitmentDepartment · Job: @Model.RecruitmentPost · Grade: @Model.RecruitmentGrade</p>}
+    <div class="row g-4">
+        <div class="col-lg-8">
+            <section class="card border-0 shadow-sm rounded-4 mb-3">
+                <div class="card-body p-4">
+                    <div class="d-flex justify-content-between gap-2 flex-wrap"><h2 class="h5 fw-bold">Test summary</h2>@if(editable){
+                    <a asp-action="Edit" asp-route-id="@Model.ExamId" class="btn btn-sm btn-outline-secondary">Edit details</a>
+                }
+</div>
+                <p class="mb-2">@Model.DurationMinutes active minutes · @Model.TotalMarks.ToString("0.##") marks · Pass: @Model.PassingPercentage.ToString("0.##")%</p>
+                <p class="small text-secondary mb-2">@(Model.IsReusable ? "Always open" : $"Starts {Model.StartDate:dd MMM yyyy, hh:mm tt} · Latest entry {Model.LatestStartDate:hh:mm tt}")</p>
+                <p class="small text-secondary mb-0">@Model.NumberOfSessions section@(Model.NumberOfSessions == 1 ? "" : "s") · Wrong-answer deduction: @Model.NegativeMarksPerWrongAnswer.ToString("0.##"). Sections are prepared automatically on publish.</p>
+            </div>
+        </section>
+        <section class="card border-0 shadow-sm rounded-4 mb-3">
+            <div class="card-body p-4">
+                <div class="d-flex justify-content-between align-items-center gap-2 flex-wrap"><h2 class="h5 fw-bold mb-0">Questions <span class="badge text-bg-light border">@selected.Count</span></h2><div class="d-flex gap-2">@if(editable){
+                <a asp-controller="ExamQuestion" asp-action="Index" asp-route-examId="@Model.ExamId" class="btn btn-sm btn-primary">Choose questions</a>
+                                }
+<a asp-controller="ExamQuestion" asp-action="Selected" asp-route-examId="@Model.ExamId" class="btn btn-sm btn-outline-secondary">Review paper</a></div></div>
+                @if (selected.Count == 0)
+                {
+                    <p class="text-secondary mt-3 mb-0">Add questions from your bank or write a new question.</p>
+                }
+                @foreach (var group in selected.GroupBy(q => q.Question?.Subject?.SubjectName ?? "Questions"))
+                {
+                    <div class="d-flex justify-content-between border-bottom py-3"><span>@group.Key</span><strong>@group.Count()</strong></div>
+                }
+                @if (selected.Count > 0 && !sectionsValid)
+                {
+                    <p class="text-danger mt-3 mb-0">Each section needs at least one question and one minute. Adjust the section count or add questions.</p>
+                }
+            </div>
+        </section>
+        <section class="card border-0 shadow-sm rounded-4">
+            <div class="card-body p-4">
+                <h2 class="h5 fw-bold">Student access</h2>
+                @if (Model.Audience == ExamAudience.Public)
+                {
+                    <p class="mb-0">All approved students can discover this test after publishing.</p>
+                }
+                else
+                {
+                    <p>@(Model.AcademicClassId.HasValue ? "Approved members of the linked class can join with the code below." : $"{assigned} candidates selected. Only selected students can join.")</p>
+                    @if (editable && !Model.AcademicClassId.HasValue)
+                    {
+                        <a asp-action="Candidates" asp-route-id="@Model.ExamId" class="btn btn-outline-primary mb-3">Select candidates</a>
+                    }
+                    @if (!string.IsNullOrWhiteSpace(Model.ClassCode))
+                    {
+                        <label for="joinLink" class="form-label small d-block">Share with eligible students</label>
+                        <input id="joinLink" class="form-control" readonly value="@Url.Action("Join", "Exam", new { area = "Student", code = Model.ClassCode }, Context.Request.Scheme)" />
+                        <p class="small mt-2 mb-0">Code: <strong>@Model.ClassCode</strong>. Sharing a code does not give access to an outsider.</p>
+                    }
+                }
+            </div>
+        </section>
+    </div>
+    <div class="col-lg-4">
+@if (editable)
+{
+    <section class="card p-4 my-3">
+        <h2 class="h5">Configure sections</h2>
+        <p>Set this once after choosing your questions. Publishing prepares the sections and locks the paper.</p>
+        <form asp-action="ConfigureSections" method="post" class="d-flex gap-2 flex-wrap">
+            <input type="hidden" name="id" value="@Model.ExamId" />
+            <label for="section-count">Number of sections</label>
+            <input id="section-count" class="form-control w-auto" name="count" type="number" min="1" max="20" value="@Model.NumberOfSessions" required />
+            <button class="btn btn-outline-primary">Save sections</button>
+        </form>
+    </section>
+}
+
+        <section class="card border-0 shadow-sm rounded-4">
+            <div class="card-body p-4">
+                <h2 class="h5 fw-bold">@(Model.IsPublished ? "Test is published" : "Ready to publish?")</h2>
+                @if (editable)
+                {
+                    <p class="small text-secondary">Check the paper, schedule and audience. Publishing locks the test and makes it available to eligible students at the scheduled time.</p>
+                    <p class="small">Monitoring: <strong>@(Model.BlockingMode == ExamBlockingMode.MANUAL_ONLY ? "Teacher controls" : "Automatic block")</strong>. @(Model.BlockingMode == ExamBlockingMode.MANUAL_ONLY ? "Teachers review alerts and decide whether to block." : "The fourth standard violation blocks the test; confirmed identity replacement can block immediately.")</p>
+                    @if (!windowOpen)
+                    {
+                        <p class="text-danger small">The entry window has closed. Edit the schedule.</p>
+                    }
+                    @if (!audienceReady)
+                    {
+                        <p class="text-danger small">Select candidates before publishing this private test.</p>
+                    }
+                    <form asp-action="Publish" asp-route-id="@Model.ExamId" method="post" asp-antiforgery="false">
+                        @Html.AntiForgeryToken()
+                        <button type="submit" class="btn btn-primary w-100" disabled="@(!canPublish ? "disabled" : null)">Publish and Lock</button>
+                    </form>
+                    <p class="small text-secondary mt-2 mb-0">Server checks confirm the latest question and candidate eligibility before publishing.</p>
+                }
+                else
+                {
+                    <p class="small text-secondary">@(ended ? "This test is closed. Its records remain available." : "The paper and settings are locked to protect existing attempts.")</p>
+                    <div class="d-grid gap-2">
+                        <a asp-controller="Monitoring" asp-action="Live" asp-route-examId="@Model.ExamId" class="btn btn-primary">Live monitoring</a>
+                        <a asp-controller="ResultReview" asp-action="Index" asp-route-examId="@Model.ExamId" class="btn btn-outline-primary">Review results</a>
+                    </div>
+                }
+                <hr /><a asp-controller="Invitations" asp-action="Manage" asp-route-examId="@Model.ExamId" class="small">Manage co-teachers</a>
+            </div>
+        </section>
+    </div>
+</div>
+}
+
+@if (Model is not null) { @await Component.InvokeAsync("ExamAudit", new { examId = Model.ExamId }) }
+

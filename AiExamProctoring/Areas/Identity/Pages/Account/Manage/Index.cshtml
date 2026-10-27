@@ -1,0 +1,257 @@
+﻿@page
+@model IndexModel
+
+@{
+    ViewData["Title"] = "My Profile";
+    ViewData["ActivePage"] = ManageNavPages.Index;
+}
+
+<div class="container py-4">
+
+    <div class="row justify-content-center">
+
+        <div class="col-lg-10">
+
+            <div class="card shadow-lg border-0 rounded-4">
+
+                <div class="card-header bg-primary text-white">
+
+                    <div class="d-flex justify-content-between align-items-center">
+
+                        <div>
+
+                            <h3 class="mb-0">
+
+                                <i class="bi bi-person-circle me-2"></i>
+
+                                My Profile
+
+                            </h3>
+
+                            <small>
+
+                                Manage your personal information
+
+                            </small>
+
+                        </div>
+
+                    </div>
+
+                </div>
+
+                <div class="card-body p-4">
+
+                    <partial name="_StatusMessage"
+                             for="StatusMessage" />
+
+                    <form method="post">
+
+                        <div asp-validation-summary="All"
+                             class="alert alert-danger">
+                        </div>
+
+                        <div class="row">
+
+                            <!-- Left Side -->
+
+                            <div class="col-md-4 text-center">
+
+                                @if (!string.IsNullOrEmpty(Model.Input.ProfileImage))
+                                {
+                                    <img src="@Model.Input.ProfileImage"
+                                         class="rounded-circle shadow mb-3"
+                                         width="170"
+                                         height="170"
+                                         style="object-fit:cover;" />
+                                }
+                                else
+                                {
+                                    <img src="~/images/default-user.svg"
+                                         class="rounded-circle shadow mb-3"
+                                         width="170"
+                                         height="170"
+                                         style="object-fit:cover;" />
+                                }
+
+                                <h5 class="fw-bold">
+
+                                    @Model.Input.FullName
+
+                                </h5>
+
+                                <p class="text-muted">
+
+                                    @Model.Username
+
+                                </p>
+
+                                @if (Model.Input.IsApproved)
+                                {
+                                    <span class="badge bg-success mb-2">
+
+                                        Approved
+
+                                    </span>
+                                }
+                                else
+                                {
+                                    <span class="badge bg-warning text-dark mb-2">
+
+                                        Pending Approval
+
+                                    </span>
+                                }
+
+                                <br />
+
+                                @if (Model.Input.IsBlocked)
+                                {
+                                    <span class="badge bg-danger">
+
+                                        Blocked
+
+                                    </span>
+                                }
+                                else
+                                {
+                                    <span class="badge bg-primary">
+
+                                        Active Account
+
+                                    </span>
+                                }
+
+                            </div>
+
+                            <!-- Right Side -->
+
+                            <div class="col-md-8">
+
+                                <div class="row">
+
+                                    <div class="col-md-6 mb-3">
+
+                                        <label asp-for="Input.FullName"
+                                               class="form-label fw-bold">
+                                        </label>
+
+                                        <input asp-for="Input.FullName"
+                                               class="form-control" />
+
+                                        <span asp-validation-for="Input.FullName"
+                                              class="text-danger">
+                                        </span>
+
+                                    </div>
+
+                                    <div class="col-md-6 mb-3">
+
+                                        <label class="form-label fw-bold">
+
+                                            Email
+
+                                        </label>
+
+                                        <input asp-for="Username"
+                                               class="form-control"
+                                               disabled />
+
+                                    </div>
+
+                                    <div class="col-md-6 mb-3">
+
+                                        <label asp-for="Input.PhoneNumber"
+                                               class="form-label fw-bold">
+                                        </label>
+
+                                        <input asp-for="Input.PhoneNumber"
+                                               class="form-control" />
+
+                                        <span asp-validation-for="Input.PhoneNumber"
+                                              class="text-danger">
+                                        </span>
+
+                                    </div>
+
+                                    <div class="col-md-6 mb-3">
+
+                                        <label asp-for="Input.RollNumber"
+                                               class="form-label fw-bold">
+                                        </label>
+
+                                        <input asp-for="Input.RollNumber"
+                                               class="form-control" />
+
+                                    </div>
+
+                                    <div class="col-md-6 mb-3">
+
+                                        <label asp-for="Input.Department"
+                                               class="form-label fw-bold">
+                                        </label>
+
+                                        <input asp-for="Input.Department"
+                                               class="form-control" />
+
+                                    </div>
+
+                                    <div class="col-md-6 mb-3">
+
+                                        <label asp-for="Input.Batch"
+                                               class="form-label fw-bold">
+                                        </label>
+
+                                        <input asp-for="Input.Batch"
+                                               class="form-control" />
+
+                                    </div>
+
+                                    <div class="col-md-6 mb-3">
+
+                                        <label asp-for="Input.Semester"
+                                               class="form-label fw-bold">
+                                        </label>
+
+                                        <input asp-for="Input.Semester"
+                                               class="form-control" />
+
+                                    </div>
+
+                                </div>
+
+                                <hr />
+
+                                <div class="text-end">
+
+                                    <button type="submit"
+                                            class="btn btn-primary btn-lg">
+
+                                        <i class="bi bi-check-circle-fill me-2"></i>
+
+                                        Save Changes
+
+                                    </button>
+
+                                </div>
+
+                            </div>
+
+                        </div>
+
+                    </form>
+
+                </div>
+
+            </div>
+
+        </div>
+
+    </div>
+
+</div>
+
+@section Scripts
+{
+    <partial name="_ValidationScriptsPartial" />
+}

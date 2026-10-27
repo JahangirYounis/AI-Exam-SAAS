@@ -1,0 +1,26 @@
+@model AiExamProctoring.ViewModels.ProctoringExamFolderPageViewModel
+@if (Model.BlockedAttemptIds.Count > 0)
+{
+    <section class="card border-danger shadow-sm mb-4" aria-labelledby="resume-title">
+        <div class="card-body p-4">
+            <h2 id="resume-title" class="h5">Review and unblock</h2>
+            <p>Review the evidence, then explain why this candidate may continue. Saved answers, question and remaining time will be restored.</p>
+            <form asp-action="UnblockAttempt" method="post" class="row g-3">
+                @Html.AntiForgeryToken()
+                <input type="hidden" name="studentId" value="@Model.Candidate.StudentId" />
+                <input type="hidden" name="examId" value="@Model.ExamFolder.ExamId" />
+                <div class="col-md-3">
+                    <label for="resume-attempt" class="form-label">Blocked attempt</label>
+                    <select id="resume-attempt" name="attemptId" class="form-select">
+                        @foreach (var id in Model.BlockedAttemptIds) { <option value="@id">Attempt #@id</option> }
+                    </select>
+                </div>
+                <div class="col-md-9">
+                    <label for="resume-reason" class="form-label">Reason for unblocking</label>
+                    <textarea id="resume-reason" name="reason" class="form-control" required minlength="10" maxlength="300" rows="2"></textarea>
+                </div>
+                <div><button type="submit" class="btn btn-danger">Unblock and resume</button></div>
+            </form>
+        </div>
+    </section>
+}

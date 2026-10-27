@@ -1,0 +1,4 @@
+@model List<AiExamProctoring.Models.ExamInvigilator>
+@{ViewData["Title"]="Exam collaboration invitations";}
+<h1>Exam collaboration invitations</h1><p>Accept to help build the draft question paper and monitor candidates live.</p>
+@foreach(var i in Model){<div class="card p-3 mb-3"><h3>@i.Exam?.ExamTitle</h3>@if(i.IsActive && i.AcceptedAtUtc != null){<a class="btn btn-outline-primary" asp-action="Team" asp-route-examId="@i.ExamId">Team discussion</a>@if(i.CanEditQuestions){<a class="btn btn-outline-primary" asp-controller="ExamQuestion" asp-action="Index" asp-route-examId="@i.ExamId">Build question paper</a>}@if(i.CanMonitor){<a asp-controller="Monitoring" asp-action="Live" asp-route-examId="@i.ExamId">Open live room</a>}}else if(i.RevokedAtUtc == null){<form asp-action="Accept" method="post"><input type="hidden" name="id" value="@i.Id"/><button class="btn btn-primary">Accept invitation</button></form>}</div>}

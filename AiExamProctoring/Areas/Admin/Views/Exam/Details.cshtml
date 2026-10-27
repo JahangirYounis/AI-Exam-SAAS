@@ -1,0 +1,53 @@
+@model AiExamProctoring.Models.Exam
+@using AiExamProctoring.Models
+@{
+    ViewData["Title"] = "Exam Oversight";
+    var assignments = Model.Assignments.Count(x => x.IsActive);
+    var sessions = Model.Sessions.Count(x => x.IsActive);
+}
+
+<div class="d-flex justify-content-between align-items-start flex-wrap gap-3 mb-4">
+    <div>
+        <span class="eyebrow">Exam details</span>
+        <h2 class="fw-bold mt-1 mb-1">@Model.ExamTitle</h2>
+        <p class="text-secondary mb-0">Managed by <strong>@ViewBag.TeacherName</strong> · @Model.AudienceDisplay · @Model.PurposeDisplay</p>
+    </div>
+    <a asp-action="Index" class="btn btn-light border rounded-pill">All examinations</a>
+</div>
+
+<div class="alert alert-info border-0 rounded-4"><i class="bi bi-info-circle-fill me-2"></i>Admin can audit every examination and its proctoring activity. The public demo test is system-configured and admin-managed; teacher-owned tests remain the responsibility of their creating teacher.</div>
+
+<div class="row g-3 mb-4">
+    <div class="col-6 col-xl-3"><div class="metric-card h-100"><strong>@Model.TotalQuestions</strong><span>Questions</span></div></div>
+    <div class="col-6 col-xl-3"><div class="metric-card h-100"><strong>@sessions / @Model.NumberOfSessions</strong><span>Sessions</span></div></div>
+    <div class="col-6 col-xl-3"><div class="metric-card h-100"><strong>@assignments</strong><span>Candidates</span></div></div>
+    <div class="col-6 col-xl-3"><div class="metric-card h-100"><strong>@ViewBag.AttemptCount</strong><span>Attempts</span><small class="d-block text-danger mt-1">@ViewBag.BlockedAttemptCount blocked</small></div></div>
+</div>
+
+<div class="row g-4">
+    <div class="col-lg-7"><div class="portal-panel p-4 h-100">
+        <h5 class="fw-bold">Configuration</h5>
+        <dl class="row mb-0">
+            <dt class="col-sm-5">Class / group</dt><dd class="col-sm-7">@(Model.ClassName ?? "Not specified")</dd>
+            <dt class="col-sm-5">Schedule</dt><dd class="col-sm-7">@Model.StartDate.ToString("dd MMM yyyy · hh:mm tt")</dd>
+            <dt class="col-sm-5">Duration</dt><dd class="col-sm-7">@Model.DurationMinutes minutes</dd>
+            <dt class="col-sm-5">Marks / passing</dt><dd class="col-sm-7">@Model.TotalMarks.ToString("0.##") / @Model.PassingPercentage.ToString("0.##")%</dd>
+            <dt class="col-sm-5">Negative marking</dt><dd class="col-sm-7">@Model.NegativeMarksPerWrongAnswer.ToString("0.##") per wrong answer</dd>
+            <dt class="col-sm-5">Camera / microphone</dt><dd class="col-sm-7">@(Model.RequireCamera ? "Required" : "Optional") / @(Model.RequireMicrophone ? "Required" : "Optional")</dd>
+            <dt class="col-sm-5">Fullscreen</dt><dd class="col-sm-7">@(Model.RequireFullscreen ? "Required" : "Optional")</dd>
+            <dt class="col-sm-5">State</dt><dd class="col-sm-7"><span class="badge text-bg-@(Model.IsPublished ? "success" : "secondary")">@Model.Status</span></dd>
+        </dl>
+    </div></div>
+    <div class="col-lg-5"><div class="portal-panel p-4 h-100">
+        <h5 class="fw-bold">Paper composition</h5>
+        @foreach (var part in Model.SubjectParts.Where(x => x.IsActive))
+        {
+            var count = Model.ExamQuestions.Count(x => x.IsActive && x.Question?.SubjectId == part.SubjectId);
+            <div class="d-flex justify-content-between border-bottom py-3"><span>@part.Subject?.SubjectName</span><strong>@count</strong></div>
+        }
+        @if (!Model.SubjectParts.Any(x => x.IsActive))
+        {
+            <p class="text-muted mb-0">No active subject parts.</p>
+        }
+    </div></div>
+</div>

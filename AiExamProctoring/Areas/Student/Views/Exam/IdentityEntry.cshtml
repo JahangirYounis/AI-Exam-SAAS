@@ -1,0 +1,9 @@
+@model AiExamProctoring.Models.ExamSessionAttempt
+@{
+    Layout = "~/Areas/Student/Views/Shared/_StudentLayout.cshtml";
+    ViewData["Title"] = "Opening your examination";
+}
+<h1 class="h4">Opening your examination</h1>
+<p>Your saved progress is kept. Keep your face visible while this session opens.</p>
+<partial name="_IdentityCheck" model="Model" />
+<noscript><p role="alert">JavaScript is required to connect your camera and open the examination. Enable JavaScript and reload this page.</p></noscript>

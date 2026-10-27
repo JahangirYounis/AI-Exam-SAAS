@@ -1,0 +1,62 @@
+@model AiExamProctoring.ViewModels.AdminDashboardViewModel
+@using AiExamProctoring.Models
+@{
+    ViewData["Title"] = "Admin Dashboard";
+    var now = DateTime.Now;
+}
+
+<div class="alert alert-light border rounded-4"><strong>Quick guide:</strong> Start here: approve Teacher accounts, manage account access, then review system records. Teachers manage their own tests.</div>
+<section class="dashboard-hero mb-4">
+    <div class="dashboard-hero-content">
+        <div><div class="eyebrow text-white-50">Admin Portal</div><h2 class="fw-bold mb-2">Good @(now.Hour < 12 ? "morning" : now.Hour < 17 ? "afternoon" : "evening"), Administrator</h2><p class="mb-0 text-white-50">Manage accounts, review examinations and results, and check monitoring activity.</p></div>
+        <div class="d-flex flex-wrap gap-2"><a asp-controller="Teacher" asp-action="Index" class="btn btn-light rounded-pill px-4"><i class="bi bi-person-check me-1"></i>Teacher approvals (@Model.PendingTeachers)</a><a asp-controller="Proctoring" asp-action="Index" class="btn btn-outline-light rounded-pill px-4"><i class="bi bi-shield-exclamation me-1"></i>Monitoring Events</a></div>
+    </div>
+</section>
+
+<div class="alert alert-info border-0 rounded-4 mb-4"><i class="bi bi-info-circle me-2"></i><strong>Who does what:</strong> Admin manages accounts and system records. Teachers create exams, assign students and review their exam activity.</div>
+
+<section class="row g-3 mb-4">
+    <div class="col-6 col-xl-3"><a asp-controller="Teacher" asp-action="Index" class="dashboard-stat-link"><div class="dashboard-stat h-100"><div class="stat-icon stat-icon-primary"><i class="bi bi-person-workspace"></i></div><div class="stat-label">Teachers</div><div class="stat-value">@Model.TotalTeachers</div><div class="stat-foot"><span class="text-success">@Model.ActiveTeachers active</span><span class="text-warning">@Model.PendingTeachers pending</span></div></div></a></div>
+    <div class="col-6 col-xl-3"><a asp-controller="Student" asp-action="Index" class="dashboard-stat-link"><div class="dashboard-stat h-100"><div class="stat-icon stat-icon-success"><i class="bi bi-people-fill"></i></div><div class="stat-label">Students</div><div class="stat-value">@Model.TotalStudents</div><div class="stat-foot"><span class="text-success">@Model.ActiveStudents active</span><span class="text-warning">@Model.PendingApproval pending</span></div></div></a></div>
+    <div class="col-6 col-xl-3"><a asp-controller="Exam" asp-action="Index" class="dashboard-stat-link"><div class="dashboard-stat h-100"><div class="stat-icon stat-icon-warning"><i class="bi bi-journal-check"></i></div><div class="stat-label">Exam oversight</div><div class="stat-value">@Model.TotalExams</div><div class="stat-foot"><span>@Model.PublishedExams published</span><span>@Model.ActiveExams active</span></div></div></a></div>
+    <div class="col-6 col-xl-3"><a asp-controller="Proctoring" asp-action="Index" class="dashboard-stat-link"><div class="dashboard-stat h-100 @(Model.PendingAlerts > 0 ? "stat-danger" : null)"><div class="stat-icon stat-icon-danger"><i class="bi bi-shield-exclamation"></i></div><div class="stat-label">Integrity events</div><div class="stat-value">@Model.TotalAlerts</div><div class="stat-foot"><span class="@(Model.PendingAlerts > 0 ? "text-danger" : "text-success")">@Model.PendingAlerts pending</span><span>platform-wide</span></div></div></a></div>
+</section>
+
+<div class="row g-4 mb-4">
+    <div class="col-xl-7">
+        <section class="dashboard-card h-100">
+            <div class="dashboard-card-header"><div><span class="eyebrow">Examinations</span><h3 class="h5 fw-bold mb-0 mt-1">Recent examinations</h3></div><a asp-controller="Exam" asp-action="Index" class="btn btn-sm btn-outline-primary rounded-pill">View all</a></div>
+            <div class="table-responsive"><table class="table dashboard-table align-middle mb-0"><thead><tr><th>Examination</th><th>Access</th><th>Schedule</th><th>Status</th><th></th></tr></thead><tbody>
+            @foreach (var exam in Model.RecentExams){<tr><td><strong>@exam.ExamTitle</strong><div class="small text-secondary">@exam.PurposeDisplay</div></td><td><span class="badge @(exam.Audience == ExamAudience.Public ? "text-bg-info" : "text-bg-secondary")">@exam.Audience</span></td><td>@exam.StartDate.ToString("dd MMM yyyy")<div class="small text-secondary">@exam.StartDate.ToString("hh:mm tt")</div></td><td><span class="badge text-bg-light border">@exam.Status</span></td><td><a asp-controller="Exam" asp-action="Details" asp-route-id="@exam.ExamId" class="btn btn-sm btn-light border rounded-circle"><i class="bi bi-arrow-up-right"></i></a></td></tr>}
+            @if(Model.RecentExams.Count == 0){<tr><td colspan="5" class="text-center text-secondary py-5">Teachers have not created an examination yet.</td></tr>}
+            </tbody></table></div>
+        </section>
+    </div>
+    <div class="col-xl-5">
+        <section class="dashboard-card h-100">
+            <div class="dashboard-card-header"><div><span class="eyebrow">Summary</span><h3 class="h5 fw-bold mb-0 mt-1">System totals</h3></div></div>
+            <div class="dashboard-card-body">
+                <div class="snapshot-row"><span><i class="bi bi-person-workspace"></i> Total attempts</span><strong>@Model.TotalAttempts</strong></div>
+                <div class="snapshot-row"><span><i class="bi bi-award"></i> Generated results</span><strong>@Model.TotalResults</strong></div>
+                <div class="snapshot-row"><span><i class="bi bi-check-circle text-success"></i> Passed results</span><strong>@Model.PassedResults</strong></div>
+                <div class="snapshot-row"><span><i class="bi bi-x-circle text-danger"></i> Failed results</span><strong>@Model.FailedResults</strong></div>
+                <div class="snapshot-row"><span><i class="bi bi-person-slash"></i> Blocked students</span><strong>@Model.BlockedStudents</strong></div>
+            </div>
+        </section>
+    </div>
+</div>
+
+<section class="dashboard-card mb-4">
+    <div class="dashboard-card-header"><div><span class="eyebrow">Monitoring</span><h3 class="h5 fw-bold mb-0 mt-1">Latest exam events</h3></div><a asp-controller="Proctoring" asp-action="Index" class="btn btn-sm btn-outline-danger rounded-pill">View candidate folders</a></div>
+    <div class="dashboard-card-body p-0">
+        @foreach (var alert in Model.RecentAlerts){<a asp-controller="Proctoring" asp-action="Details" asp-route-id="@alert.LogId" class="alert-row"><span class="alert-type-dot @alert.SeverityBadgeClass"></span><span class="min-w-0 flex-grow-1"><strong class="d-block text-truncate">@alert.AlertTypeDisplay</strong><small class="text-muted d-block text-truncate">@(alert.Student?.FullName ?? "Unknown candidate") · @(alert.Exam?.ExamTitle ?? "Unknown exam") · @alert.CreatedDate.ToString("dd MMM, hh:mm tt")</small></span><span class="badge-soft @alert.SeverityBadgeClass">@alert.Severity</span></a>}
+        @if(Model.RecentAlerts.Count == 0){<div class="empty-state py-5"><i class="bi bi-shield-check text-success"></i><div class="fw-semibold mt-2">No integrity events</div><small>The platform audit is currently clear.</small></div>}
+    </div>
+</section>
+
+<div class="dashboard-footer-grid">
+    <a asp-controller="Teacher" asp-action="Index" class="quick-action"><span class="quick-icon"><i class="bi bi-person-workspace"></i></span><span><strong>Manage Teachers</strong><small>Approval, block and account access</small></span><i class="bi bi-arrow-right ms-auto"></i></a>
+    <a asp-controller="Student" asp-action="Index" class="quick-action"><span class="quick-icon"><i class="bi bi-people"></i></span><span><strong>Manage Students</strong><small>Profiles, status and attempt history</small></span><i class="bi bi-arrow-right ms-auto"></i></a>
+    <a asp-controller="Results" asp-action="Index" class="quick-action"><span class="quick-icon"><i class="bi bi-bar-chart-line"></i></span><span><strong>Results</strong><small>@Model.TotalResults official results</small></span><i class="bi bi-arrow-right ms-auto"></i></a>
+    <a asp-controller="ExamHistory" asp-action="Index" class="quick-action"><span class="quick-icon"><i class="bi bi-archive"></i></span><span><strong>Examination History</strong><small>Locked historical papers and audit</small></span><i class="bi bi-arrow-right ms-auto"></i></a>
+</div>

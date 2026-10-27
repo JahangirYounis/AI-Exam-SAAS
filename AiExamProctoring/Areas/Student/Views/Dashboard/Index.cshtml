@@ -1,0 +1,285 @@
+@using System
+@using System.Linq
+@using System.Globalization
+@using System.Collections.Generic
+@using AiExamProctoring.Models
+@using AiExamProctoring.ViewModels.Student
+@model AiExamProctoring.ViewModels.Student.StudentDashboardViewModel
+@{
+    Layout = "~/Areas/Student/Views/Shared/_StudentLayout.cshtml";
+    ViewData["Title"] = "Student Dashboard";
+    if (Model is null)
+    {
+        <section class="student-card p-4" role="alert">
+            <h1 class="h4">Your dashboard could not load</h1>
+            <p>@(ViewBag.DashboardLoadError as string ?? "Please reload this page or contact your examination administrator.")</p>
+            <a asp-area="Student" asp-controller="Dashboard" asp-action="Index" class="btn btn-primary">Try again</a>
+        </section>
+        return;
+    }
+    var ongoing = (Model.OngoingAttempts ?? new List<ExamAttempt>())
+        .Where(attempt => attempt != null && (attempt.Status == AttemptStatus.InProgress || attempt.Status == AttemptStatus.ProctoringBlocked))
+        .OrderByDescending(attempt => attempt.StartedAt).ToList();
+    var available = (Model.AvailableExams ?? new List<Exam>()).Where(exam => exam != null).ToList();
+    var upcoming = (Model.UpcomingExams ?? new List<Exam>()).Where(exam => exam != null).ToList();
+    var notifications = (Model.Notifications ?? new List<StudentNotificationViewModel>())
+        .Where(notification => notification != null).OrderByDescending(notification => notification.Date).Take(4).ToList();
+    var results = (Model.RecentResults ?? new List<ExamResult>())
+        .Where(result => result != null).OrderByDescending(result => result.GeneratedDate).Take(5).ToList();
+    var primaryAttempt = ongoing.FirstOrDefault();
+    var nextAvailable = available.FirstOrDefault();
+    var profileProgress = Math.Clamp(Model.ProfileCompletionPercentage, 0, 100);
+    var publishedResultCount = Math.Max(0, Model.PassedExamCount) + Math.Max(0, Model.FailedExamCount);
+    var hasResults = publishedResultCount > 0;
+    var averageIsFinite = double.IsFinite(Model.AverageScore);
+    var averageWidth = averageIsFinite ? Math.Clamp(Model.AverageScore, 0d, 100d) : 0d;
+    var averageText = hasResults && averageIsFinite ? Model.AverageScore.ToString("0.#") + "%" : "—";
+    var accuracyText = hasResults && double.IsFinite(Model.AccuracyPercentage) ? Model.AccuracyPercentage.ToString("0.#") + "%" : "—";
+    var studentName = string.IsNullOrWhiteSpace(Model.StudentName) ? "Student" : Model.StudentName;
+    var greeting = string.IsNullOrWhiteSpace(Model.Greeting) ? "Welcome" : Model.Greeting;
+}
+
+<section class="candidate-dashboard-hero mb-4" aria-labelledby="dashboard-title">
+    <div class="candidate-hero-copy">
+        <span class="candidate-kicker">Student Portal</span>
+        <h1 id="dashboard-title">@greeting, @studentName</h1>
+        @if (Model.CurrentDate != default)
+        {
+            <p>@Model.CurrentDate.ToString("dddd, dd MMMM yyyy")</p>
+        }
+        <div class="candidate-identity-chips">
+            <span><i class="bi bi-person-badge" aria-hidden="true"></i> Candidate ID: @(string.IsNullOrWhiteSpace(Model.RollNumber) ? "Not assigned" : Model.RollNumber)</span>
+            @if (!string.IsNullOrWhiteSpace(Model.Department))
+            {
+                <span><i class="bi bi-building" aria-hidden="true"></i> @Model.Department</span>
+            }
+            <span><i class="bi bi-person-check" aria-hidden="true"></i> @(Model.HasIdentityPhoto ? "Profile photo saved" : "Profile photo required")</span>
+        </div>
+        <div class="d-flex flex-wrap gap-2 mt-4">
+            @if (primaryAttempt is not null)
+            {
+                <a asp-area="Student" asp-controller="Exam" asp-action="Resume" asp-route-attemptId="@primaryAttempt.AttemptId" class="btn btn-light rounded-pill px-4">
+                    @(primaryAttempt.Status == AttemptStatus.ProctoringBlocked ? "View teacher review status" : "Continue examination")
+                </a>
+            }
+            else if (nextAvailable is not null)
+            {
+                <a asp-area="Student" asp-controller="Exam" asp-action="PreCheck" asp-route-examId="@nextAvailable.ExamId" class="btn btn-light rounded-pill px-4">Start readiness check</a>
+            }
+            else
+            {
+                <a asp-area="Student" asp-controller="Exam" asp-action="Available" class="btn btn-light rounded-pill px-4">Open examinations</a>
+            }
+            <a asp-area="Student" asp-controller="Result" asp-action="Index" class="btn btn-outline-light rounded-pill px-4">My results</a>
+        </div>
+    </div>
+    <div class="candidate-readiness-card">
+        <div class="readiness-ring" style="--profile-progress:@profileProgress" role="img" aria-label="Profile completion: @profileProgress percent">
+            <strong>@profileProgress%</strong><span>Profile complete</span>
+        </div>
+        <div class="mt-3"><strong>Before your examination</strong><p class="small mb-0 opacity-75">Profile completion does not confirm exam readiness. Camera, microphone and identity checks run before entry.</p></div>
+    </div>
+</section>
+
+@if (ViewBag.ProfileIncomplete == true || !Model.HasIdentityPhoto)
+{
+    <section class="candidate-action-alert mb-4" aria-label="Profile completion reminder">
+        <div class="d-flex gap-3 align-items-start">
+            <div class="action-alert-icon"><i class="bi bi-person-vcard" aria-hidden="true"></i></div>
+            <div><strong>Complete your candidate profile</strong><p class="mb-0">Review the required details and your current photograph. Complete face enrollment from your profile before the examination.</p></div>
+        </div>
+        <a asp-area="Student" asp-controller="Profile" asp-action="Index" class="btn btn-dark rounded-pill text-nowrap">Review profile</a>
+    </section>
+}
+
+<section class="row g-3 mb-4" aria-label="Examination overview">
+    <div class="col-6 col-xl-3"><a asp-area="Student" asp-controller="Exam" asp-action="Available" class="student-stat-link"><div class="student-card candidate-stat h-100"><span class="candidate-stat-icon primary"><i class="bi bi-journal-check" aria-hidden="true"></i></span><div><small>Entry open</small><strong>@Math.Max(0, Model.AvailableExamCount)</strong><span>Readiness check required</span></div></div></a></div>
+    <div class="col-6 col-xl-3"><a href="#ongoing-examinations" class="student-stat-link"><div class="student-card candidate-stat h-100"><span class="candidate-stat-icon warning"><i class="bi bi-hourglass-split" aria-hidden="true"></i></span><div><small>Ongoing attempts</small><strong>@Math.Max(0, Model.OngoingExamCount)</strong><span>Active or awaiting review</span></div></div></a></div>
+    <div class="col-6 col-xl-3"><a asp-area="Student" asp-controller="Result" asp-action="Index" class="student-stat-link"><div class="student-card candidate-stat h-100"><span class="candidate-stat-icon success"><i class="bi bi-bar-chart" aria-hidden="true"></i></span><div><small>Released results</small><strong>@publishedResultCount</strong><span>@Math.Max(0, Model.PassedExamCount) passed</span></div></div></a></div>
+    <div class="col-6 col-xl-3"><a href="#upcoming-examinations" class="student-stat-link"><div class="student-card candidate-stat h-100"><span class="candidate-stat-icon info"><i class="bi bi-calendar3" aria-hidden="true"></i></span><div><small>Upcoming / assigned</small><strong>@Math.Max(0, Model.UpcomingExamCount)</strong><span>Check schedule and release</span></div></div></a></div>
+</section>
+
+<section id="ongoing-examinations" class="student-card p-4 mb-4 candidate-active-panel" aria-labelledby="ongoing-title">
+    <div class="section-heading"><div><span class="section-eyebrow">Your attempts</span><h2 id="ongoing-title">Ongoing examinations</h2></div></div>
+    @if (ongoing.Count > 0)
+    {
+        <div class="active-attempt-list">
+            @foreach (var attempt in ongoing.Take(5))
+            {
+                var blocked = attempt.Status == AttemptStatus.ProctoringBlocked;
+                <div class="active-attempt-item flex-wrap">
+                    <div class="active-attempt-marker @(blocked ? "blocked" : null)"><i class="bi @(blocked ? "bi-shield-lock-fill" : "bi-play-fill")" aria-hidden="true"></i></div>
+                    <div class="min-w-0 flex-grow-1">
+                        <strong class="d-block text-truncate">@(attempt.Exam?.ExamTitle ?? "Examination")</strong>
+                        <span>@(attempt.StartedAt == default ? "Start time not recorded" : "Started " + attempt.StartedAt.ToString("dd MMM yyyy, hh:mm tt"))</span>
+                        @if (blocked)
+                        {
+                            <small class="d-block text-danger mt-1">Locked for teacher review. Open the attempt to check its saved time and status.</small>
+                        }
+                    </div>
+                    <a asp-area="Student" asp-controller="Exam" asp-action="Resume" asp-route-attemptId="@attempt.AttemptId" class="btn @(blocked ? "btn-outline-danger" : "btn-warning") rounded-pill px-4">@(blocked ? "View review status" : "Resume")</a>
+                </div>
+            }
+        </div>
+        @if (Model.OngoingExamCount > ongoing.Count)
+        {
+            <a asp-area="Student" asp-controller="Exam" asp-action="Available" class="d-inline-block mt-3">View all ongoing attempts</a>
+        }
+    }
+    else
+    {
+        <p class="text-secondary mb-0">You have no ongoing examination.</p>
+    }
+</section>
+
+<section class="student-card p-4 mb-4" aria-labelledby="join-title">
+    <h2 id="join-title" class="h4 fw-bold">Have a test code?</h2>
+    <p class="text-secondary">Use the code shared by your teacher. Private tests also require an active assignment or approved class membership.</p>
+    <form asp-area="Student" asp-controller="Exam" asp-action="Join" method="get" class="d-flex gap-2 flex-wrap">
+        <label class="visually-hidden" for="joinCode">Test code</label>
+        <input id="joinCode" name="code" class="form-control" style="max-width:320px" placeholder="Enter your teacher's test code" maxlength="40" required autocomplete="off" />
+        <button class="btn btn-primary" type="submit">Join test</button>
+    </form>
+</section>
+
+<div class="row g-4">
+    <div class="col-xl-8">
+        <section class="student-card p-4 mb-4" aria-labelledby="available-title">
+            <div class="section-heading"><div><span class="section-eyebrow">Entry open</span><h2 id="available-title">Available examinations</h2></div><a asp-area="Student" asp-controller="Exam" asp-action="Available">View all</a></div>
+            @if (available.Count > 0)
+            {
+                <div class="row g-3">
+                    @foreach (var exam in available.Take(4))
+                    {
+                        <div class="col-md-6">
+                            <article class="candidate-exam-card h-100 d-flex flex-column">
+                                <div class="d-flex justify-content-between gap-2"><span class="badge-soft @(exam.Audience == ExamAudience.Public ? "soft-success" : "soft-primary")">@exam.AudienceDisplay</span><span class="small text-secondary">@exam.PurposeDisplay</span></div>
+                                <h3>@exam.ExamTitle</h3>
+                                <div class="candidate-exam-meta"><span>@exam.DurationMinutes min</span><span>@exam.TotalQuestions questions</span><span>@exam.TotalMarks.ToString("0.##") marks</span></div>
+                                @if (!exam.IsReusable)
+                                {
+                                    <p class="small text-secondary mt-2">Entry closes @exam.LatestStartDate.ToString("dd MMM yyyy, hh:mm tt")</p>
+                                }
+                                <div class="d-flex justify-content-between align-items-center gap-2 mt-auto pt-3">
+                                    <small>@(exam.AllowsRepeatAttempts ? "Repeat practice permitted" : "One attempt per candidate")</small>
+                                    <a asp-area="Student" asp-controller="Exam" asp-action="PreCheck" asp-route-examId="@exam.ExamId" class="btn btn-sm btn-primary rounded-pill px-3">Readiness check</a>
+                                </div>
+                            </article>
+                        </div>
+                    }
+                </div>
+            }
+            else
+            {
+                <div class="empty-state py-4"><h3 class="h5 fw-bold">No examination is open right now</h3><p class="soft-muted mb-0">Check your assigned tests and upcoming schedule below.</p></div>
+            }
+        </section>
+
+        <section id="upcoming-examinations" class="student-card p-4" aria-labelledby="upcoming-title">
+            <div class="section-heading"><div><span class="section-eyebrow">Schedule</span><h2 id="upcoming-title">Upcoming and assigned examinations</h2></div></div>
+            @if (upcoming.Count > 0)
+            {
+                <div class="candidate-timeline">
+                    @foreach (var exam in upcoming.Take(5))
+                    {
+                        <div class="candidate-timeline-item flex-wrap">
+                            <div class="timeline-date"><strong>@exam.StartDate.ToString("dd")</strong><span>@exam.StartDate.ToString("MMM")</span></div>
+                            <div class="min-w-0 flex-grow-1">
+                                <strong class="d-block text-truncate">@exam.ExamTitle</strong>
+                                <small>@exam.StartDate.ToString("dd MMM yyyy, hh:mm tt") · @exam.DurationMinutes minutes</small>
+                                @if (!exam.IsPublished)
+                                {
+                                    <small class="d-block text-secondary">Assigned — awaiting teacher release</small>
+                                }
+                            </div>
+                            <a asp-area="Student" asp-controller="Exam" asp-action="PreCheck" asp-route-examId="@exam.ExamId" class="btn btn-sm btn-light border rounded-pill">Details</a>
+                        </div>
+                    }
+                </div>
+            }
+            else
+            {
+                <p class="text-secondary mb-0">No upcoming examination is assigned.</p>
+            }
+        </section>
+    </div>
+    <div class="col-xl-4">
+        <section class="student-card p-4 mb-4" aria-labelledby="progress-title">
+            <div class="section-heading"><div><span class="section-eyebrow">Released results</span><h2 id="progress-title">Your progress</h2></div></div>
+            <div class="performance-score"><strong>@averageText</strong><span>Average score across released results</span></div>
+            @if (hasResults)
+            {
+                <div class="progress progress-thin mt-3" role="progressbar" aria-label="Average score" aria-valuenow="@averageWidth.ToString("0.#", CultureInfo.InvariantCulture)" aria-valuemin="0" aria-valuemax="100">
+                    <div class="progress-bar bg-primary" style="width:@averageWidth.ToString("0.#", CultureInfo.InvariantCulture)%"></div>
+                </div>
+                <div class="performance-grid">
+                    <div><strong class="text-success">@Math.Max(0, Model.CorrectAnswers)</strong><span>Correct</span></div>
+                    <div><strong class="text-danger">@Math.Max(0, Model.WrongAnswers)</strong><span>Wrong</span></div>
+                    <div><strong>@Math.Max(0, Model.SkippedQuestions)</strong><span>Skipped</span></div>
+                    <div><strong>@accuracyText</strong><span>Answered correctly</span></div>
+                </div>
+            }
+            else
+            {
+                <p class="small text-secondary mt-3 mb-0">Statistics appear after a result is released. Results awaiting teacher review are excluded.</p>
+            }
+        </section>
+
+        <section class="student-card p-4 mb-4" aria-labelledby="checklist-title">
+            <div class="section-heading"><h2 id="checklist-title">Before you start</h2></div>
+            <ul class="small text-secondary ps-3 mb-3">
+                <li class="mb-2">Review your profile and complete face enrollment.</li>
+                <li class="mb-2">Check your camera and microphone during the readiness check.</li>
+                <li>Use a well-lit workspace and read the examination instructions.</li>
+            </ul>
+            <a asp-area="Student" asp-controller="Profile" asp-action="Index" class="btn btn-sm btn-outline-primary">Open my profile</a>
+        </section>
+
+        <section class="student-card p-4" aria-labelledby="notifications-title">
+            <div class="section-heading"><h2 id="notifications-title">Notifications</h2><span class="badge-soft soft-primary">@Math.Max(0, Model.UnreadNotificationCount) unread</span></div>
+            @if (notifications.Count > 0)
+            {
+                <div class="candidate-notifications">
+                    @foreach (var notification in notifications)
+                    {
+                        <div class="@(notification.IsRead ? null : "unread")">
+                            <span class="notification-dot" aria-hidden="true"></span>
+                            <div><strong>@notification.Title</strong><p>@notification.Message</p><small>@notification.Date.ToString("dd MMM yyyy, hh:mm tt")</small></div>
+                        </div>
+                    }
+                </div>
+            }
+            else
+            {
+                <p class="text-secondary mb-0">No notifications yet.</p>
+            }
+        </section>
+    </div>
+</div>
+
+<section class="student-card p-4 mt-4" aria-labelledby="results-title">
+    <div class="section-heading"><h2 id="results-title">Latest released results</h2><a asp-area="Student" asp-controller="Result" asp-action="Index">View all results</a></div>
+    <div class="table-responsive">
+        <table class="table table-modern align-middle mb-0">
+            <caption class="visually-hidden">Your most recent released examination results</caption>
+            <thead><tr><th scope="col">Examination</th><th scope="col">Score</th><th scope="col">Percentage</th><th scope="col">Outcome</th><th scope="col">Date</th><th scope="col">Details</th></tr></thead>
+            <tbody>
+                @foreach (var result in results)
+                {
+                    <tr>
+                        <td><strong>@(result.Attempt?.Exam?.ExamTitle ?? "Examination")</strong></td>
+                        <td>@result.TotalMarksObtained.ToString("0.##") / @result.TotalMarks.ToString("0.##")</td>
+                        <td>@result.Percentage.ToString("0.##")%</td>
+                        <td><span class="badge-soft @(result.IsPassed ? "soft-success" : "soft-danger")">@(result.IsPassed ? "Passed" : "Not passed")</span></td>
+                        <td>@result.GeneratedDate.ToString("dd MMM yyyy")</td>
+                        <td><a asp-area="Student" asp-controller="Result" asp-action="Details" asp-route-id="@result.ResultId" class="btn btn-sm btn-light border rounded-pill" aria-label="View result for @(result.Attempt?.Exam?.ExamTitle ?? "examination")">Open</a></td>
+                    </tr>
+                }
+                @if (results.Count == 0)
+                {
+                    <tr><td colspan="6" class="text-center py-4 soft-muted">No result has been released yet. Results requiring teacher review appear after approval.</td></tr>
+                }
+            </tbody>
+        </table>
+    </div>
+</section>

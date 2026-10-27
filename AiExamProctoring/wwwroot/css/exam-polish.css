@@ -1,0 +1,15 @@
+/* Shared, lightweight portal surfaces; no remote fonts or animation library. */
+.student-card,.teacher-body .card,.camera-tile{border:1px solid #dce6eb;border-radius:18px;box-shadow:0 8px 28px #18384b09}
+.student-card,.teacher-body .card{background:linear-gradient(135deg,#fffffffa,#f8fbfffa)}
+.teacher-topbar,.student-topbar{background:#ffffffed;backdrop-filter:blur(10px)}
+.assessment-header h1,.student-card h2{letter-spacing:-.025em;line-height:1.2}
+.teacher-body .table>:not(caption)>*>*,.student-body .table>:not(caption)>*>*{padding:1rem .85rem}
+.teacher-body .table tbody tr:hover{background:#f2f7fc}
+.timer-pill{font-variant-numeric:tabular-nums;background:#edf5ff;color:#143b63;border:1px solid #d0e2f6;border-radius:14px;padding:.3rem .9rem}
+.badge{line-height:1.4;font-weight:650;letter-spacing:.015em}
+.btn{transition:background-color .15s,border-color .15s,box-shadow .15s}
+.btn:focus-visible,a:focus-visible,select:focus-visible,input:focus-visible{outline:3px solid #245dcc;outline-offset:3px}
+.camera-tile .tile-alert{color:#b42318}
+.camera-tile video{border-bottom:1px solid #dce6eb}
+@media(max-width:575px){.student-card{padding:1.1rem!important}.teacher-body .table{font-size:.9rem}.timer-pill{font-size:1.6rem!important}}
+@media(prefers-reduced-motion:reduce){.btn,.camera-tile{transition:none;animation:none!important}}

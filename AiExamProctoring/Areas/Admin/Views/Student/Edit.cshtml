@@ -1,0 +1,215 @@
+﻿@model AiExamProctoring.Models.ApplicationUser
+
+@{
+    ViewData["Title"] = "Edit Student";
+    Layout = "~/Areas/Admin/Views/Shared/_AdminLayout.cshtml";
+}
+
+<div class="row justify-content-center">
+
+    <div class="col-xl-10">
+
+        <div class="card shadow border-0 rounded-4">
+
+            <div class="card-header bg-warning py-3">
+
+                <div class="d-flex justify-content-between align-items-center">
+
+                    <h3 class="mb-0">
+                        <i class="bi bi-pencil-square me-2"></i>
+                        Edit Student
+                    </h3>
+
+                    <a asp-action="Details"
+                       asp-route-id="@Model.Id"
+                       class="btn btn-dark">
+
+                        <i class="bi bi-arrow-left me-1"></i>
+
+                        Back
+
+                    </a>
+
+                </div>
+
+            </div>
+
+            <form asp-action="Edit" method="post" autocomplete="off">
+
+                @Html.AntiForgeryToken()
+
+                <input asp-for="Id" type="hidden" />
+
+                <div class="card-body">
+
+                    <div asp-validation-summary="All"
+                         class="alert alert-danger">
+                    </div>
+
+                    <div class="row">
+
+                        <div class="col-md-6 mb-3">
+
+                            <label asp-for="FullName"
+                                   class="form-label fw-semibold"></label>
+
+                            <input asp-for="FullName"
+                                   class="form-control" />
+
+                            <span asp-validation-for="FullName"
+                                  class="text-danger"></span>
+
+                        </div>
+
+                        <div class="col-md-6 mb-3">
+
+                            <label asp-for="Email"
+                                   class="form-label fw-semibold"></label>
+
+                            <input asp-for="Email"
+                                   type="email"
+                                   class="form-control" />
+
+                            <span asp-validation-for="Email"
+                                  class="text-danger"></span>
+
+                        </div>
+
+                        <div class="col-md-6 mb-3">
+
+                            <label asp-for="PhoneNumber"
+                                   class="form-label fw-semibold"></label>
+
+                            <input asp-for="PhoneNumber"
+                                   class="form-control" />
+
+                            <span asp-validation-for="PhoneNumber"
+                                  class="text-danger"></span>
+
+                        </div>
+
+                        <div class="col-md-6 mb-3">
+
+                            <label asp-for="RollNumber"
+                                   class="form-label fw-semibold"></label>
+
+                            <input asp-for="RollNumber"
+                                   class="form-control" />
+
+                        </div>
+
+                        <div class="col-md-6 mb-3">
+
+                            <label asp-for="Department"
+                                   class="form-label fw-semibold"></label>
+
+                            <input asp-for="Department"
+                                   class="form-control" />
+
+                        </div>
+
+                        <div class="col-md-6 mb-3">
+
+                            <label asp-for="Batch"
+                                   class="form-label fw-semibold"></label>
+
+                            <input asp-for="Batch"
+                                   class="form-control" />
+
+                        </div>
+
+                        <div class="col-md-6 mb-3">
+
+                            <label asp-for="Semester"
+                                   class="form-label fw-semibold"></label>
+
+                            <input asp-for="Semester"
+                                   class="form-control" />
+
+                        </div>
+
+                        <div class="col-md-6 mb-3">
+
+                            <label class="form-label fw-semibold">
+
+                                Account Status
+
+                            </label>
+
+                            <div>
+
+                                @if (Model.IsBlocked)
+                                {
+                                    <span class="badge bg-danger">
+                                        Blocked
+                                    </span>
+                                }
+                                else
+                                {
+                                    <span class="badge bg-success">
+                                        Active
+                                    </span>
+                                }
+
+                                @if (Model.IsApproved)
+                                {
+                                    <span class="badge bg-success ms-2">
+                                        Approved
+                                    </span>
+                                }
+                                else
+                                {
+                                    <span class="badge bg-warning text-dark ms-2">
+                                        Pending Approval
+                                    </span>
+                                }
+
+                            </div>
+
+                        </div>
+
+                    </div>
+
+                </div>
+
+                <div class="card-footer bg-white">
+
+                    <button type="submit"
+                            class="btn btn-warning">
+
+                        <i class="bi bi-check-circle me-2"></i>
+
+                        Save Changes
+
+                    </button>
+
+                    <a asp-action="Details"
+                       asp-route-id="@Model.Id"
+                       class="btn btn-info">
+
+                        <i class="bi bi-eye me-1"></i>
+
+                        Details
+
+                    </a>
+
+                    <a asp-action="Index"
+                       class="btn btn-secondary">
+
+                        Cancel
+
+                    </a>
+
+                </div>
+
+            </form>
+
+        </div>
+
+    </div>
+
+</div>
+
+@section Scripts {
+    <partial name="_ValidationScriptsPartial" />
+}

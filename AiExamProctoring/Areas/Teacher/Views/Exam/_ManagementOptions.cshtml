@@ -1,0 +1,11 @@
+@model AiExamProctoring.Models.Exam
+@{
+    var classes = ViewBag.Classes as List<AiExamProctoring.Models.AcademicClass> ?? new();
+}
+<label asp-for="AcademicClassId" class="form-label">Class roster</label>
+<select asp-for="AcademicClassId" class="form-select"><option value="">I will select candidates</option>@foreach (var group in classes) {
+<option value="@group.Id">@group.Name</option>
+}
+</select>
+<span asp-validation-for="AcademicClassId" class="text-danger"></span>
+<p class="small text-secondary mt-2 mb-0">Class members can join using the test code. Without a class, select candidates before publishing. A forwarded code does not grant access to an outsider. <a asp-controller="Classes" asp-action="Index">Manage classes</a></p>

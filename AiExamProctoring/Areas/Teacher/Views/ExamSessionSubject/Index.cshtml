@@ -1,0 +1,7 @@
+@model IReadOnlyCollection<AiExamProctoring.Models.ExamSessionSubject>
+@{ var session = (AiExamProctoring.Models.ExamSession)ViewBag.Session; ViewData["Title"] = "Session Distribution"; }
+<div class="d-flex justify-content-between align-items-start flex-wrap gap-3 mb-4"><div><span class="eyebrow">Session details</span><h2 class="fw-bold mt-1 mb-1">@session.SessionTitle</h2><p class="text-secondary mb-0">@session.Exam?.ExamTitle · @session.DurationMinutes minutes · @session.TotalQuestions questions</p></div><a asp-controller="ExamSession" asp-action="Index" asp-route-examId="@session.ExamId" class="btn btn-light border rounded-pill">Back to Sessions</a></div>
+<div class="card border-0 shadow-sm rounded-4"><div class="table-responsive"><table class="table align-middle mb-0"><thead class="table-light"><tr><th>Subject</th><th>Questions</th><th>Marks</th><th>Order</th></tr></thead><tbody>
+@foreach (var part in Model) { <tr><td><strong>@part.Subject?.SubjectName</strong></td><td>@part.QuestionsToShow</td><td>@part.Marks.ToString("0.##")</td><td>@part.DisplayOrder</td></tr> }
+@if (Model.Count == 0) { <tr><td colspan="4" class="text-center text-muted py-5">No subject distribution is available. Regenerate sessions after selecting questions.</td></tr> }
+</tbody></table></div></div>

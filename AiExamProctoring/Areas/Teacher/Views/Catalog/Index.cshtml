@@ -1,0 +1,74 @@
+@model AiExamProctoring.ViewModels.TeacherCatalogViewModel
+@{ ViewData["Title"] = "Question subjects"; }
+<h1>Question subjects</h1>
+<section id="subjects" class="dashboard-card mb-4">
+    <div class="dashboard-card-header">
+        <div><span class="eyebrow">Step 3 · Subjects</span><h3 class="h5 fw-bold mb-0 mt-1">Subjects</h3></div>
+        <a asp-controller="Question" asp-action="Index" class="btn btn-sm btn-outline-primary rounded-pill">Open Question Bank</a>
+    </div>
+    <div class="dashboard-card-body">
+        <form asp-action="CreateSubject" method="post" class="portal-panel p-3 mb-4" data-prevent-double-submit>
+            @Html.AntiForgeryToken()
+            <div class="row g-3 align-items-end">
+                <div class="col-lg-5"><label class="form-label">Subject name</label><input name="subjectName" class="form-control" maxlength="150" required placeholder="e.g. Environmental Science" /></div>
+                <div class="col-lg-5"><label class="form-label">Simple description</label><input name="description" class="form-control" maxlength="500" placeholder="Topics covered by this subject" /></div>
+                <div class="col-lg-2"><button class="btn btn-primary w-100" type="submit"><i class="bi bi-plus-lg me-1"></i>Add</button></div>
+            </div>
+        </form>
+
+        <div class="table-responsive">
+            <table class="table align-middle table-modern mb-0">
+                <thead><tr><th>Subject</th><th>Question bank</th><th>Status</th><th class="text-end">Manage</th></tr></thead>
+                <tbody>
+                    @foreach (var subject in Model.Subjects)
+                    {
+                        <tr>
+                            <td><strong>@subject.SubjectName</strong><div class="small text-secondary">@(subject.Description ?? "No description")</div></td>
+                            <td><span class="badge-soft @(subject.ActiveQuestionCount >= 50 ? "soft-success" : "soft-warning")">@subject.ActiveQuestionCount active MCQs</span></td>
+                            <td><span class="badge @(subject.IsActive ? "text-bg-success" : "text-bg-secondary")">@(subject.IsActive ? "Active" : "Archived")</span>@if(subject.IsLocked){<span class="badge text-bg-light border ms-1"><i class="bi bi-lock-fill"></i> Seed protected</span>}</td>
+                            <td class="text-end">
+                                @if (!subject.IsLocked)
+                                {
+                                    <details class="d-inline-block text-start catalog-row-editor">
+                                        <summary class="btn btn-sm btn-light border rounded-pill">Edit</summary>
+                                        <div class="catalog-popover shadow">
+                                            <form asp-action="UpdateSubject" method="post" data-prevent-double-submit>
+                                                @Html.AntiForgeryToken()<input type="hidden" name="subjectId" value="@subject.SubjectId" />
+                                                <label class="form-label small">Subject name</label><input name="subjectName" value="@subject.SubjectName" class="form-control mb-2" required />
+                                                <label class="form-label small">Description</label><textarea name="description" class="form-control mb-2" rows="2">@subject.Description</textarea>
+                                                <button class="btn btn-sm btn-primary w-100" type="submit">Save</button>
+                                            </form>
+                                            <form asp-action="ToggleSubject" method="post" class="mt-2">@Html.AntiForgeryToken()<input type="hidden" name="id" value="@subject.SubjectId" /><button class="btn btn-sm @(subject.IsActive ? "btn-outline-warning" : "btn-outline-success") w-100" type="submit">@(subject.IsActive ? "Archive" : "Activate")</button></form>
+                                        </div>
+                                    </details>
+                                }
+                            </td>
+                        </tr>
+                    }
+                    @if (Model.Subjects.Count == 0){<tr><td colspan="4" class="text-center text-secondary py-5">No subject matches the current search.</td></tr>}
+                </tbody>
+            </table>
+        </div>
+    </div>
+</section>
+
+@section Styles {
+<style>
+    .catalog-summary{cursor:pointer;list-style:none}.catalog-summary::-webkit-details-marker{display:none}
+    .catalog-summary::after{content:"\F282";font-family:"bootstrap-icons";color:#64748b;transition:.2s}
+    details[open]>.catalog-summary::after{transform:rotate(180deg)}
+    .catalog-row-editor{position:relative}.catalog-row-editor>summary{list-style:none}.catalog-row-editor>summary::-webkit-details-marker{display:none}
+    .catalog-popover{position:absolute;right:0;top:calc(100% + 8px);z-index:20;width:min(320px,80vw);padding:16px;background:#fff;border:1px solid #e5e7eb;border-radius:16px}
+    @@media(max-width:767.98px){.catalog-popover{position:fixed;left:16px;right:16px;top:auto;bottom:16px;width:auto}}
+</style>
+}
+
+@section Scripts {
+<script>
+(() => {
+    const requested = new URLSearchParams(window.location.search).get('section');
+    const target = requested && document.getElementById(requested);
+    if (target) window.setTimeout(() => target.scrollIntoView({ behavior: 'smooth', block: 'start' }), 120);
+})();
+</script>
+}

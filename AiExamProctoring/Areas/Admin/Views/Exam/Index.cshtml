@@ -1,0 +1,42 @@
+@model IEnumerable<AiExamProctoring.Models.Exam>
+@{
+    ViewData["Title"] = "Exam Oversight";
+    var teacherNames = ViewBag.TeacherNames as IDictionary<string, string> ?? new Dictionary<string, string>();
+}
+
+<div class="d-flex justify-content-between align-items-start flex-wrap gap-3 mb-4">
+    <div>
+        <span class="eyebrow">Exam records</span>
+        <h2 class="fw-bold mt-1 mb-1">Exam Oversight</h2>
+        <p class="text-secondary mb-0">Review teacher-owned examinations and the admin-managed public demo test, including access type and security status.</p>
+    </div>
+    <form method="get" class="d-flex gap-2">
+        <input name="search" value="@ViewBag.Search" class="form-control rounded-pill" placeholder="Search exam or class" />
+        <button class="btn btn-outline-primary rounded-pill">Search</button>
+    </form>
+</div>
+
+<div class="table-responsive card border-0 shadow-sm rounded-4">
+    <table class="table align-middle mb-0">
+        <thead class="table-light"><tr><th>Examination</th><th>Managed by</th><th>Access</th><th>Purpose</th><th>Schedule</th><th>Status</th><th></th></tr></thead>
+        <tbody>
+        @foreach (var exam in Model)
+        {
+            var teacherName = exam.CreatedBy is not null && teacherNames.TryGetValue(exam.CreatedBy, out var name) ? name : "Legacy / unknown";
+            <tr>
+                <td><strong>@exam.ExamTitle</strong><div class="small text-muted">@(exam.ClassName ?? exam.Category)</div></td>
+                <td>@teacherName</td>
+                <td><span class="badge @(exam.Audience == AiExamProctoring.Models.ExamAudience.Public ? "text-bg-success" : "text-bg-primary")">@exam.AudienceDisplay</span></td>
+                <td>@exam.PurposeDisplay</td>
+                <td>@exam.ExamDate.ToString("dd MMM yyyy")<div class="small text-muted">@exam.StartTime</div></td>
+                <td><span class="badge text-bg-@(exam.IsPublished ? "success" : "secondary")">@exam.Status</span></td>
+                <td class="text-end"><a asp-action="Details" asp-route-id="@exam.ExamId" class="btn btn-sm btn-outline-primary rounded-pill">Review</a></td>
+            </tr>
+        }
+        @if (!Model.Any())
+        {
+            <tr><td colspan="7" class="text-center text-muted py-5">No examinations match this view.</td></tr>
+        }
+        </tbody>
+    </table>
+</div>

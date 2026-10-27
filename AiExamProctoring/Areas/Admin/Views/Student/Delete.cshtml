@@ -1,0 +1,273 @@
+﻿@model AiExamProctoring.Models.ApplicationUser
+
+@{
+    ViewData["Title"] = "Delete Student";
+    Layout = "~/Areas/Admin/Views/Shared/_AdminLayout.cshtml";
+}
+
+<div class="row justify-content-center">
+
+    <div class="col-xl-10">
+
+        <div class="d-flex justify-content-between align-items-center mb-4">
+
+            <div>
+
+                <h2 class="fw-bold text-danger mb-1">
+                    <i class="bi bi-trash3-fill me-2"></i>
+                    Delete Student
+                </h2>
+
+                <p class="text-muted mb-0">
+                    This action is permanent and cannot be undone.
+                </p>
+
+            </div>
+
+            <a asp-action="Index"
+               class="btn btn-outline-secondary">
+
+                <i class="bi bi-arrow-left me-1"></i>
+
+                Back
+
+            </a>
+
+        </div>
+
+        <div class="card shadow border-0 rounded-4">
+
+            <div class="card-header bg-danger text-white py-3">
+
+                <h4 class="mb-0">
+
+                    <i class="bi bi-exclamation-octagon-fill me-2"></i>
+
+                    Confirm Deletion
+
+                </h4>
+
+            </div>
+
+            <div class="card-body">
+
+                <div class="alert alert-danger">
+
+                    <h5 class="fw-bold mb-2">
+
+                        <i class="bi bi-exclamation-triangle-fill me-2"></i>
+
+                        Warning
+
+                    </h5>
+
+                    <p class="mb-0">
+
+                        The student account will be permanently deleted.
+                        If exam attempts or results exist, deletion may fail because of database relationships.
+
+                    </p>
+
+                </div>
+
+                <div class="row mt-4">
+
+                    <div class="col-md-6 mb-3">
+
+                        <label class="fw-semibold text-muted">
+                            Full Name
+                        </label>
+
+                        <div class="form-control bg-light">
+                            @Model.FullName
+                        </div>
+
+                    </div>
+
+                    <div class="col-md-6 mb-3">
+
+                        <label class="fw-semibold text-muted">
+                            Email
+                        </label>
+
+                        <div class="form-control bg-light">
+                            @Model.Email
+                        </div>
+
+                    </div>
+
+                    <div class="col-md-4 mb-3">
+
+                        <label class="fw-semibold text-muted">
+                            Roll Number
+                        </label>
+
+                        <div class="form-control bg-light">
+                            @(Model.RollNumber ?? "-")
+                        </div>
+
+                    </div>
+
+                    <div class="col-md-4 mb-3">
+
+                        <label class="fw-semibold text-muted">
+                            Department
+                        </label>
+
+                        <div class="form-control bg-light">
+                            @(Model.Department ?? "-")
+                        </div>
+
+                    </div>
+
+                    <div class="col-md-4 mb-3">
+
+                        <label class="fw-semibold text-muted">
+                            Batch
+                        </label>
+
+                        <div class="form-control bg-light">
+                            @(Model.Batch ?? "-")
+                        </div>
+
+                    </div>
+
+                    <div class="col-md-4 mb-3">
+
+                        <label class="fw-semibold text-muted">
+                            Semester
+                        </label>
+
+                        <div class="form-control bg-light">
+                            @(Model.Semester ?? "-")
+                        </div>
+
+                    </div>
+
+                    <div class="col-md-4 mb-3">
+
+                        <label class="fw-semibold text-muted">
+                            Created Date
+                        </label>
+
+                        <div class="form-control bg-light">
+                            @Model.CreatedDate.ToString("dd MMM yyyy")
+                        </div>
+
+                    </div>
+
+                    <div class="col-md-4 mb-3">
+
+                        <label class="fw-semibold text-muted">
+                            Last Login
+                        </label>
+
+                        <div class="form-control bg-light">
+
+                            @(Model.LastLoginDate?.ToString("dd MMM yyyy hh:mm tt") ?? "Never")
+
+                        </div>
+
+                    </div>
+
+                    <div class="col-md-6">
+
+                        <label class="fw-semibold text-muted">
+
+                            Approval Status
+
+                        </label>
+
+                        <div>
+
+                            @if (Model.IsApproved)
+                            {
+                                <span class="badge bg-success px-3 py-2">
+                                    Approved
+                                </span>
+                            }
+                            else
+                            {
+                                <span class="badge bg-warning text-dark px-3 py-2">
+                                    Pending
+                                </span>
+                            }
+
+                        </div>
+
+                    </div>
+
+                    <div class="col-md-6">
+
+                        <label class="fw-semibold text-muted">
+
+                            Account Status
+
+                        </label>
+
+                        <div>
+
+                            @if (Model.IsBlocked)
+                            {
+                                <span class="badge bg-danger px-3 py-2">
+                                    Blocked
+                                </span>
+                            }
+                            else
+                            {
+                                <span class="badge bg-success px-3 py-2">
+                                    Active
+                                </span>
+                            }
+
+                        </div>
+
+                    </div>
+
+                </div>
+
+            </div>
+
+            <div class="card-footer bg-white">
+
+                <form asp-action="Delete" method="post">
+
+                    @Html.AntiForgeryToken()
+
+                    <input asp-for="Id" type="hidden" />
+
+                    <button type="submit"
+                            class="btn btn-danger">
+
+                        <i class="bi bi-trash3-fill me-2"></i>
+
+                        Delete Permanently
+
+                    </button>
+
+                    <a asp-action="Details"
+                       asp-route-id="@Model.Id"
+                       class="btn btn-info">
+
+                        <i class="bi bi-eye me-1"></i>
+
+                        Details
+
+                    </a>
+
+                    <a asp-action="Index"
+                       class="btn btn-secondary">
+
+                        Cancel
+
+                    </a>
+
+                </form>
+
+            </div>
+
+        </div>
+
+    </div>
+
+</div>

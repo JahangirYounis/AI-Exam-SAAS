@@ -1,0 +1,5 @@
+@model List<AiExamProctoring.Models.TeacherPrivateMessage>
+@{ ViewData["Title"] = "Private teacher chat"; }
+<h1 class="h3">Private conversation</h1><a asp-action="Index">Teacher directory</a>
+<div class="my-3" id="live-chat" data-kind="private" data-room="@ViewBag.ConnectionId">@foreach(var message in Model) {<article class="card p-3 mb-2" data-message-id="@message.Id"><small>@(message.SenderId == (string)ViewBag.Actor ? "You" : "Colleague") · @message.SentAtUtc.ToLocalTime().ToString("dd MMM HH:mm")</small><p style="white-space:pre-wrap;overflow-wrap:anywhere">@message.Body</p></article>}</div>
+<form asp-action="Message" method="post"><input type="hidden" name="id" value="@ViewBag.ConnectionId"/><label for="message">Message</label><textarea id="message" name="body" class="form-control" required maxlength="2000"></textarea><button class="btn btn-primary mt-2">Send</button></form>

@@ -1,0 +1,70 @@
+@model IReadOnlyCollection<AiExamProctoring.Models.ApplicationUser>
+@{
+    var exam = ViewBag.Exam as AiExamProctoring.Models.Exam;
+    var selected = ViewBag.SelectedIds as HashSet<string> ?? new(StringComparer.Ordinal);
+    var students = Model?.ToList() ?? new();
+    var total = ViewBag.CandidateTotal is int count ? count : students.Count;
+    ViewData["Title"] = "Select candidates";
+}
+@if (exam is null)
+{
+    <div class="alert alert-warning">Test details could not load.</div>
+}
+else
+{
+    <div class="d-flex justify-content-between flex-wrap gap-3 mb-4"><div><h1 class="h3 fw-bold">Select candidates</h1><p class="text-secondary mb-0">@exam.ExamTitle · @selected.Count currently selected</p></div><a asp-action="Details" asp-route-id="@exam.ExamId" class="btn btn-outline-secondary">Back to review</a></div>
+    @if (exam.AcademicClassId.HasValue)
+    {
+        <p class="alert alert-info">Only approved members of this class are listed. Other approved class members can also join using the test code.</p>
+    }
+    <div class="card border-0 shadow-sm rounded-4">
+        <div class="card-body p-4">
+            <form method="get" class="d-flex gap-2 mb-3"><input type="hidden" name="id" value="@exam.ExamId" /><label for="candidateSearch" class="visually-hidden">Search candidates</label><input id="candidateSearch" name="search" value="@Context.Request.Query["search"]" maxlength="150" class="form-control" placeholder="Search name, email or candidate ID" /><button class="btn btn-outline-primary">Search</button></form>
+            @if (total > students.Count)
+            {
+                <p class="small text-secondary">Showing @students.Count of @total matches. Narrow your search to find other candidates.</p>
+            }
+            <p class="small text-secondary">Saving changes the checked candidates shown here. Existing selections outside this search are preserved.</p>
+            <form asp-action="AssignCandidates" asp-route-id="@exam.ExamId" method="post" asp-antiforgery="false">
+                @Html.AntiForgeryToken()
+                @foreach (var id in selected.Except(students.Select(s => s.Id), StringComparer.Ordinal))
+                {
+                    <input type="hidden" name="studentIds" value="@id" />
+                }
+                <div class="table-responsive">
+                    <table class="table align-middle">
+                        <thead><tr><th><input id="selectAll" type="checkbox" class="form-check-input" aria-label="Select all displayed candidates" disabled="@(exam.IsPublished || exam.IsLocked ? "disabled" : null)" /></th><th>Candidate</th><th>Candidate ID</th></tr></thead>
+                        <tbody>
+                            @if (students.Count == 0)
+                            {
+                                <tr><td colspan="3" class="text-center text-secondary py-4">No approved candidates match your search.</td></tr>
+                            }
+                            @foreach (var student in students)
+                            {
+                                <tr><td><input class="form-check-input candidate-check" name="studentIds" type="checkbox" value="@student.Id" checked="@(selected.Contains(student.Id) ? "checked" : null)" disabled="@(exam.IsPublished || exam.IsLocked ? "disabled" : null)" aria-label="Select @student.FullName" /></td><td><strong>@student.FullName</strong><div class="small text-secondary">@student.Email</div></td><td>@(student.CandidateNumber ?? "—")</td></tr>
+                            }
+                        </tbody>
+                    </table>
+                </div>
+                <button class="btn btn-primary" type="submit" disabled="@(exam.IsPublished || exam.IsLocked ? "disabled" : null)">Save &amp; return to review</button>
+            </form>
+        </div>
+    </div>
+}
+@section Scripts {
+    <script>
+        (() => {
+            const all = document.getElementById('selectAll');
+            if (!all) return;
+            const boxes = [...document.querySelectorAll('.candidate-check')];
+            const update = () => {
+                const checked = boxes.filter(box => box.checked).length;
+                all.checked = boxes.length > 0 && checked === boxes.length;
+                all.indeterminate = checked > 0 && checked < boxes.length;
+            };
+            all.addEventListener('change', () => { boxes.filter(box => !box.disabled).forEach(box => box.checked = all.checked); update(); });
+            boxes.forEach(box => box.addEventListener('change',update));
+            update();
+        })();
+    </script>
+}
