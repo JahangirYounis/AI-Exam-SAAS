@@ -40,7 +40,14 @@ public sealed class ObjectDetectionClient : IObjectDetectionClient
         content.Headers.ContentType = MediaTypeHeaderValue.Parse(
             string.IsNullOrWhiteSpace(image.ContentType) ? "image/jpeg" : image.ContentType);
         form.Add(content, "file", string.IsNullOrWhiteSpace(image.FileName) ? "frame.jpg" : image.FileName);
-        return SendAsync(HttpMethod.Post, "api/model3/analyze", form, cancellationToken);
+        return AnalyzeWithDeadlineAsync(form, cancellationToken);
+    }
+
+    private async Task<ObjectDetectionCallResult> AnalyzeWithDeadlineAsync(HttpContent content, CancellationToken cancellationToken)
+    {
+        using var deadline = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        deadline.CancelAfter(TimeSpan.FromSeconds(5));
+        return await SendAsync(HttpMethod.Post, "api/model3/analyze", content, deadline.Token);
     }
 
     private async Task<ObjectDetectionCallResult> SendAsync(
@@ -82,7 +89,9 @@ public sealed class ObjectDetectionClient : IObjectDetectionClient
         catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException)
         {
             _logger.LogWarning(ex, "Model 3 service request failed: {Path}", path);
-            return new(false, null, "Model 3 is not running on port 8003 or its training is still pending.", true);
+            return new(false, null, ex is TaskCanceledException
+                ? "Object detection did not respond in time. Screening will retry."
+                : "Object detection service is temporarily unavailable.", true);
         }
     }
 }

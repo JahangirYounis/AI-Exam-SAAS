@@ -13,21 +13,44 @@
         .Where(attempt => attempt != null).ToList() ?? new List<ExamAttempt>();
     var now = ViewBag.ExamServerNow is DateTime serverNow ? serverNow : DateTime.Now;
     var loadError = ViewBag.ExamLoadError as string;
+    // Only these known views are selectable. No new database state is created.
+    var requestedView = Context.Request.Query["view"].ToString().Trim().ToLowerInvariant();
+    var selectedView = new[] { "all", "current", "resume", "upcoming", "blocked" }
+        .Contains(requestedView) ? requestedView : "all";
+    var inProgress = resumable.Where(attempt =>
+        AiExamProctoring.Services.Exam.StudentPortalAttemptState.CanOfferResume(attempt, now)).ToList();
+    var needsStatusCheck = resumable.Where(attempt =>
+        attempt.Status == AttemptStatus.InProgress &&
+        !AiExamProctoring.Services.Exam.StudentPortalAttemptState.CanOfferResume(attempt, now)).ToList();
+    var blockedAttempts = resumable.Where(attempt => attempt.Status == AttemptStatus.ProctoringBlocked).ToList();
+    var currentExams = exams.Where(exam =>
+        exam.Status != ExamStatus.Cancelled && exam.Status != ExamStatus.Completed &&
+        exam.IsPublished && (exam.IsReusable || (now >= exam.StartDate && now <= exam.LatestStartDate))).ToList();
+    var upcomingExams = exams.Where(exam =>
+        exam.Status != ExamStatus.Completed && exam.Status != ExamStatus.Cancelled &&
+        !currentExams.Any(current => current.ExamId == exam.ExamId) &&
+        (!exam.IsPublished || !exam.IsReusable && now < exam.StartDate)).ToList();
+    var visibleAttempts = selectedView == "blocked" ? blockedAttempts
+        : selectedView == "resume" ? inProgress : resumable;
+    var visibleExams = selectedView == "current" ? currentExams
+        : selectedView == "upcoming" ? upcomingExams : exams;
+    var showExamCards = selectedView == "all" || selectedView == "current" || selectedView == "upcoming";
+    var showAttemptCards = selectedView == "all" || selectedView == "resume" || selectedView == "blocked";
+    var examinationHeading = selectedView == "current" ? "Tests open now"
+        : selectedView == "upcoming" ? "Upcoming and assigned tests" : "Available and scheduled tests";
+}
+@section Styles {
+    <link rel="stylesheet" href="~/css/student-exam-hub.css" asp-append-version="true" />
 }
 
-<section id="available-exams" aria-labelledby="available-title">
-    <div class="d-flex justify-content-between align-items-end flex-wrap gap-3 mb-4">
+<section id="available-exams" class="student-exam-hub" aria-labelledby="available-title">
+    <header class="exam-hub-header mb-3">
         <div>
-            <div class="small text-primary fw-bold text-uppercase">Assessment Center</div>
-            <h1 id="available-title" class="fw-bold mb-1">Examination Center</h1>
-            <p class="soft-muted mb-0">View your assigned examinations, join an approved private test or open a public test.</p>
+            <div class="small text-primary fw-bold text-uppercase">Student assessment center</div>
+            <h1 id="available-title" class="fw-bold mb-1">My Examinations</h1>
+            <p class="soft-muted mb-0">Find a test, continue an eligible attempt or check a Teacher hold.</p>
         </div>
-        <div class="input-group" style="max-width:360px">
-            <span class="input-group-text bg-white border-end-0"><i class="bi bi-search" aria-hidden="true"></i></span>
-            <input id="examSearch" type="search" class="form-control border-start-0"
-                   placeholder="Search examination, post or roll number..." aria-label="Search examinations" />
-        </div>
-    </div>
+    </header>
 
     @if (!string.IsNullOrWhiteSpace(loadError))
     {
@@ -38,134 +61,195 @@
         </div>
     }
 
-    <a asp-area="Student" asp-controller="Exam" asp-action="Past" class="btn btn-outline-secondary mb-4">Past examinations &amp; records</a>
+    <nav class="exam-hub-navigation mb-3" aria-label="Examination categories">
+        <a asp-area="Student" asp-controller="Exam" asp-action="Available" asp-route-view="current"
+           class="exam-hub-link @(selectedView == "current" ? "is-active" : "")" aria-current="@(selectedView == "current" ? "page" : null)">
+            <i class="bi bi-play-circle" aria-hidden="true"></i><span>Current Tests</span><strong>@currentExams.Count</strong>
+        </a>
+        <a asp-area="Student" asp-controller="Exam" asp-action="Available" asp-route-view="resume"
+           class="exam-hub-link @(selectedView == "resume" ? "is-active" : "")" aria-current="@(selectedView == "resume" ? "page" : null)">
+            <i class="bi bi-arrow-clockwise" aria-hidden="true"></i><span>Resume Tests</span><strong>@inProgress.Count</strong>
+        </a>
+        <a asp-area="Student" asp-controller="Exam" asp-action="Available" asp-route-view="upcoming"
+           class="exam-hub-link @(selectedView == "upcoming" ? "is-active" : "")" aria-current="@(selectedView == "upcoming" ? "page" : null)">
+            <i class="bi bi-calendar-event" aria-hidden="true"></i><span>Upcoming Tests</span><strong>@upcomingExams.Count</strong>
+        </a>
+        <a asp-area="Student" asp-controller="Exam" asp-action="Available" asp-route-view="blocked"
+           class="exam-hub-link @(selectedView == "blocked" ? "is-active" : "")" aria-current="@(selectedView == "blocked" ? "page" : null)">
+            <i class="bi bi-shield-lock" aria-hidden="true"></i><span>Blocked / Held</span><strong>@blockedAttempts.Count</strong>
+        </a>
+        <a asp-area="Student" asp-controller="Exam" asp-action="Past" class="exam-hub-link">
+            <i class="bi bi-clock-history" aria-hidden="true"></i><span>Past Tests</span><i class="bi bi-chevron-right exam-hub-tail" aria-hidden="true"></i>
+        </a>
+        <a asp-area="Student" asp-controller="Exam" asp-action="Available" asp-route-view="all"
+           class="exam-hub-link @(selectedView == "all" ? "is-active" : "")" aria-current="@(selectedView == "all" ? "page" : null)">
+            <i class="bi bi-grid" aria-hidden="true"></i><span>All tests</span><strong>@exams.Count</strong>
+        </a>
+    </nav>
 
-    @if (resumable.Count > 0)
+    <div class="exam-hub-tools mb-4">
+        <a href="#private-test-code" class="btn btn-outline-secondary"><i class="bi bi-key me-1" aria-hidden="true"></i>Join Private Test</a>
+        <a asp-area="" asp-controller="SharedEvidence" asp-action="Index" class="btn btn-outline-secondary">
+            <i class="bi bi-share me-1" aria-hidden="true"></i>Shared with me
+        </a>
+    </div>
+
+    @if (showAttemptCards && (visibleAttempts.Count > 0 || selectedView == "resume" || selectedView == "blocked"))
     {
-        <section class="student-card p-4 mb-4" aria-labelledby="resume-title">
-            <h2 id="resume-title" class="h4">Your ongoing examinations</h2>
-            <p class="soft-muted">Open an active attempt or check its teacher review status. Your saved progress is retained.</p>
-            @foreach (var attempt in resumable)
+        <section class="student-card p-3 p-md-4 mb-4" aria-labelledby="resume-title">
+            <h2 id="resume-title" class="h4 fw-bold mb-2">@(selectedView == "blocked" ? "Blocked or paused examinations" : "Your saved examinations")</h2>
+            <p class="soft-muted small mb-3">@(selectedView == "blocked" ? "The teacher must review and release a blocked attempt before you can continue." : "Your previously saved answers remain on the server. Open an active attempt to continue.")</p>
+            @foreach (var attempt in visibleAttempts)
             {
-                var blocked = attempt.Status == AttemptStatus.ProctoringBlocked;
-                <div class="d-flex justify-content-between align-items-center flex-wrap gap-3 border-top py-3">
-                    <div>
+                var isBlocked = attempt.Status == AttemptStatus.ProctoringBlocked;
+                var canResume = AiExamProctoring.Services.Exam.StudentPortalAttemptState.CanOfferResume(attempt, now);
+                <div class="exam-hub-attempt border-top py-3">
+                    <div class="exam-hub-attempt-text">
                         <strong>@(attempt.Exam?.ExamTitle ?? "Examination")</strong>
-                        <span class="badge @(blocked ? "text-bg-warning" : "text-bg-success") ms-2">@(blocked ? "Teacher review required" : "In progress")</span>
+                        <span class="badge @(isBlocked ? "text-bg-warning" : "text-bg-success")">
+                            @(isBlocked ? "Teacher review required" : canResume ? "Can continue" : "Time / state check")
+                        </span>
+                        <small class="text-secondary">Attempt #@attempt.AttemptId · Started @attempt.StartedAt.ToString("dd MMM yyyy, hh:mm tt")</small>
                     </div>
-                    <a asp-area="Student" asp-controller="Exam" asp-action="Resume"
-                       asp-route-attemptId="@attempt.AttemptId" class="btn @(blocked ? "btn-outline-primary" : "btn-primary")">
-                        @(blocked ? "View teacher review status" : "Resume test")
+                    <a asp-area="Student" asp-controller="Exam" asp-action="@(isBlocked ? "Blocked" : "Resume")"
+                       asp-route-attemptId="@attempt.AttemptId" class="btn @(isBlocked ? "btn-outline-warning" : canResume ? "btn-primary" : "btn-outline-secondary")">
+                        @(isBlocked ? "View hold & review" : canResume ? "Continue exam" : "Check status")
                     </a>
+                </div>
+            }
+            @if (visibleAttempts.Count == 0)
+            {
+                <div class="exam-hub-empty" role="status">
+                    <i class="bi @(selectedView == "blocked" ? "bi-shield-check" : "bi-arrow-repeat")" aria-hidden="true"></i>
+                    <p class="mb-0">@(selectedView == "blocked" ? "You have no blocked examinations." : "You have no examinations waiting to resume.")</p>
                 </div>
             }
         </section>
     }
 
-    <section class="student-card p-4 mb-4" aria-label="Join a private test">
-        <form asp-area="Student" asp-controller="Exam" asp-action="Join" method="get" class="row g-3 align-items-end">
-            <div class="col-md-8">
-                <label for="private-code" class="form-label fw-semibold">Have a private test code?</label>
-                <input id="private-code" name="code" class="form-control" maxlength="40" required autocomplete="off"
-                       placeholder="Enter the code shared by your teacher" />
-                <div class="form-text">A private code does not replace teacher approval, assignment or class membership.</div>
-            </div>
-            <div class="col-md-4"><button type="submit" class="btn btn-primary w-100">Join private test</button></div>
-        </form>
-    </section>
-
-    @if (exams.Count > 0)
+    @if (showExamCards)
     {
-        <div class="d-flex flex-wrap gap-2 mb-4" role="group" aria-label="Filter examinations">
-            <button type="button" class="btn btn-primary exam-filter" data-filter="all" aria-pressed="true">All tests</button>
-            <button type="button" class="btn btn-outline-primary exam-filter" data-filter="practice" aria-pressed="false">Practice &amp; demo</button>
-            <button type="button" class="btn btn-outline-primary exam-filter" data-filter="private" aria-pressed="false">My private tests</button>
-            <button type="button" class="btn btn-outline-primary exam-filter" data-filter="public" aria-pressed="false">Public tests</button>
+        <div class="exam-hub-section-heading mb-3">
+            <div>
+                <h2 class="h4 fw-bold mb-1">@examinationHeading</h2>
+                <p class="small soft-muted mb-0">Current tests require device and identity checks before entry.</p>
+            </div>
+            <div class="exam-hub-search input-group">
+                <span class="input-group-text bg-white border-end-0"><i class="bi bi-search" aria-hidden="true"></i></span>
+                <input id="examSearch" type="search" class="form-control border-start-0"
+                       placeholder="Search tests..." aria-label="Search examinations" />
+            </div>
         </div>
     }
 
-    <p id="exam-filter-empty" class="text-secondary" role="status" hidden>No tests match this filter. Try another category or search.</p>
-    <div class="row g-4" id="examGrid">
-        @foreach (var exam in exams)
+    <details id="private-test-code" class="exam-hub-private student-card p-3 p-md-4 mb-4">
+        <summary class="fw-semibold"><i class="bi bi-key me-2" aria-hidden="true"></i>Have a private exam code?</summary>
+        <form asp-area="Student" asp-controller="Exam" asp-action="Join" method="get" class="row g-3 align-items-end mt-2">
+            <div class="col-md-8">
+                <label for="private-code" class="form-label fw-semibold">Enter your teacher's code</label>
+                <input id="private-code" name="code" class="form-control" maxlength="40" required autocomplete="off"
+                       placeholder="Private exam code" />
+                <div class="form-text">The code does not replace teacher approval or an active assignment.</div>
+            </div>
+            <div class="col-md-4"><button type="submit" class="btn btn-primary w-100">Join test</button></div>
+        </form>
+    </details>
+
+    @if (showExamCards)
+    {
+        @if (visibleExams.Count > 0)
         {
-            rollNumbers.TryGetValue(exam.ExamId, out var rollNumber);
-            var terminal = exam.Status == ExamStatus.Cancelled || exam.Status == ExamStatus.Completed;
-            var upcoming = !exam.IsReusable && now < exam.StartDate;
-            var closed = !exam.IsReusable && now > exam.LatestStartDate;
-            var entryOpen = !terminal && exam.IsPublished && (exam.IsReusable || (!upcoming && !closed));
-            var assignedOnly = !terminal && !exam.IsPublished;
-            var status = exam.Status == ExamStatus.Cancelled ? "CANCELLED"
-            : exam.Status == ExamStatus.Completed ? "COMPLETED"
-            : assignedOnly ? "AWAITING RELEASE"
-            : closed ? "ENTRY CLOSED"
-            : entryOpen ? (exam.IsReusable ? "ALWAYS OPEN" : "ENTRY OPEN") : "UPCOMING";
-            var category = exam.AllowsRepeatAttempts ? "practice" : exam.Audience == ExamAudience.Private ? "private" : "public";
-            <div class="col-md-6 col-xl-4 exam-item" data-category="@category">
-                <article class="student-card exam-card h-100 d-flex flex-column">
-                    <div class="exam-accent"></div>
-                    <div class="p-4 d-flex flex-column flex-grow-1">
-                        <div class="d-flex justify-content-between gap-2">
-                            <div>
-                                <span class="badge-soft @(entryOpen ? "soft-success" : assignedOnly ? "soft-warning" : "soft-primary")">@status</span>
-                                <h2 class="h4 fw-bold mt-3 mb-2">@exam.ExamTitle</h2>
-                            </div>
-                            <i class="bi bi-shield-lock text-primary fs-4" aria-hidden="true"></i>
-                        </div>
-                        <div class="d-flex gap-2 flex-wrap mb-3">
-                            <span class="badge @(exam.Audience == ExamAudience.Public ? "text-bg-info" : "text-bg-secondary")">@exam.AudienceDisplay</span>
-                            <span class="badge text-bg-light border">@exam.PurposeDisplay</span>
-                        </div>
-                        <p class="small soft-muted">@(string.IsNullOrWhiteSpace(exam.Description) ? "Secure online assessment with monitored examination controls." : exam.Description)</p>
-                        @if (!string.IsNullOrWhiteSpace(rollNumber))
-                        {
-                            <div class="identity-security-note mb-3">
-                                <i class="bi bi-person-badge" aria-hidden="true"></i>
-                                <span><small class="d-block">Exam Roll Number</small><strong>@rollNumber</strong></span>
-                            </div>
-                        }
-                        <div class="exam-meta mb-3">
-                            <span>@exam.DurationMinutes active min</span>
-                            <span>@exam.NumberOfSessions session@(exam.NumberOfSessions == 1 ? "" : "s")</span>
-                            <span>@exam.TotalQuestions questions</span>
-                            <span>@exam.TotalMarks.ToString("0.##") marks</span>
-                        </div>
-                        @if (exam.IsReusable)
-                        {
-                            <p class="small soft-muted mb-3">@(exam.AllowsRepeatAttempts ? "Repeat practice attempts are allowed." : "Check the examination instructions for attempt limits.")</p>
-                        }
-                        else
-                        {
-                            <div class="small soft-muted mb-1">Starts: @exam.StartDate.ToString("dd MMM yyyy, hh:mm tt")</div>
-                            <div class="small soft-muted mb-1">Entry closes: @exam.LatestStartDate.ToString("dd MMM yyyy, hh:mm tt")</div>
-                            <div class="small soft-muted mb-3">Planned end: @exam.EndDate.ToString("dd MMM yyyy, hh:mm tt")</div>
-                        }
-                        @if (terminal || closed)
-                        {
-                            <a asp-area="Student" asp-controller="Exam" asp-action="Past" class="btn btn-outline-secondary w-100 rounded-pill mt-auto">View past examinations</a>
-                        }
-                        else
-                        {
-                            <a asp-area="Student" asp-controller="Exam" asp-action="PreCheck" asp-route-examId="@exam.ExamId"
-                               class="btn @(entryOpen ? "btn-primary" : "btn-outline-primary") w-100 rounded-pill mt-auto">
-                                @(entryOpen ? (exam.AllowsRepeatAttempts ? "Take Practice Test" : "Start Now") : assignedOnly ? "View Assignment" : "Prepare for Exam")
-                            </a>
-                        }
-                    </div>
-                </article>
+            <div class="d-flex flex-wrap gap-2 mb-4" role="group" aria-label="Filter examinations">
+                <button type="button" class="btn btn-primary exam-filter" data-filter="all" aria-pressed="true">All types</button>
+                <button type="button" class="btn btn-outline-primary exam-filter" data-filter="practice" aria-pressed="false">Practice &amp; demo</button>
+                <button type="button" class="btn btn-outline-primary exam-filter" data-filter="private" aria-pressed="false">My private tests</button>
+                <button type="button" class="btn btn-outline-primary exam-filter" data-filter="public" aria-pressed="false">Public tests</button>
             </div>
         }
-        @if (exams.Count == 0 && string.IsNullOrWhiteSpace(loadError))
-        {
-            <div class="col-12">
-                <div class="student-card empty-state p-4 text-center">
-                    <i class="bi bi-calendar2-x fs-1" aria-hidden="true"></i>
-                    <h2 class="h4 fw-bold mt-3">@(resumable.Count > 0 ? "No new examination is available" : "No examination is available")</h2>
-                    <p class="soft-muted mb-0">@(resumable.Count > 0 ? "Use your ongoing examination above to continue or check teacher review." : "Private exams appear after teacher assignment. Public exams appear after publication.")</p>
+
+        <p id="exam-filter-empty" class="text-secondary" role="status" hidden>No tests match this filter. Try another category or search.</p>
+        <div class="row g-4" id="examGrid">
+            @foreach (var exam in visibleExams)
+            {
+                rollNumbers.TryGetValue(exam.ExamId, out var rollNumber);
+                var terminal = exam.Status == ExamStatus.Cancelled || exam.Status == ExamStatus.Completed;
+                var upcoming = !exam.IsReusable && now < exam.StartDate;
+                var closed = !exam.IsReusable && now > exam.LatestStartDate;
+                var entryOpen = !terminal && exam.IsPublished && (exam.IsReusable || (!upcoming && !closed));
+                var assignedOnly = !terminal && !exam.IsPublished;
+                var status = exam.Status == ExamStatus.Cancelled ? "CANCELLED"
+                : exam.Status == ExamStatus.Completed ? "COMPLETED"
+                : assignedOnly ? "AWAITING RELEASE"
+                : closed ? "ENTRY CLOSED"
+                : entryOpen ? (exam.IsReusable ? "ALWAYS OPEN" : "ENTRY OPEN") : "UPCOMING";
+                var category = exam.AllowsRepeatAttempts ? "practice" : exam.Audience == ExamAudience.Private ? "private" : "public";
+                <div class="col-md-6 col-xl-4 exam-item" data-category="@category">
+                    <article class="student-card exam-card h-100 d-flex flex-column">
+                        <div class="exam-accent"></div>
+                        <div class="p-4 d-flex flex-column flex-grow-1">
+                            <div class="d-flex justify-content-between gap-2">
+                                <div>
+                                    <span class="badge-soft @(entryOpen ? "soft-success" : assignedOnly ? "soft-warning" : "soft-primary")">@status</span>
+                                    <h2 class="h4 fw-bold mt-3 mb-2">@exam.ExamTitle</h2>
+                                </div>
+                                <i class="bi bi-shield-lock text-primary fs-4" aria-hidden="true"></i>
+                            </div>
+                            <div class="d-flex gap-2 flex-wrap mb-3">
+                                <span class="badge @(exam.Audience == ExamAudience.Public ? "text-bg-info" : "text-bg-secondary")">@exam.AudienceDisplay</span>
+                                <span class="badge text-bg-light border">@exam.PurposeDisplay</span>
+                            </div>
+                            <p class="small soft-muted">@(string.IsNullOrWhiteSpace(exam.Description) ? "Secure online assessment with monitored examination controls." : exam.Description)</p>
+                            @if (!string.IsNullOrWhiteSpace(rollNumber))
+                            {
+                                <div class="identity-security-note mb-3">
+                                    <i class="bi bi-person-badge" aria-hidden="true"></i>
+                                    <span><small class="d-block">Exam Roll Number</small><strong>@rollNumber</strong></span>
+                                </div>
+                            }
+                            <div class="exam-meta mb-3">
+                                <span>@exam.DurationMinutes active min</span>
+                                <span>@exam.NumberOfSessions session@(exam.NumberOfSessions == 1 ? "" : "s")</span>
+                                <span>@exam.TotalQuestions questions</span>
+                                <span>@exam.TotalMarks.ToString("0.##") marks</span>
+                            </div>
+                            @if (exam.IsReusable)
+                            {
+                                <p class="small soft-muted mb-3">@(exam.AllowsRepeatAttempts ? "Repeat practice attempts are allowed." : "Check the examination instructions for attempt limits.")</p>
+                            }
+                            else
+                            {
+                                <div class="small soft-muted mb-1">Starts: @exam.StartDate.ToString("dd MMM yyyy, hh:mm tt")</div>
+                                <div class="small soft-muted mb-1">Entry closes: @exam.LatestStartDate.ToString("dd MMM yyyy, hh:mm tt")</div>
+                                <div class="small soft-muted mb-3">Planned end: @exam.EndDate.ToString("dd MMM yyyy, hh:mm tt")</div>
+                            }
+                            @if (terminal || closed)
+                            {
+                                <a asp-area="Student" asp-controller="Exam" asp-action="Past" class="btn btn-outline-secondary w-100 rounded-pill mt-auto">View past examinations</a>
+                            }
+                            else
+                            {
+                                <a asp-area="Student" asp-controller="Exam" asp-action="PreCheck" asp-route-examId="@exam.ExamId"
+                                   class="btn @(entryOpen ? "btn-primary" : "btn-outline-primary") w-100 rounded-pill mt-auto">
+                                    @(entryOpen ? (exam.AllowsRepeatAttempts ? "Take Practice Test" : "Start Now") : assignedOnly ? "View Assignment" : "Prepare for Exam")
+                                </a>
+                            }
+                        </div>
+                    </article>
                 </div>
-            </div>
-        }
-    </div>
-    <noscript><p class="alert alert-info mt-3">Examinations are shown above. Enable JavaScript to use search and category filters.</p></noscript>
+            }
+            @if (visibleExams.Count == 0 && string.IsNullOrWhiteSpace(loadError))
+            {
+                <div class="col-12">
+                    <div class="student-card empty-state p-4 text-center">
+                        <i class="bi bi-calendar2-x fs-1" aria-hidden="true"></i>
+                        <h2 class="h4 fw-bold mt-3">@(selectedView == "current" ? "No tests are open right now" : selectedView == "upcoming" ? "No upcoming tests" : "No new examination is available")</h2>
+                        <p class="soft-muted mb-0">@(selectedView == "current" ? "Try Upcoming Tests or check back when your teacher releases a paper." : selectedView == "upcoming" ? "You have no upcoming assigned or published tests." : "Private tests appear after assignment. Public tests appear after publication.")</p>
+                    </div>
+                </div>
+            }
+        </div>
+        <noscript><p class="alert alert-info mt-3">The examination categories still work without JavaScript. Enable it for search and exam-type filtering.</p></noscript>
+    }
 </section>
 
 @section Scripts {
@@ -174,6 +258,11 @@
             const root = document.getElementById('available-exams');
             if (!root || root.dataset.filtersReady === 'true') return;
             root.dataset.filtersReady = 'true';
+            const privateCodeLink = root.querySelector('a[href="#private-test-code"]');
+            const privateCodePanel = root.querySelector('#private-test-code');
+            privateCodeLink?.addEventListener('click', () => {
+                if (privateCodePanel) privateCodePanel.open = true;
+            });
             const search = root.querySelector('#examSearch');
             const empty = root.querySelector('#exam-filter-empty');
             const items = Array.from(root.querySelectorAll('.exam-item'));

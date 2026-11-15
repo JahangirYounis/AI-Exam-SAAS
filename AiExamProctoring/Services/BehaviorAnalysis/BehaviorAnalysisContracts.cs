@@ -17,17 +17,49 @@ public sealed class BehaviorResponse
     [JsonPropertyName("accepted_frames")] public int AcceptedFrames { get; set; }
     [JsonPropertyName("total_frames")] public int TotalFrames { get; set; }
     [JsonPropertyName("maximum_face_count")] public int MaximumFaceCount { get; set; }
+    [JsonPropertyName("capabilities")] public BehaviorCapabilities? Capabilities { get; set; }
+    [JsonPropertyName("people_status")] public PeopleStatus? PeopleStatus { get; set; }
+    [JsonPropertyName("presence_status")] public PresenceStatus? PresenceStatus { get; set; }
+    [JsonPropertyName("attention_status")] public System.Text.Json.JsonElement? AttentionStatus { get; set; }
     [JsonPropertyName("metrics")] public BehaviorMetrics? Metrics { get; set; }
     [JsonPropertyName("events")] public List<BehaviorEvent> Events { get; set; } = new();
     [JsonPropertyName("signal_codes")] public Dictionary<string, string> SignalCodes { get; set; } = new();
     [JsonPropertyName("signals")] public Dictionary<string, bool?>? Signals { get; set; }
 }
 
+public sealed class BehaviorCapabilities
+{
+    [JsonPropertyName("person_detector")] public bool PersonDetector { get; set; }
+    [JsonPropertyName("physical_absence")] public bool PhysicalAbsence { get; set; }
+    [JsonPropertyName("multi_person_verification")] public bool MultiPersonVerification { get; set; }
+}
+
+public sealed class PeopleStatus
+{
+    [JsonPropertyName("state")] public string? State { get; set; }
+    [JsonPropertyName("live_count")] public int LiveCount { get; set; }
+    [JsonPropertyName("observed_count")] public int ObservedCount { get; set; }
+    [JsonPropertyName("supported_duration_seconds")] public double SupportedDurationSeconds { get; set; }
+    [JsonPropertyName("context_supported")] public bool ContextSupported { get; set; }
+    [JsonPropertyName("tracks")] public System.Text.Json.JsonElement Tracks { get; set; }
+    [JsonPropertyName("version")] public string? Version { get; set; }
+}
+public sealed class PresenceStatus
+{
+    [JsonPropertyName("state")] public string State { get; set; } = "TRACKING_UNCERTAIN";
+    [JsonPropertyName("elapsed_seconds")] public double ElapsedSeconds { get; set; }
+}
+
 public sealed class BehaviorMetrics
 {
+    [JsonPropertyName("camera_quality")] public System.Text.Json.JsonElement? CameraQuality { get; set; }
+    [JsonPropertyName("presence_ok")] public bool? PresenceOk { get; set; }
     [JsonPropertyName("presentation_status")] public string PresentationStatus { get; set; } = "not_checked";
     [JsonPropertyName("ignored_background_regions")] public int IgnoredBackgroundRegions { get; set; }
     [JsonPropertyName("face_count")] public int FaceCount { get; set; }
+    [JsonPropertyName("person_detector_ready")] public bool PersonDetectorReady { get; set; }
+    [JsonPropertyName("person_inference_ms")] public double? PersonInferenceMs { get; set; }
+    [JsonPropertyName("frame_processing_ms")] public double? FrameProcessingMs { get; set; }
     [JsonPropertyName("brightness")] public double Brightness { get; set; }
     [JsonPropertyName("blur_variance")] public double BlurVariance { get; set; }
     [JsonPropertyName("head_pose_ok")] public bool? HeadPoseOk { get; set; }
@@ -57,6 +89,7 @@ public sealed record BehaviorCallResult(bool Success, BehaviorResponse? Data, st
 public sealed class BehaviorFrameRequest
 {
     public bool ScreenCalibration { get; set; }
+    public int ScreenPoints { get; set; } = 4;
     public int AttemptId { get; set; }
     public int SessionAttemptId { get; set; }
     public List<IFormFile> Frames { get; set; } = new();
@@ -64,6 +97,7 @@ public sealed class BehaviorFrameRequest
 
 public sealed class BehaviorSingleFrameRequest
 {
+    public string? Feature { get; set; }
     public int AttemptId { get; set; }
     public int SessionAttemptId { get; set; }
     public IFormFile? Frame { get; set; }

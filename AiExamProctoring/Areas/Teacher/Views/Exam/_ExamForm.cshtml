@@ -1,68 +1,112 @@
 @model AiExamProctoring.Models.Exam
 @using AiExamProctoring.Models
+@using AiExamProctoring.Services.Proctoring
 @{
-    var posts = ViewBag.PostRecords as List<Post> ?? new();
+    var incidents = new (ProctoringAlertType Kind, string Label, string Hint)[]
+    {
+        (ProctoringAlertType.FaceNotDetected, "Student absent", "Face not visible for the qualified duration"),
+        (ProctoringAlertType.MultipleFaces, "More than one person", "Confirmed additional person in camera view"),
+        (ProctoringAlertType.LookAway, "Looking away", "Confirmed sustained attention away from the test"),
+        (ProctoringAlertType.HeadAway, "Head turned away", "Qualified head movement away from camera"),
+        (ProctoringAlertType.GazeAway, "Eyes away", "Qualified sustained gaze direction"),
+        (ProctoringAlertType.ElectronicDeviceDetected, "Prohibited object", "High-confidence, sustained object detection"),
+        (ProctoringAlertType.TabSwitch, "Leaving the test tab", "Browser-confirmed tab switch"),
+        (ProctoringAlertType.FullScreenExit, "Leaving fullscreen", "Browser-confirmed fullscreen exit"),
+        (ProctoringAlertType.LookingAwaySpeaking, "Looking away while speaking", "Qualified combined attention observation")
+    };
 }
-<div asp-validation-summary="All" class="text-danger mb-3" role="alert"></div>
-<div class="card border-0 shadow-sm rounded-4 mb-3">
-    <div class="card-body p-4">
-        <h2 class="h5 fw-bold mb-3">Test details</h2>@if (Model.ExamId == 0) {<label for="invigilatorEmails">Invite co-teachers (registered emails, separated by commas)</label><input id="invigilatorEmails" name="invigilatorEmails" class="form-control mb-3" /><label class="me-3"><input type="checkbox" name="inviteQuestions" value="true" checked /> Questions</label><label><input type="checkbox" name="inviteMonitoring" value="true" checked /> Live monitoring</label><p class="small">After accepting, teachers can help build the draft paper and monitor the live exam. Manage invitations from exam details.</p>}
-        <div class="row g-3">
-            <div class="col-12"><label asp-for="ExamTitle" class="form-label">Test name</label><input asp-for="ExamTitle" class="form-control" maxlength="200" placeholder="e.g. Mathematics — Class 10" required /><span asp-validation-for="ExamTitle" class="text-danger"></span></div>
-            <div class="col-md-6"><label asp-for="Audience" class="form-label">Who can take this test?</label><select asp-for="Audience" class="form-select"><option value="Private">Private — my class or selected candidates</option><option value="Public">Public — all approved students</option></select></div>
-            <div class="col-md-6"><label asp-for="Purpose" class="form-label">Test type</label><select asp-for="Purpose" class="form-select"><option value="AcademicClass">Class test</option><option value="Recruitment">Job / recruitment</option><option value="Practice">Practice / mock test</option><option value="Certification">Certification</option><option value="Entrance">Entry test</option><option value="Other">Other</option></select></div>
-            <div class="col-12" id="privateAccess"><partial name="_ManagementOptions" model="Model" /></div>
-            <div class="col-12" id="recruitmentFields"><div class="row g-3">
-                <div class="col-md-4"><label asp-for="RecruitmentDepartment">Department</label><input asp-for="RecruitmentDepartment" class="form-control" maxlength="150" /><span asp-validation-for="RecruitmentDepartment" class="text-danger"></span></div>
-                <div class="col-md-4"><label asp-for="RecruitmentPost">Job title</label><input asp-for="RecruitmentPost" class="form-control" maxlength="150" /><span asp-validation-for="RecruitmentPost" class="text-danger"></span></div>
-                <div class="col-md-4"><label asp-for="RecruitmentGrade">Grade</label><input asp-for="RecruitmentGrade" class="form-control" maxlength="30" placeholder="e.g. BPS-14" /><span asp-validation-for="RecruitmentGrade" class="text-danger"></span></div>
-            </div></div>
-            <div class="col-md-4"><label asp-for="QuestionLimit">Number of MCQs</label><input asp-for="QuestionLimit" class="form-control" type="number" min="1" max="1000" required /><span asp-validation-for="QuestionLimit" class="text-danger"></span><div class="form-text">Only this many questions can be added to the paper.</div></div>
-            <div class="col-md-4"><label asp-for="DurationMinutes" class="form-label">Duration (minutes)</label><input asp-for="DurationMinutes" class="form-control" type="number" min="1" max="600" required /><span asp-validation-for="DurationMinutes" class="text-danger"></span></div>
-            <div class="col-md-4"><label asp-for="TotalMarks" class="form-label">Total marks</label><input asp-for="TotalMarks" class="form-control" type="number" min="0.01" max="100000" step="0.01" required /><span asp-validation-for="TotalMarks" class="text-danger"></span></div>
-            <div class="col-md-4"><label asp-for="PassingPercentage" class="form-label">Pass mark (%)</label><input asp-for="PassingPercentage" class="form-control" type="number" min="0" max="100" step="0.01" required /><span asp-validation-for="PassingPercentage" class="text-danger"></span></div>
-        </div>
-    </div>
+<div asp-validation-summary="All" class="alert alert-danger" role="alert" id="examFormErrors" hidden="@ViewData.ModelState.IsValid"></div>
+<input asp-for="NumberOfSessions" type="hidden" />
+<input asp-for="DurationMinutes" type="hidden" />
+<input asp-for="ClassName" type="hidden" />
+<div class="te-wizard-nav" aria-label="Test setup steps">
+    <span data-wizard-indicator="0">1. Test type</span>
+    <span data-wizard-indicator="1">2. Eligibility</span>
+    <span data-wizard-indicator="2">3. Details</span>
+    <span data-wizard-indicator="3">4. Schedule</span>
+    <span data-wizard-indicator="4">5. Monitoring</span>
 </div>
-<div class="card border-0 shadow-sm rounded-4 mb-3">
-    <div class="card-body p-4">
-        <h2 class="h5 fw-bold mb-3">When can students start?</h2>
-        <div id="practiceFields" class="mb-3"><div class="form-check"><input asp-for="IsReusable" class="form-check-input" /><label asp-for="IsReusable" class="form-check-label">Always-open public practice test</label></div><p class="small text-secondary mb-0">Students can repeat this practice test after finishing their current attempt.</p></div>
-        <div id="scheduleFields" class="row g-3">
-            <div class="col-md-4"><label asp-for="ExamDate" class="form-label">Date</label><input asp-for="ExamDate" class="form-control" type="date" min="@DateTime.Today.ToString("yyyy-MM-dd")" /><span asp-validation-for="ExamDate" class="text-danger"></span></div>
-            <div class="col-md-4"><label asp-for="StartTime" class="form-label">Start time</label><input asp-for="StartTime" class="form-control" type="time" /><span asp-validation-for="StartTime" class="text-danger"></span></div>
-            <div class="col-md-4"><label asp-for="EntryWindowMinutes" class="form-label">Late entry allowance (minutes)</label><input asp-for="EntryWindowMinutes" class="form-control" type="number" min="0" max="1440" /><span asp-validation-for="EntryWindowMinutes" class="text-danger"></span></div>
-        </div>
-        <p class="small text-secondary mt-3 mb-0">Use the exam server's time zone. Each admitted student receives the full test duration.</p>
+<section class="te-wizard-step" data-wizard-step="0" aria-labelledby="teTypeHeading">
+    <div class="te-step-heading"><span class="te-step-kicker">Step 1 of 5</span><h2 tabindex="-1" id="teTypeHeading">What type of test are you creating?</h2><p>Choose the test purpose first; only relevant fields appear in the next steps.</p></div>
+    <div class="te-field"><label asp-for="Purpose" class="form-label fw-semibold">Test type</label>
+        <select asp-for="Purpose" class="form-select form-select-lg">
+            <option value="AcademicClass">Class / academic test</option><option value="Recruitment">Recruitment / job test</option>
+            <option value="Practice">Practice / mock test</option><option value="Entrance">University entry test</option>
+            <option value="Certification">Certification test</option><option value="Other">Other test</option>
+        </select><span asp-validation-for="Purpose" class="text-danger"></span></div>
+    <div class="te-help"><i class="bi bi-info-circle"></i> Your choice controls recruitment and practice settings. You can change it while the test is still a draft.</div>
+</section>
+<section class="te-wizard-step" data-wizard-step="1" aria-labelledby="teAudienceHeading">
+    <div class="te-step-heading"><span class="te-step-kicker">Step 2 of 5</span><h2 tabindex="-1" id="teAudienceHeading">Who can take this test?</h2><p>Private tests require an assigned class or selected students. Sharing a code never bypasses eligibility checks.</p></div>
+    <div class="te-field"><label asp-for="Audience" class="form-label fw-semibold">Student access</label>
+        <select asp-for="Audience" class="form-select form-select-lg"><option value="Private">Private — assigned class or selected candidates</option><option value="Public">Public — all approved students</option></select>
+        <span asp-validation-for="Audience" class="text-danger"></span></div>
+    <div id="privateAccess" class="te-field mt-3"><partial name="_ManagementOptions" model="Model" /></div>
+    <div id="recruitmentFields" class="mt-3"><h3 class="h6 fw-bold">Recruitment information</h3><div class="row g-3">
+        <div class="col-md-4"><label asp-for="RecruitmentDepartment" class="form-label">Department</label><input asp-for="RecruitmentDepartment" class="form-control" maxlength="150" /><span asp-validation-for="RecruitmentDepartment" class="text-danger"></span></div>
+        <div class="col-md-4"><label asp-for="RecruitmentPost" class="form-label">Job title</label><input asp-for="RecruitmentPost" class="form-control" maxlength="150" /><span asp-validation-for="RecruitmentPost" class="text-danger"></span></div>
+        <div class="col-md-4"><label asp-for="RecruitmentGrade" class="form-label">Grade</label><input asp-for="RecruitmentGrade" class="form-control" maxlength="30" placeholder="BPS-14" /><span asp-validation-for="RecruitmentGrade" class="text-danger"></span></div>
+    </div></div>
+</section>
+<section class="te-wizard-step" data-wizard-step="2" aria-labelledby="teDetailsHeading">
+    <div class="te-step-heading"><span class="te-step-kicker">Step 3 of 5</span><h2 tabindex="-1" id="teDetailsHeading">Basic test details</h2><p>Set the paper target here. You will select MCQs and configure session timing after saving the draft.</p></div>
+    <div class="row g-3">
+        <div class="col-12"><label asp-for="ExamTitle" class="form-label fw-semibold">Test name</label><input asp-for="ExamTitle" class="form-control form-control-lg" maxlength="200" placeholder="e.g. BSIT Semester 8 — Mathematics" required /><span asp-validation-for="ExamTitle" class="text-danger"></span></div>
+        <div class="col-sm-4"><label asp-for="QuestionLimit" class="form-label">Target MCQs</label><input asp-for="QuestionLimit" class="form-control" type="number" min="1" max="1000" required /><span asp-validation-for="QuestionLimit" class="text-danger"></span></div>
+        <div class="col-sm-4"><label asp-for="TotalMarks" class="form-label">Total marks</label><input asp-for="TotalMarks" class="form-control" type="number" min="0.01" max="100000" step="0.01" required /><span asp-validation-for="TotalMarks" class="text-danger"></span></div>
+        <div class="col-sm-4"><label asp-for="PassingPercentage" class="form-label">Passing percentage</label><input asp-for="PassingPercentage" class="form-control" type="number" min="0" max="100" step="0.01" required /><span asp-validation-for="PassingPercentage" class="text-danger"></span></div>
     </div>
-</div>
-<details class="card border-0 shadow-sm rounded-4 mb-3" open="@(!ViewData.ModelState.IsValid ? "open" : null)">
-    <summary class="p-4 fw-semibold">More settings — sections, marking and monitoring</summary>
-    <div class="card-body px-4 pt-0">
-        <div class="row g-3">
-            <input type="hidden" asp-for="NumberOfSessions" />
-            <p class="small">Configure sections after saving the draft, before Publish and Lock.</p>
-            <div class="col-md-6"><label asp-for="NegativeMarksPerWrongAnswer" class="form-label">Deduction per wrong answer</label><input asp-for="NegativeMarksPerWrongAnswer" class="form-control" type="number" min="0" max="100" step="0.01" /><div class="form-text">Leave 0 for no negative marking.</div><span asp-validation-for="NegativeMarksPerWrongAnswer" class="text-danger"></span></div>
-            <div class="col-12"><label asp-for="BlockingMode" class="form-label">Monitoring response</label><select asp-for="BlockingMode" class="form-select"><option value="BOTH">Automatic block and teacher controls</option><option value="MANUAL_ONLY">Teacher decides when to block</option><option value="AUTO_ONLY">Automatic block</option></select><span asp-validation-for="BlockingMode" class="text-danger"></span><p class="small text-secondary mt-2">Automatic modes give three warnings for standard violations; the fourth blocks the test. Confirmed identity replacement blocks immediately. Your teacher can review and resume a blocked test. Manual mode keeps alerts and evidence available for teacher review.</p></div>
-            <div class="col-md-6"><div class="form-check"><input asp-for="ShuffleOptions" class="form-check-input" /><label asp-for="ShuffleOptions" class="form-check-label">Shuffle answer options</label></div></div>
-            <div class="col-12"><label asp-for="ClassName" class="form-label">Group / batch label (optional)</label><input asp-for="ClassName" class="form-control" maxlength="150" /><div class="form-text">Selecting a class uses its name automatically.</div></div>
-        </div>
-    </div>
-</details>
-<p class="small text-secondary">Camera, microphone and fullscreen are required. Question order is individual to each candidate, and time expiry submits the section automatically.</p>
-
-<script>
-(() => {
-    const date = document.getElementById('ExamDate'), time = document.getElementById('StartTime');
-    if (!date || !time) return;
-    const serverNow = new Date('@DateTime.Now.ToString("yyyy-MM-ddTHH:mm:ss")'), loaded = Date.now();
-    function update() {
-        const now = new Date(serverNow.getTime() + Date.now() - loaded);
-        const pad = n => String(n).padStart(2, '0');
-        const today = `${now.getFullYear()}-${pad(now.getMonth()+1)}-${pad(now.getDate())}`;
-        date.min = today;
-        time.min = date.value === today ? `${pad(now.getHours())}:${pad(now.getMinutes())}` : '';
+    <div class="te-help mt-3"><i class="bi bi-clock-history"></i> Number of sessions, time per session and breaks are configured after choosing the MCQs.</div>
+    <details class="te-advanced mt-3"><summary>Advanced marking options</summary>
+        <div class="pt-3 row g-3"><div class="col-sm-6"><label asp-for="NegativeMarksPerWrongAnswer" class="form-label">Deduction for a wrong answer</label><input asp-for="NegativeMarksPerWrongAnswer" type="number" min="0" max="100" step="0.01" class="form-control" /><div class="form-text">Keep 0 to disable negative marking.</div><span asp-validation-for="NegativeMarksPerWrongAnswer" class="text-danger"></span></div>
+        <div class="col-sm-6"><label class="form-check-label"><input asp-for="ShuffleOptions" class="form-check-input me-2" />Shuffle answer choices</label><div class="form-text">Makes option order different for each student; the correct answer remains the same.</div></div></div>
+    </details>
+</section>
+<section class="te-wizard-step" data-wizard-step="3" aria-labelledby="teScheduleHeading">
+    <div class="te-step-heading"><span class="te-step-kicker">Step 4 of 5</span><h2 tabindex="-1" id="teScheduleHeading">When can students start?</h2><p>Choose today or a future date. Times in the past are blocked in the form and rejected by the server.</p></div>
+    <div id="practiceFields" class="te-field mb-3"><label class="form-check-label"><input asp-for="IsReusable" class="form-check-input me-2" />Always-open public practice test</label><div class="form-text">Use only for public practice exams. Students can attempt again under the established practice policy.</div></div>
+    <div id="scheduleFields" class="row g-3">
+        <div class="col-md-4"><label asp-for="ExamDate" class="form-label">Exam date</label><input asp-for="ExamDate" class="form-control" type="date" min="@DateTime.Today.ToString("yyyy-MM-dd")" required /><span asp-validation-for="ExamDate" class="text-danger"></span></div>
+        <div class="col-md-4"><label asp-for="StartTime" class="form-label">Start time</label><input asp-for="StartTime" class="form-control" type="time" required /><span asp-validation-for="StartTime" class="text-danger"></span></div>
+        <div class="col-md-4"><label asp-for="EntryWindowMinutes" class="form-label">Late entry (minutes)</label><input asp-for="EntryWindowMinutes" class="form-control" type="number" min="0" max="1440" required /><span asp-validation-for="EntryWindowMinutes" class="text-danger"></span></div>
+    </div><div class="te-help mt-3"><i class="bi bi-calendar-check"></i> Scheduling uses the exam server's local time. The Teacher may publish the paper before the scheduled start.</div>
+</section>
+<section class="te-wizard-step" data-wizard-step="4" aria-labelledby="tePolicyHeading">
+    <div class="te-step-heading"><span class="te-step-kicker">Step 5 of 5</span><h2 tabindex="-1" id="tePolicyHeading">Monitoring and blocking</h2><p>Keep your policy simple. Only confirmed qualifying incidents count towards automatic warnings; AI observations require appropriate review.</p></div>
+    <div class="row g-3"><div class="col-md-6"><label asp-for="BlockingMode" class="form-label">Blocking mode</label>
+        <select asp-for="BlockingMode" class="form-select"><option value="AUTO_ONLY">Automatic — after allowed warnings</option><option value="MANUAL_ONLY">Teacher decides — no automatic warning block</option>@if(Model.BlockingMode == ExamBlockingMode.BOTH){<option value="BOTH">Automatic + Teacher (existing policy)</option>}</select>
+        <span asp-validation-for="BlockingMode" class="text-danger"></span></div>
+        <div class="col-md-6" id="automaticWarningSettings"><label asp-for="AllowedWarnings" class="form-label">Warnings before automatic block</label><input asp-for="AllowedWarnings" class="form-control" type="number" min="1" max="10" /><span asp-validation-for="AllowedWarnings" class="text-danger"></span><div class="form-text">Example: 3 warnings means the fourth distinct, qualified incident triggers a review block.</div></div></div>
+    <p id="examPolicyExample" class="te-help mt-3" aria-live="polite"></p>
+    <input type="hidden" name="configureQualifyingEvents" value="true" />
+    <fieldset class="te-incident-list mt-3"><legend class="h6 fw-bold mb-2">Which incidents count towards warnings?</legend>
+        <p class="small text-secondary">Choose only relevant types. Detections must still satisfy server-side confidence/duration checks.</p>
+        <div class="te-incident-grid">@foreach (var incident in incidents){<label class="te-incident-choice"><input type="checkbox" name="qualifyingEvents" value="@incident.Kind" checked="@BlockingPolicy.Qualifies(Model,incident.Kind)" /><span><strong>@incident.Label</strong><small>@incident.Hint</small></span></label>}</div>
+        <p class="small text-secondary mt-2 mb-0">Speech and question-related conversation generate review evidence; speech alone does not automatically count as a cheating strike.</p>
+    </fieldset>
+    <details class="te-advanced mt-3"><summary>Additional monitoring settings</summary><div class="pt-3">
+        <label class="form-check-label"><input asp-for="ResetWarningsOnResume" class="form-check-input me-2" />Start a fresh warning count after Teacher-authorized resume</label>
+        <p class="small text-secondary mt-1 mb-0">The original warnings and evidence remain saved for audit. A confirmed identity mismatch still causes a protective hold in every mode.</p>
+    </div></details>
+    <div class="te-help mt-3"><i class="bi bi-shield-check"></i> Camera, microphone and fullscreen monitoring remain enabled. Invite Teachers to collaborate while creating this draft, or invite them later.</div>
+    @if (Model.ExamId == 0)
+    {
+        <details class="te-advanced mt-3" id="createTeacherInvitations">
+            <summary><i class="bi bi-people me-1"></i>Add teachers to create the question paper or monitor the exam (optional)</summary>
+            <div class="pt-3">
+                <p class="small text-secondary">Select multiple approved Teachers. Choose whether they may prepare MCQs, monitor the live exam, or both. Each invited Teacher must accept the request.</p>
+                <partial name="~/Areas/Teacher/Views/Shared/_TeacherPicker.cshtml"
+                         model="@(new AiExamProctoring.Areas.Teacher.Controllers.TeacherPickerPage { ExamId = 0, Mode = "create" })" />
+            </div>
+        </details>
     }
-    date.addEventListener('change', update); update(); setInterval(update, 30000);
-})();
-</script>
+    else
+    {
+        <p class="small text-secondary mt-3">You can manage additional collaborators from the saved test's <strong>Invite teachers</strong> page.</p>
+    }
+</section>
+<div class="te-wizard-footer" data-wizard-controls>
+    <button type="button" class="btn btn-outline-secondary" data-wizard-back hidden><i class="bi bi-arrow-left me-1"></i>Back</button>
+    <span class="small text-secondary" data-wizard-counter aria-live="polite"></span>
+    <button type="button" class="btn btn-primary" data-wizard-next hidden>Continue <i class="bi bi-arrow-right ms-1"></i></button>
+</div>

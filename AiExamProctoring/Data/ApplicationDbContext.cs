@@ -6,7 +6,15 @@ namespace AiExamProctoring.Data;
 
 public class ApplicationDbContext : IdentityDbContext<ApplicationUser>
 {
+    public DbSet<TeacherChatReplyLink> TeacherChatReplyLinks => Set<TeacherChatReplyLink>();
+    public DbSet<TeacherChatReaction> TeacherChatReactions => Set<TeacherChatReaction>();
+    public DbSet<TeacherActivityRead> TeacherActivityReads => Set<TeacherActivityRead>();
     public DbSet<TeacherConnection> TeacherConnections => Set<TeacherConnection>();
+    public DbSet<TeacherCommunityPost> TeacherCommunityPosts => Set<TeacherCommunityPost>();
+    public DbSet<TeacherPostComment> TeacherPostComments => Set<TeacherPostComment>();
+    public DbSet<TeacherPostLike> TeacherPostLikes => Set<TeacherPostLike>();
+    public DbSet<TeacherConnectionEvent> TeacherConnectionEvents => Set<TeacherConnectionEvent>();
+
     public DbSet<TeacherPrivateMessage> TeacherPrivateMessages => Set<TeacherPrivateMessage>();
     public DbSet<ExamTeamMessage> ExamTeamMessages => Set<ExamTeamMessage>();
     public ApplicationDbContext(
@@ -117,17 +125,36 @@ public class ApplicationDbContext : IdentityDbContext<ApplicationUser>
     public DbSet<UniversityCandidate> UniversityCandidates => Set<UniversityCandidate>();
     public DbSet<AdmissionApplication> AdmissionApplications => Set<AdmissionApplication>();
     public DbSet<ExamInvigilator> ExamInvigilators => Set<ExamInvigilator>();
+    public DbSet<ExamCollaborationEvent> ExamCollaborationEvents => Set<ExamCollaborationEvent>();
     public DbSet<AdmissionQuestionDecision> AdmissionQuestionDecisions => Set<AdmissionQuestionDecision>();
     public DbSet<AdmissionAudit> AdmissionAudits => Set<AdmissionAudit>();
 
     public DbSet<AcademicClass> AcademicClasses => Set<AcademicClass>();
     public DbSet<AttemptIdentityPhoto> AttemptIdentityPhotos => Set<AttemptIdentityPhoto>();
     public DbSet<ClassMembership> ClassMemberships => Set<ClassMembership>();
+    public DbSet<EvidenceGrant> EvidenceGrants => Set<EvidenceGrant>();
+
     protected override void OnModelCreating(ModelBuilder builder)
     {
         builder.Entity<ProctoringLog>().HasIndex(l => new { l.PolicyPending, l.PolicyProcessed })
             .HasFilter("[PolicyPending] = 1 AND [PolicyProcessed] = 0");
         base.OnModelCreating(builder);
+        builder.Entity<ExamResult>().HasIndex(r => r.CertificateReference).IsUnique().HasFilter("[CertificateReference] IS NOT NULL");
+        builder.Entity<EvidenceGrant>().HasOne(g => g.Log).WithMany().HasForeignKey(g => g.LogId).OnDelete(DeleteBehavior.Restrict);
+        builder.Entity<EvidenceGrant>().HasOne<ApplicationUser>().WithMany().HasForeignKey(g => g.RecipientId).OnDelete(DeleteBehavior.Restrict);
+        builder.Entity<EvidenceGrant>().HasOne<ApplicationUser>().WithMany().HasForeignKey(g => g.OwnerId).OnDelete(DeleteBehavior.Restrict);
+        builder.Entity<EvidenceGrant>().HasIndex(g => new { g.RecipientId, g.ExpiresAtUtc });
+        builder.Entity<TeacherPostLike>().HasKey(x => new { x.PostId, x.TeacherId });
+        builder.Entity<TeacherPostLike>().HasOne<TeacherCommunityPost>().WithMany().HasForeignKey(x => x.PostId).OnDelete(DeleteBehavior.Cascade);
+        builder.Entity<TeacherPostComment>().HasOne<TeacherCommunityPost>().WithMany().HasForeignKey(x => x.PostId).OnDelete(DeleteBehavior.Cascade);
+        builder.Entity<TeacherCommunityPost>().HasIndex(x => new { x.IsDeleted, x.CreatedAtUtc });
+        builder.Entity<TeacherCommunityPost>().HasIndex(x => new { x.AuthorId, x.CreatedAtUtc });
+        builder.Entity<TeacherPostComment>().HasIndex(x => new { x.PostId, x.CreatedAtUtc });
+        builder.Entity<TeacherConnectionEvent>().HasIndex(x => new { x.ConnectionId, x.OccurredAtUtc });
+        builder.Entity<TeacherChatReaction>().HasKey(x => new { x.Kind, x.RoomId, x.MessageId, x.UserId }).IsClustered(false);
+        builder.Entity<TeacherActivityRead>().HasKey(x => new { x.UserId, x.Kind, x.EntryId }).IsClustered(false);
+        builder.Entity<ExamCollaborationEvent>().HasIndex(e => new { e.TeacherId, e.ExamId, e.OccurredAtUtc });
+        builder.Entity<ExamCollaborationEvent>().HasIndex(e => new { e.InvitationId, e.OccurredAtUtc });
         builder.Entity<ExamInvigilator>().Property(i => i.CanEditQuestions).HasDefaultValue(true).HasSentinel(true);
         builder.Entity<ExamInvigilator>().Property(i => i.CanMonitor).HasDefaultValue(true).HasSentinel(true);
         builder.Entity<ClassMembership>().HasIndex(x => new { x.AcademicClassId, x.StudentId }).IsUnique();
@@ -200,6 +227,8 @@ public class ApplicationDbContext : IdentityDbContext<ApplicationUser>
 
             entity.Property(x => x.HighestQualification)
                 .HasMaxLength(100);
+            entity.Property(x => x.TeacherHeadline).HasMaxLength(140);
+            entity.Property(x => x.TeacherBio).HasMaxLength(700);
 
             entity.Property(x => x.OrganizationName)
                 .HasMaxLength(150);

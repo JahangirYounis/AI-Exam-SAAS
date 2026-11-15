@@ -1,0 +1,75 @@
+@model AiExamProctoring.Models.Question
+@{
+    bool isEdit = string.Equals(ViewData["QuestionFormMode"]?.ToString(), "edit", System.StringComparison.OrdinalIgnoreCase);
+    int? examId = ViewBag.ExamId as int?;
+}
+<div class="qb-editor-grid">
+    <section class="qb-panel qb-editor-card" aria-label="MCQ editor">
+        <form asp-area="Teacher" asp-controller="Question" asp-action="@(isEdit ? "Edit" : "Create")"
+              asp-route-id="@(isEdit ? Model.QuestionId : (int?)null)" method="post" data-prevent-double-submit>
+            @Html.AntiForgeryToken()
+            @if (isEdit)
+            {
+                <input asp-for="QuestionId" type="hidden" />
+            }
+            else
+            {
+                <input type="hidden" name="examId" value="@examId" />
+                <input asp-for="IsActive" type="hidden" value="true" />
+            }
+            <div asp-validation-summary="All" class="text-danger small mb-3" role="alert"></div>
+
+            <div class="qb-form-section">
+                <div class="qb-form-section-heading"><span>01</span><div><h2>Classification</h2><p>Choose the subject and optionally specify a topic.</p></div></div>
+                <div class="row g-3">
+                    <div class="col-md-6"><label asp-for="SubjectId" class="form-label">Subject</label><select asp-for="SubjectId" asp-items="ViewBag.Subjects" class="form-select"><option value="0">Uncategorized (organize later)</option></select><span asp-validation-for="SubjectId" class="text-danger small"></span></div>
+                    <div class="col-md-6"><label asp-for="Topic" class="form-label">Topic <span class="qb-optional">Optional</span></label><input asp-for="Topic" class="form-control" maxlength="150" placeholder="e.g. Human anatomy"/><span asp-validation-for="Topic" class="text-danger small"></span></div>
+                    <div class="col-12"><label asp-for="Tags" class="form-label">Tags <span class="qb-optional">Optional</span></label><input asp-for="Tags" class="form-control" maxlength="500" placeholder="e.g. biology, health, grade-10"/><span asp-validation-for="Tags" class="text-danger small"></span></div>
+                </div>
+            </div>
+
+            <div class="qb-form-section">
+                <div class="qb-form-section-heading"><span>02</span><div><h2>Question and options</h2><p>Use clear wording and one unambiguous correct answer.</p></div></div>
+                <label asp-for="QuestionText" class="form-label">Question text</label>
+                <textarea asp-for="QuestionText" class="form-control" rows="4" maxlength="3000" required placeholder="Write the question here..."></textarea>
+                <span asp-validation-for="QuestionText" class="text-danger small"></span>
+                <div class="qb-option-fields">
+                    <div><label asp-for="OptionA" class="form-label">Option A</label><input asp-for="OptionA" class="form-control" required maxlength="1000"/><span asp-validation-for="OptionA" class="text-danger small"></span></div>
+                    <div><label asp-for="OptionB" class="form-label">Option B</label><input asp-for="OptionB" class="form-control" required maxlength="1000"/><span asp-validation-for="OptionB" class="text-danger small"></span></div>
+                    <div><label asp-for="OptionC" class="form-label">Option C</label><input asp-for="OptionC" class="form-control" required maxlength="1000"/><span asp-validation-for="OptionC" class="text-danger small"></span></div>
+                    <div><label asp-for="OptionD" class="form-label">Option D</label><input asp-for="OptionD" class="form-control" required maxlength="1000"/><span asp-validation-for="OptionD" class="text-danger small"></span></div>
+                    <div><label asp-for="OptionE" class="form-label">Option E <span class="qb-optional">Optional</span></label><input asp-for="OptionE" class="form-control" maxlength="1000"/><span asp-validation-for="OptionE" class="text-danger small"></span></div>
+                    <div><label asp-for="CorrectAnswer" class="form-label">Correct option</label><select asp-for="CorrectAnswer" class="form-select" required><option value="A">Option A</option><option value="B">Option B</option><option value="C">Option C</option><option value="D">Option D</option><option value="E">Option E</option></select><span asp-validation-for="CorrectAnswer" class="text-danger small"></span></div>
+                </div>
+            </div>
+
+            <div class="qb-form-section">
+                <div class="qb-form-section-heading"><span>03</span><div><h2>Additional details</h2><p>Optional explanation and media reference help with teaching and review.</p></div></div>
+                <div class="row g-3">
+                    <div class="col-12"><label asp-for="Explanation" class="form-label">Answer explanation <span class="qb-optional">Optional</span></label><textarea asp-for="Explanation" class="form-control" rows="3" maxlength="3000" placeholder="Why is this the correct answer?"></textarea><span asp-validation-for="Explanation" class="text-danger small"></span></div>
+                    <div class="col-md-8"><label asp-for="ImagePath" class="form-label">Existing image path / URL <span class="qb-optional">Optional</span></label><input asp-for="ImagePath" class="form-control" maxlength="1000" placeholder="Use an existing trusted image path"/><span asp-validation-for="ImagePath" class="text-danger small"></span></div>
+                    <div class="col-md-4"><label asp-for="DisplayOrder" class="form-label">Display order</label><input asp-for="DisplayOrder" class="form-control" type="number"/><span asp-validation-for="DisplayOrder" class="text-danger small"></span></div>
+                    @if (isEdit)
+                    {
+                        <div class="col-12"><div class="form-check form-switch"><input asp-for="IsActive" class="form-check-input"/><label asp-for="IsActive" class="form-check-label">Available for future question selection</label></div></div>
+                    }
+                </div>
+            </div>
+            <div class="qb-form-actions">
+                @if (examId.HasValue && !isEdit)
+                {
+                    <a asp-area="Teacher" asp-controller="ExamQuestion" asp-action="Index" asp-route-examId="@examId" class="btn btn-outline-secondary">Cancel</a>
+                }
+                else
+                {
+                    <a asp-area="Teacher" asp-controller="Question" asp-action="Index" asp-route-source="mine" asp-route-subjectId="@Model.SubjectId" class="btn btn-outline-secondary">Cancel</a>
+                }
+                <button type="submit" class="btn btn-primary"><i class="bi bi-check2-circle me-2" aria-hidden="true"></i>@(isEdit ? "Save changes" : (examId.HasValue ? "Save and add to exam" : "Save MCQ"))</button>
+            </div>
+        </form>
+    </section>
+    <aside class="qb-editor-tips" aria-label="Helpful tips">
+        <div class="qb-panel"><span class="qb-tip-icon"><i class="bi bi-lightbulb" aria-hidden="true"></i></span><h2>Good MCQ checklist</h2><ul><li>Ask one clear question.</li><li>Use four or five possible answers.</li><li>Ensure the correct option contains text.</li><li>Avoid repeated or misleading options.</li><li>Add an explanation when useful.</li></ul></div>
+        <div class="qb-panel"><h2><i class="bi bi-shield-check me-2" aria-hidden="true"></i>Question safety</h2><p>Verified starter questions stay protected. Your own MCQs remain editable until they become part of a locked examination paper.</p><p class="mb-0">Marks are assigned in the exam builder, not here.</p></div>
+    </aside>
+</div>

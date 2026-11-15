@@ -15,13 +15,13 @@ public sealed class TeacherController : Controller
     public TeacherController(UserManager<ApplicationUser> users) => _users = users;
 
     [HttpGet]
-    public async Task<IActionResult> Index(string? search, string? status)
+    public async Task<IActionResult> Index(string? search, string? status, string? id = null)
     {
         // GetUsersInRoleAsync already returns the complete teacher set. Filter this
         // materialized list in memory instead of embedding a HashSet in an EF query;
         // some database providers cannot translate HashSet.Contains reliably.
         var teachers = await _users.GetUsersInRoleAsync("Teacher");
-        var query = teachers.AsEnumerable();
+        var query = teachers.AsEnumerable(); if (!string.IsNullOrWhiteSpace(id)) query = query.Where(t => t.Id == id);
         if (!string.IsNullOrWhiteSpace(search))
         {
             search = search.Trim();

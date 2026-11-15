@@ -1,37 +1,254 @@
+@using Microsoft.AspNetCore.Mvc.Rendering
 @{
-    ViewData["Title"] = "Live examination room";
-    var exams = (List<Microsoft.AspNetCore.Mvc.Rendering.SelectListItem>)ViewBag.Exams;
+    ViewData["Title"] = "Live monitoring";
+    var exams = ViewBag.Exams as List<SelectListItem> ?? new List<SelectListItem>();
+    int selectedExamId = ViewBag.ExamId is int id ? id : 0;
+    bool roomClosed = ViewBag.RoomClosed == true;
+    int? closedExamId = ViewBag.RoomClosedExamId is int closed ? closed : null;
 }
-<a class="btn btn-outline-primary mb-3" asp-controller="Invitations" asp-action="Index">Teacher invitations and team discussions</a>
-<div id="live-room" data-exam="@ViewBag.ExamId">
-    <div class="d-flex justify-content-between flex-wrap gap-3 mb-3">
-        <div><h2>Live examination room</h2><p>Watch candidates, review alerts, and pause an attempt when you need to intervene.</p></div>
-        <a asp-action="Index" class="btn btn-outline-primary align-self-start">Saved recordings &amp; review</a>
-    </div>
-    <form method="get" class="d-flex gap-2 mb-3">
-        <label for="live-exam" class="align-self-center">Exam</label>
-        <select id="live-exam" name="examId" class="form-select" style="max-width:480px">
-            @foreach (var exam in exams) { <option value="@exam.Value" selected="@(exam.Value == ViewBag.ExamId.ToString())">@exam.Text</option> }
-        </select><button class="btn btn-primary">Open live room</button>
-    </form>
-    @Html.AntiForgeryToken()
-    <p class="small text-secondary">Live camera views · Green = normal · Blinking red = active violation · Click a video to enlarge it. Videos are muted. Desktop screens are not shared.</p>
-    <a class="btn btn-outline-primary mb-3" asp-controller="ExamQuestion" asp-action="Index" asp-route-examId="@ViewBag.ExamId">View / build question paper</a>
-    <p id="room-status" role="status">Connecting…</p>
-    <div id="camera-grid" class="camera-grid"></div>
-    <div class="d-flex gap-3 align-items-center my-3"><button id="live-prev" class="btn btn-outline-primary">Previous</button><span id="live-page"></span><button id="live-next" class="btn btn-outline-primary">Next</button></div>
+<div class="tw14-workspace tw14-live">
+    <header class="tw14-hero">
+        <div>
+            <span class="tw14-eyebrow"><i class="bi bi-broadcast" aria-hidden="true"></i> Authorized live supervision</span>
+            <h1>Live monitoring</h1>
+            <p>Watch active candidates in your exams. Review observations before making a decision.</p>
+        </div>
+        <a asp-controller="Monitoring" asp-action="Index" class="tw14-hero-button"><i class="bi bi-folder2-open" aria-hidden="true"></i> Exam evidence</a>
+    </header>
+
+    @if (selectedExamId <= 0)
+    {
+        <section class="tw14-empty" aria-live="polite">
+            <i class="bi @(roomClosed ? "bi-clock-history" : "bi-camera-video-off")" aria-hidden="true"></i>
+            <h2>There is no test for live monitoring</h2>
+            <p>@(roomClosed ? "This exam has no current monitoring session. Open its saved evidence instead." : "Only your currently running exams or exams with active candidates appear here. Past evidence remains in Candidate Evidence.")</p>
+            <div class="tw14-inline-actions">
+                @if (closedExamId.HasValue)
+                {
+                    <a asp-controller="Monitoring" asp-action="Exam" asp-route-examId="@closedExamId" class="btn btn-outline-primary">Review exam evidence</a>
+                }
+                <a asp-controller="Exam" asp-action="Index" class="btn btn-primary">My examinations</a>
+            </div>
+        </section>
+    }
+    else
+    {
+        <section class="tw14-panel" aria-label="Selected live examination">
+            <div class="tw14-panel-header tw14-live-heading">
+                <div>
+                    <h2 class="tw14-section-title">@(exams.First(e => e.Value == selectedExamId.ToString()).Text)</h2>
+                    <p class="tw14-muted">Only students actively taking or temporarily held in this examination appear below.</p>
+                </div>
+                @if (exams.Count > 1)
+                {
+                    <form method="get" asp-action="Live" class="tw14-inline-filter">
+                        <label for="live-exam" class="form-label mb-1">Switch live exam</label>
+                        <select id="live-exam" name="examId" class="form-select" onchange="this.form.requestSubmit()">
+                            @foreach (var exam in exams)
+                            {
+                                <option value="@exam.Value" selected="@(exam.Value == selectedExamId.ToString())">@exam.Text</option>
+                            }
+                        </select>
+                        <noscript><button type="submit" class="btn btn-primary">Open</button></noscript>
+                    </form>
+                }
+            </div>
+        </section>
+        <section id="live-room" data-exam="@selectedExamId" aria-label="Live candidate camera grid">
+            @Html.AntiForgeryToken()
+            <div class="tw14-room-toolbar">
+                <div class="tw14-room-legend" aria-label="Monitoring legend">
+                    <span><i class="tw14-dot tw14-dot-green"></i> Normal</span>
+                    <span><i class="tw14-dot tw14-dot-red"></i> Review needed</span>
+                    <span><i class="tw14-dot tw14-dot-purple"></i> Blocked</span>
+                </div>
+                <a asp-controller="ReviewRequests" asp-action="Index" class="tw14-text-action">Review requests <i class="bi bi-arrow-up-right" aria-hidden="true"></i></a>
+            </div>
+
+            <details class="tw14-audio-settings">
+                <summary><i class="bi bi-volume-up" aria-hidden="true"></i> Optional speech evidence playback</summary>
+                <div class="tw14-audio-content">
+                    <p class="tw14-muted">Protected audio clips stay off until you explicitly enable playback. Audio is not live microphone monitoring.</p>
+                    <div class="tw14-inline-actions">
+                        <button type="button" id="enable-speech-playback" class="btn btn-outline-primary btn-sm">Enable audio playback</button>
+                        <button type="button" id="replay-speech-alert" class="btn btn-outline-secondary btn-sm" disabled>Replay latest clip</button>
+                    </div>
+                    <p id="speech-playback-status" class="tw14-muted small mb-0" role="status">Playback is off.</p>
+                    <audio id="speech-alert-player" preload="none" aria-label="Protected speech evidence clip"></audio>
+                </div>
+            </details>
+
+            <p id="room-status" class="tw14-room-status" role="status">Connecting to monitoring room…</p>
+            <div id="camera-grid" class="camera-grid"></div>
+            <nav id="live-pagination" class="tw14-pagination" aria-label="Candidate pages" hidden>
+                <button type="button" id="live-prev" class="btn btn-outline-primary btn-sm">Previous</button>
+                <span id="live-page" class="tw14-muted"></span>
+                <button type="button" id="live-next" class="btn btn-outline-primary btn-sm">Next</button>
+            </nav>
+        </section>
+        <dialog id="pause-dialog" class="rounded-3 p-4 border-0" style="max-width:480px;width:95%">
+            <form id="pause-form">
+                <h3 class="h5 fw-bold">Pause this attempt?</h3>
+                <p id="pause-name" class="tw14-muted"></p>
+                <label for="pause-reason" class="form-label">Reason for intervention</label>
+                <textarea id="pause-reason" class="form-control mb-2" minlength="10" maxlength="300" required></textarea>
+                <p class="small tw14-muted">Saved answers remain intact. Any resume decision must follow the authorized review workflow.</p>
+                <p id="pause-error" class="text-danger" role="alert"></p>
+                <div class="tw14-inline-actions">
+                    <button type="submit" class="btn btn-danger">Pause attempt</button>
+                    <button type="button" id="pause-cancel" class="btn btn-outline-secondary">Cancel</button>
+                </div>
+            </form>
+        </dialog>
+    }
 </div>
-<dialog id="pause-dialog" class="rounded-3 p-4 border-0" style="max-width:480px;width:95%">
-    <form id="pause-form"><h3>Pause this attempt?</h3><p id="pause-name"></p><label for="pause-reason">What did you review?</label><textarea id="pause-reason" class="form-control my-2" minlength="10" maxlength="300" required></textarea><p class="small">The candidate's saved answers are kept. You can review and authorize resume in their evidence folder.</p><p id="pause-error" role="alert"></p><button class="btn btn-danger">Pause attempt</button><button type="button" id="pause-cancel" class="btn btn-outline-secondary">Cancel</button></form>
-</dialog>
+
 <style>
-.camera-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(min(100%,260px),1fr));gap:16px}.camera-tile{border:3px solid #15803d;border-radius:14px;overflow:hidden;background:white}.camera-tile.needs-review{border-color:#dc2626;animation:violation-pulse 1s infinite;order:-1}.camera-tile video{display:block;width:100%;aspect-ratio:4/3;background:#132332;object-fit:contain;cursor:zoom-in}.camera-tile .tile-info{padding:12px}.camera-tile .tile-alert{color:#166534;font-weight:700}.camera-tile button,.camera-tile a{margin:4px 5px 0 0}dialog::backdrop{background:#14253699}
-@@keyframes violation-pulse{50%{box-shadow:0 0 0 4px #dc262666}}
-@@media(prefers-reduced-motion:reduce){.camera-tile.needs-review{animation:none}}
+    .camera-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fill, minmax(min(100%, 260px), 1fr));
+        gap: 16px;
+    }
+
+    .camera-tile {
+        border: 3px solid #15803d;
+        border-radius: 14px;
+        overflow: hidden;
+        background: white;
+    }
+
+        .camera-tile.needs-review {
+            border-color: #dc2626;
+            animation: violation-pulse 1s infinite;
+            order: -1;
+        }
+
+        .camera-tile video {
+            display: block;
+            width: 100%;
+            aspect-ratio: 4/3;
+            background: #132332;
+            object-fit: contain;
+            cursor: zoom-in;
+        }
+
+        .camera-tile .tile-info {
+            padding: 12px;
+        }
+
+        .camera-tile .tile-alert {
+            color: #166534;
+            font-weight: 700;
+        }
+
+        .camera-tile button,
+        .camera-tile a {
+            margin: 4px 5px 0 0;
+        }
+
+    dialog::backdrop {
+        background: #14253699;
+    }
+
+    .camera-tile .tile-video-wrap {
+        position: relative;
+    }
+    .camera-tile .tile-screen { display: none; }
+    .camera-tile.screen-live .tile-screen { display: block; aspect-ratio: 16/9; }
+    .camera-tile.screen-live .tile-webcam {
+        position: absolute;
+        top: 8px;
+        right: 8px;
+        width: 26%;
+        border: 2px solid white;
+        border-radius: 6px;
+        object-fit: cover;
+    }
+    .camera-tile .tile-video-wrap video:fullscreen { position: static; width: 100%; height: 100%; object-fit: contain; }
+
+    .camera-tile .tile-overlay-warning {
+        position: absolute;
+        bottom: 10px;
+        left: 8px;
+        right: 8px;
+        padding: 8px 10px;
+        color: #fff;
+        background: #b91c1cee;
+        font-weight: 700;
+        font-size: 13px;
+        line-height: 1.3;
+        border-radius: 8px;
+        max-height: 72px;
+        overflow: hidden;
+    }
+
+        .camera-tile .tile-overlay-warning[hidden] {
+            display: none;
+        }
+
+    .camera-tile.monitoring-uncertain {
+        border-color: #b45309;
+    }
+
+    .camera-tile.exam-blocked {
+        border-color: #7e22ce;
+        border-style: double;
+        border-width: 6px;
+    }
+
+        /* Confirmed four-batch identity concern remains red during protective hold,
+       even when the general blocked state normally uses a purple border. */
+        .camera-tile.identity-review-hold,
+        .camera-tile.exam-blocked.identity-review-hold {
+            border: 4px solid #dc2626;
+            animation: violation-pulse 1s infinite;
+            order: -1;
+        }
+
+    .camera-tile.tab-observation-active {
+        outline: 2px solid #b26a00;
+        outline-offset: -2px;
+    }
+
+    @@keyframes violation-pulse {
+        50% {
+            box-shadow: 0 0 0 4px #dc262666;
+        }
+    }
+
+    @@media(prefers-reduced-motion:reduce) {
+        .camera-tile.needs-review {
+            animation: none;
+        }
+    }
 </style>
+
+
 @section Scripts {
-    <script src="~/lib/signalr/signalr.min.js" asp-append-version="true"></script>
-    <script src="~/js/proctoring-client.js" asp-append-version="true"></script>
-    <script src="~/js/live-proctoring.js" asp-append-version="true"></script>
-    <script src="~/js/teacher-live-room.js" asp-append-version="true"></script>
+    @if (selectedExamId > 0)
+    {
+        <script src="~/js/live-proctoring.js" asp-append-version="true"></script>
+        <script src="~/js/teacher-live-room.js" asp-append-version="true"></script>
+    }
+    else
+    {
+        <script>
+            async function findActiveLiveExam() {
+                try {
+                    const response = await fetch('@Url.Action("ActiveLiveExam", "Monitoring")', {
+                        cache: 'no-store', signal: AbortSignal.timeout(5000)
+                    });
+                    if (response.ok && (response.headers.get('content-type') || '').includes('application/json')) {
+                        const { examId } = await response.json();
+                        if (examId) {
+                            location.replace('@Url.Action("Live", "Monitoring")' + '?examId=' + examId);
+                            return;
+                        }
+                    }
+                } catch { /* The next poll retries transient failures. */ }
+                setTimeout(findActiveLiveExam, 2000);
+            }
+            findActiveLiveExam();
+        </script>
+    }
 }

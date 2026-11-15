@@ -7,9 +7,9 @@
         check.disabled = true;
         status.textContent = 'Checking instructor review status…';
         try {
-            const response = await fetch(`/proctoring-state/${page.dataset.proctoringAttempt}`, { cache: 'no-store', signal: AbortSignal.timeout(8000) });
+            const response = await fetch(`/proctoring-state/${page.dataset.proctoringAttempt}`, { cache: 'no-store', headers: { Accept: 'application/json' }, signal: AbortSignal.timeout(8000) });
             if (!response.ok) throw new Error();
-            window.ProctoringRealtime.apply(await response.json(), false);
+            window.ProctoringRealtime.apply(await window.ExamHttp.readJson(response), false);
             status.textContent = 'Your attempt is still locked. Waiting for instructor review.';
         } catch { status.textContent = 'Could not reach the server. Please try again.'; }
         finally { check.disabled = false; }
@@ -28,11 +28,11 @@
         if (button.disabled) return;
         button.disabled = true; feedback.textContent = 'Sending your review request…';
         try {
-            const response = await fetch(form.action, { method: 'POST', body: new FormData(form), credentials: 'same-origin', signal: AbortSignal.timeout(15000) });
-            const result = await response.json();
+            const response = await fetch(form.action, { method: 'POST', body: new FormData(form), credentials: 'same-origin', headers: { Accept: 'application/json' }, signal: AbortSignal.timeout(15000) });
+            const result = await window.ExamHttp.readJson(response);
             if (!response.ok || !result.ok) throw new Error(result.message || 'The request could not be saved. Please retry.');
             button.textContent = 'Instructor review requested'; feedback.textContent = result.message;
-        } catch (error) { button.disabled = false; feedback.textContent = error.message || 'Connection interrupted. Please retry.'; }
+        } catch (error) { button.disabled = false; feedback.textContent = window.ExamHttp.describe(error); }
     });
     const filter = document.getElementById('auditFilter');
     const rows = [...page.querySelectorAll('.lock-event')];

@@ -1,0 +1,21 @@
+@model AiExamProctoring.Areas.Teacher.Controllers.TeacherChatPage
+@{
+ var isTeam = Model.Kind == "team";
+ var readUrl = isTeam ? Url.Action("Messages","Invitations",new {area="Teacher", examId=Model.RoomId}) : Url.Action("Messages","Connections",new {area="Teacher",id=Model.RoomId});
+ var sendUrl = isTeam ? Url.Action("Message","Invitations",new {area="Teacher"}) : Url.Action("Message","Connections",new {area="Teacher"});
+ var field = isTeam ? "examId" : "id";
+}
+<div id="teacher-chat" class="tc-shell" data-kind="@Model.Kind" data-room="@Model.RoomId" data-actor="@Model.ActorId" data-read-url="@readUrl" data-send-url="@sendUrl" data-react-url="@Url.Action("React","ChatInteractions",new{area="Teacher"})">
+ <header class="tc-header"><span class="tc-avatar">@(Model.Heading.Length > 0 ? Model.Heading[..1].ToUpperInvariant() : "T")</span><div><strong>@Model.Heading</strong><div class="tc-subtitle">@((isTeam) ? "Exam collaboration · shared with accepted teachers" : "Private conversation")</div></div></header>
+ <div class="tc-history" id="tc-history" role="log" aria-live="polite" aria-label="Messages"><div class="tc-loading">Loading messages…</div></div>
+ <div class="tc-reply-preview" id="tc-reply" hidden><div><small>Replying to <strong id="tc-reply-author"></strong></small><div class="tc-ellipsis" id="tc-reply-text"></div></div><button type="button" class="btn btn-sm btn-light" id="tc-cancel-reply" aria-label="Cancel reply">×</button></div>
+ <form id="tc-form" class="tc-composer" method="post" action="@sendUrl">
+  @Html.AntiForgeryToken()
+  <input type="hidden" name="@field" value="@Model.RoomId" />
+  <input type="hidden" name="replyToId" id="tc-reply-id" value="" />
+  <label class="visually-hidden" for="tc-body">Write a message</label>
+  <textarea id="tc-body" name="body" maxlength="2000" rows="1" placeholder="Write a message…" required></textarea>
+  <button class="btn btn-primary" type="submit" id="tc-send"><i class="bi bi-send-fill"></i><span class="d-none d-sm-inline ms-2">Send</span></button>
+ </form>
+ <p class="tc-error" id="tc-error" role="alert" hidden></p>
+</div>

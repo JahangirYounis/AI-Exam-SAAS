@@ -1,0 +1,99 @@
+@model AiExamProctoring.Models.AcademicClass
+@{
+    ViewData["Title"] = "Class roster";
+    var students = ViewBag.Students as List<AiExamProctoring.Models.ApplicationUser> ?? new();
+    var destinations = ViewBag.TransferDestinations as List<AiExamProctoring.Models.AcademicClass> ?? new();
+    var teacher = ViewBag.AssignedTeacherName as string ?? "Assigned teacher";
+    var currentIds = Model.Members.Where(m => m.IsActive).Select(m => m.StudentId).ToHashSet(StringComparer.Ordinal);
+    var currentStudents = students.Where(s => currentIds.Contains(s.Id)).ToList();
+}
+<nav aria-label="Breadcrumb" class="mb-3"><a asp-action="Index" class="text-decoration-none"><i class="bi bi-arrow-left me-1" aria-hidden="true"></i>Class management</a></nav>
+<div class="d-flex justify-content-between align-items-start flex-wrap gap-3 mb-4">
+    <div>
+        <h1 class="h2 fw-bold mb-2">@Model.Name</h1>
+        <p class="text-secondary mb-0">@teacher · @currentStudents.Count enrolled student(s) · @(Model.IsActive ? "Active" : "Archived")</p>
+    </div>
+    <span class="badge text-bg-primary">Admin management</span>
+</div>
+<section class="card border-0 shadow-sm rounded-4 p-4 mb-4">
+    <h2 class="h5 fw-bold mb-3">Class name</h2>
+    <form asp-action="Rename" asp-route-id="@Model.Id" method="post" class="d-flex flex-wrap gap-2">
+        <label class="visually-hidden" for="classRename">Class name</label>
+        <input id="classRename" name="name" value="@Model.Name" maxlength="120" required class="form-control flex-grow-1" style="min-width:180px;max-width:500px" />
+        <button type="submit" class="btn btn-outline-primary">Save class name</button>
+    </form>
+</section>
+<section class="card border-0 shadow-sm rounded-4 mb-4" aria-labelledby="rosterEditHeading">
+    <div class="card-body p-4">
+        <h2 id="rosterEditHeading" class="h5 fw-bold">Approved roster</h2>
+        <p class="text-secondary small">Select students to keep or enroll. Unchecking removes them from the active roster; historical membership records are retained.</p>
+        @if (!Model.IsActive)
+        {
+            <div class="alert alert-warning">This class is archived. Reactivate it before editing membership.</div>
+        }
+        <form asp-action="Roster" asp-route-id="@Model.Id" method="post">
+            <div class="row g-2 mb-3">
+                @foreach (var student in students)
+                {
+                    var isCurrent = currentIds.Contains(student.Id);
+                    <div class="col-md-6">
+                        <label class="d-flex gap-2 align-items-start border rounded-3 p-3 h-100">
+                            <input class="form-check-input mt-1" type="checkbox" name="studentIds" value="@student.Id" checked="@isCurrent" disabled="@(!Model.IsActive)" />
+                            <span class="text-break">
+                                <strong class="d-block">@student.FullName</strong>
+                                <span class="small text-secondary">@student.Email</span>
+                                @if (isCurrent && (!student.IsApproved || student.IsBlocked))
+                                {
+                                    <span class="d-block small text-warning-emphasis">Existing member · account not currently eligible for new enrollment</span>
+                                }
+                            </span>
+                        </label>
+                    </div>
+                }
+            </div>
+            @if (students.Count == 0) { <p class="text-secondary">No available students. Approve Student accounts first.</p> }
+            <button type="submit" class="btn btn-primary" disabled="@(!Model.IsActive)">Save approved roster</button>
+        </form>
+    </div>
+</section>
+<section class="card border-0 shadow-sm rounded-4" aria-labelledby="transferHeading">
+    <div class="card-body p-4">
+        <h2 id="transferHeading" class="h5 fw-bold">Transfer student to another class</h2>
+        <p class="text-secondary small">Transfers are atomic. In-progress attempts or published class examinations must finish first. Historical examination and membership records are not deleted.</p>
+        @if (!Model.IsActive || destinations.Count == 0 || currentStudents.Count == 0)
+        {
+            <p class="text-secondary mb-0">Transfer unavailable: an active source class, enrolled students and another active class are required.</p>
+        }
+        else
+        {
+            <div class="table-responsive">
+                <table class="table align-middle">
+                    <thead><tr><th scope="col">Student</th><th scope="col">Destination</th><th scope="col">Action</th></tr></thead>
+                    <tbody>
+                    @foreach (var student in currentStudents)
+                    {
+                        <tr>
+                            <td><strong>@student.FullName</strong><span class="d-block small text-secondary">@student.Email</span></td>
+                            <td colspan="2">
+                                <form asp-action="TransferStudent" method="post" class="d-flex flex-wrap gap-2 align-items-center">
+                                    <input type="hidden" name="id" value="@Model.Id" />
+                                    <input type="hidden" name="studentId" value="@student.Id" />
+                                    <label class="visually-hidden" for="destination-@student.Id">Destination for @student.FullName</label>
+                                    <select class="form-select form-select-sm flex-grow-1" style="min-width:160px;max-width:400px" name="destinationClassId" id="destination-@student.Id" required>
+                                        <option value="">Select destination class</option>
+                                        @foreach (var destination in destinations)
+                                        {
+                                            <option value="@destination.Id">@destination.Name</option>
+                                        }
+                                    </select>
+                                    <button type="submit" class="btn btn-sm btn-outline-primary">Transfer</button>
+                                </form>
+                            </td>
+                        </tr>
+                    }
+                    </tbody>
+                </table>
+            </div>
+        }
+    </div>
+</section>

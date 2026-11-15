@@ -4,6 +4,7 @@ using AiExamProctoring.ViewModels;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
+using System.Security.Claims;
 
 namespace AiExamProctoring.Areas.Teacher.Controllers;
 
@@ -16,31 +17,52 @@ public sealed class CatalogController : Controller
     public CatalogController(ApplicationDbContext db) => _db = db;
 
     [HttpGet]
-    public async Task<IActionResult> Index(string? search, CancellationToken cancellationToken)
+    public async Task<IActionResult> Index(string? search, string status = "all", CancellationToken cancellationToken = default)
     {
+        var teacherId = User.FindFirstValue(ClaimTypes.NameIdentifier);
+        if (string.IsNullOrWhiteSpace(teacherId)) return Challenge();
         search = string.IsNullOrWhiteSpace(search) ? null : search.Trim();
+        if (search is { Length: > 120 }) search = search[..120];
+        status = status?.Trim().ToLowerInvariant() switch
+        {
+            "active" => "active", "archived" => "archived", _ => "all"
+        };
 
         var departmentQuery = _db.Departments.AsNoTracking()
-            .Include(x => x.Posts)
-            .AsQueryable();
-        var subjectQuery = _db.Subjects.AsNoTracking()
-            .Include(x => x.Questions)
-            .AsQueryable();
-
+            .Include(x => x.Posts).AsQueryable();
+        var subjectQuery = _db.Subjects.AsNoTracking().AsQueryable();
         if (search is not null)
         {
-            departmentQuery = departmentQuery.Where(x =>
-                x.DepartmentName.Contains(search) ||
+            departmentQuery = departmentQuery.Where(x => x.DepartmentName.Contains(search) ||
                 (x.DepartmentCode != null && x.DepartmentCode.Contains(search)) ||
                 x.Posts.Any(p => p.PostName.Contains(search)));
             subjectQuery = subjectQuery.Where(x => x.SubjectName.Contains(search));
         }
+        if (status == "active") subjectQuery = subjectQuery.Where(x => x.IsActive);
+        if (status == "archived") subjectQuery = subjectQuery.Where(x => !x.IsActive);
+
+        // Server-side counts; never load all question records or count private
+        // questions belonging to a different teacher.
+        var subjects = await subjectQuery.OrderBy(x => x.SubjectName)
+            .Select(x => new TeacherCatalogSubjectViewModel
+            {
+                SubjectId = x.SubjectId,
+                SubjectName = x.SubjectName,
+                Description = x.Description,
+                IsActive = x.IsActive,
+                IsLocked = x.IsLocked || x.Questions.Any(q => q.CreatedBy != teacherId),
+                MyQuestionCount = x.Questions.Count(q => q.CreatedBy == teacherId),
+                SharedQuestionCount = x.Questions.Count(q => q.IsActive && q.IsVerified && q.CreatedBy != teacherId),
+                VisibleActiveQuestionCount = x.Questions.Count(q => q.IsActive &&
+                    (q.CreatedBy == teacherId || q.IsVerified))
+            }).ToListAsync(cancellationToken);
 
         return View(new TeacherCatalogViewModel
         {
             Search = search,
+            Status = status,
             Departments = await departmentQuery.OrderBy(x => x.DepartmentName).ToListAsync(cancellationToken),
-            Subjects = await subjectQuery.OrderBy(x => x.SubjectName).ToListAsync(cancellationToken)
+            Subjects = subjects
         });
     }
 
@@ -262,9 +284,14 @@ public sealed class CatalogController : Controller
     {
         var subject = await _db.Subjects.FindAsync([subjectId], cancellationToken);
         if (subject is null) return NotFound();
-        if (subject.IsLocked)
+        // Subject records are global, so a teacher must not rename/archive a
+        // subject containing another teacher's questions or verified starter data.
+        var teacherId = User.FindFirstValue(ClaimTypes.NameIdentifier);
+        if (subject.IsLocked || await _db.Questions.AsNoTracking().AnyAsync(
+            q => q.SubjectId == subject.SubjectId && q.CreatedBy != teacherId,
+            cancellationToken))
         {
-            TempData["Error"] = "This seeded subject is locked to protect the shared question bank.";
+            TempData["Error"] = "This shared or protected subject cannot be changed here. Ask an administrator to manage the catalog.";
             return RedirectToAction(nameof(Index), new { section = "subjects" });
         }
 
@@ -290,9 +317,14 @@ public sealed class CatalogController : Controller
     {
         var subject = await _db.Subjects.FindAsync([id], cancellationToken);
         if (subject is null) return NotFound();
-        if (subject.IsLocked)
+        // Subject records are global, so a teacher must not rename/archive a
+        // subject containing another teacher's questions or verified starter data.
+        var teacherId = User.FindFirstValue(ClaimTypes.NameIdentifier);
+        if (subject.IsLocked || await _db.Questions.AsNoTracking().AnyAsync(
+            q => q.SubjectId == subject.SubjectId && q.CreatedBy != teacherId,
+            cancellationToken))
         {
-            TempData["Error"] = "This seeded subject is locked and must remain available.";
+            TempData["Error"] = "This shared or protected subject cannot be changed here. Ask an administrator to manage the catalog.";
             return RedirectToAction(nameof(Index), new { section = "subjects" });
         }
 

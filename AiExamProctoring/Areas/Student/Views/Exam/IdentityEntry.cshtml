@@ -3,7 +3,18 @@
     Layout = "~/Areas/Student/Views/Shared/_StudentLayout.cshtml";
     ViewData["Title"] = "Opening your examination";
 }
-<h1 class="h4">Opening your examination</h1>
-<p>Your saved progress is kept. Keep your face visible while this session opens.</p>
-<partial name="_IdentityCheck" model="Model" />
+<section class="student-card p-3 p-md-4 mx-auto" style="max-width:850px" aria-labelledby="identity-entry-title">
+    <div class="d-flex align-items-center gap-3 mb-3">
+        <span class="rounded-3 bg-primary-subtle text-primary p-3"><i class="bi bi-person-bounding-box fs-4" aria-hidden="true"></i></span>
+        <div>
+            <p class="text-primary small fw-bold text-uppercase mb-1">Secure session entry</p>
+            <h1 id="identity-entry-title" class="h4 fw-bold mb-1">Confirm your identity</h1>
+            <p class="small text-secondary mb-0">Session #@Model.SessionAttemptId · Your saved answers are preserved</p>
+        </div>
+    </div>
+    <p>Allow camera access, look directly at the camera and complete the fresh identity check. You will be taken to the exact saved question after verification.</p>
+    <p>To resume live screen monitoring, choose Entire Screen when your browser asks during the exam check.</p>
+    <partial name="_IdentityCheck" model="Model" />
+    <a asp-area="Student" asp-controller="Exam" asp-action="Available" target="_top" class="btn btn-link mt-2">Back to My Examinations</a>
+</section>
 <noscript><p role="alert">JavaScript is required to connect your camera and open the examination. Enable JavaScript and reload this page.</p></noscript>

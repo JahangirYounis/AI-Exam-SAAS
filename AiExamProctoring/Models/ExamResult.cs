@@ -47,6 +47,14 @@ namespace AiExamProctoring.Models
         [StringLength(100)]
         public string? CertificateNumber { get; set; }
 
+        [StringLength(64)] public string? CertificateReference { get; set; }
+        public DateTime? CertificateIssuedAtUtc { get; set; }
+        public DateTime? CertificateExpiresAtUtc { get; set; }
+        public DateTime? CertificateRevokedAtUtc { get; set; }
+        [StringLength(450)] public string? CertificateRevokedBy { get; set; }
+        [StringLength(1000)] public string? CertificateRevocationReason { get; set; }
+        [StringLength(12000)] public string? CertificateSnapshotJson { get; set; }
+
         public DateTime GeneratedDate { get; set; } = DateTime.Now;
     }
 }

@@ -1,0 +1,27 @@
+@model AiExamProctoring.ViewModels.TeacherPostDetailsViewModel
+@{
+    ViewData["Title"] = "Teacher post";
+}
+<div class="teacher-community tcom-narrow">
+    <div class="mb-3"><a asp-action="Index" class="btn btn-outline-secondary"><i class="bi bi-arrow-left me-1"></i> Community feed</a></div>
+    <partial name="~/Areas/Teacher/Views/Community/_PostCard.cshtml" model="Model.Post" />
+    <section class="tcom-panel"><h1 class="h5 fw-bold mb-3">Discussion (@Model.TotalComments)</h1>
+        @if (Model.Comments.Count == 0) { <p class="tcom-muted">No comments yet. Be the first to respond.</p> }
+        @foreach (var comment in Model.Comments)
+        {
+            <article class="tcom-comment"><div class="tcom-comment-top"><a asp-action="Profile" asp-route-id="@comment.AuthorId">@comment.AuthorName</a><span>@comment.CreatedAtUtc.ToString("dd MMM yyyy, HH:mm") UTC</span></div>
+                <p>@comment.Body</p>
+                @if (comment.IsMine || Model.Post.IsMine)
+                {
+                    <form asp-action="DeleteComment" method="post">@Html.AntiForgeryToken()<input type="hidden" name="id" value="@comment.Id" /><button type="submit" class="btn btn-link btn-sm p-0">Remove comment</button></form>
+                }
+            </article>
+        }
+        <form asp-action="Comment" method="post" class="tcom-comment-form" data-prevent-double-submit>@Html.AntiForgeryToken()<input type="hidden" name="id" value="@Model.Post.Id" />
+            <label for="comment-text" class="fw-semibold mb-2">Write a comment</label>
+            <textarea id="comment-text" name="body" maxlength="600" required rows="2" class="form-control" placeholder="Add a professional response…"></textarea>
+            <button type="submit" class="btn btn-primary mt-2">Post comment</button>
+        </form>
+    </section>
+</div>
+@section Styles { <link rel="stylesheet" href="~/css/teacher-community.css" asp-append-version="true" /> }

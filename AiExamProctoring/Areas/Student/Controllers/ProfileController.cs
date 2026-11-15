@@ -502,3 +502,11 @@ public class ProfileController : Controller
         return images;
     }
 }
+public sealed class FaceEnrollmentRequest
+{
+    public List<IFormFile> Images { get; set; } = new();
+
+    public string? CapturedImagesJson { get; set; }
+
+    public string? ReturnUrl { get; set; }
+}

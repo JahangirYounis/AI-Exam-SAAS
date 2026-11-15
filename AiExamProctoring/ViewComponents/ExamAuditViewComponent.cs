@@ -13,7 +13,7 @@ public sealed class ExamAuditViewComponent(ApplicationDbContext db) : ViewCompon
         if (actor is null) return Content("");
         var exam = await db.Exams.AsNoTracking().SingleOrDefaultAsync(e => e.ExamId == examId);
         if (exam is null || !(HttpContext.User.IsInRole("Admin") || exam.CreatedBy == actor ||
-            await db.ExamInvigilators.AnyAsync(i => i.ExamId == examId && i.TeacherId == actor && i.IsActive && i.AcceptedAtUtc != null))) return Content("");
+            await db.ExamInvigilators.AnyAsync(i => i.ExamId == examId && i.TeacherId == actor && i.IsActive && i.CanMonitor && i.AcceptedAtUtc != null && i.RevokedAtUtc == null))) return Content("");
         return View(new ExamAuditViewModel
         {
             Creator = await db.Users.Where(u => u.Id == exam.CreatedBy).Select(u => u.FullName).FirstOrDefaultAsync() ?? "Unknown",

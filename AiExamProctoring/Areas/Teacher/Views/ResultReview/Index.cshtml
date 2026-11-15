@@ -1,5 +1,128 @@
 @model List<AiExamProctoring.Models.ExamAttempt>
-@{ViewData["Title"]="Final result review";}
-<h1>Final result review</h1><p>Review evidence before approving. Clean completed attempts are visible immediately; flagged results wait for approval. Blocked attempts stay blocked.</p>
-<form asp-action="ApproveAll" method="post"><input type="hidden" name="examId" value="@ViewBag.ExamId"/><button class="btn btn-primary mb-3">Approve all completed eligible results</button></form>
-<table class="table"><thead><tr><th>Candidate</th><th>Marks</th><th>Status</th><th>Review</th><th>Evidence</th></tr></thead><tbody>@foreach(var a in Model){<tr><td>@a.Student?.FullName</td><td>@a.TotalMarksObtained / @a.TotalMarks</td><td>@a.Status</td><td>@(a.ResultReleasedAtUtc.HasValue?"Approved":"Automatic if clean / review required if flagged")</td><td><a asp-controller="Monitoring" asp-action="ExamFolder" asp-route-examId="@a.ExamId" asp-route-studentId="@a.StudentId">Review evidence</a></td></tr>}</tbody></table>
+@using AiExamProctoring.Models
+@{
+    ViewData["Title"] = "Result review and publication";
+    int examId = ViewBag.ExamId is int eid ? eid : 0;
+    string examTitle = ViewBag.ExamTitle as string ?? "Examination";
+    string selectedStatus = ViewBag.Status as string ?? "pending";
+    string search = ViewBag.Search as string ?? "";
+    int currentPage = ViewBag.Page is int pg ? pg : 1;
+    int pages = ViewBag.Pages is int pgs ? pgs : 1;
+    int pending = ViewBag.Pending is int pend ? pend : 0;
+    int released = ViewBag.Released is int rel ? rel : 0;
+    int total = ViewBag.Total is int all ? all : 0;
+    int blocked = ViewBag.Blocked is int blk ? blk : 0;
+    var audits = ViewBag.Audits as List<ProctoringLog> ?? new();
+}
+<div class="tw14-workspace tw14-review">
+    <nav class="tw14-back" aria-label="Breadcrumb"><a asp-controller="Results" asp-action="Index" asp-route-examId="@examId"><i class="bi bi-arrow-left" aria-hidden="true"></i> Examination results</a></nav>
+    <header class="tw14-hero">
+        <div>
+            <span class="tw14-eyebrow"><i class="bi bi-clipboard2-check" aria-hidden="true"></i> Authorized result publication</span>
+            <h1>Review and publish</h1><p>@examTitle · Academic marks remain separate from integrity findings.</p>
+        </div>
+        <a asp-controller="Monitoring" asp-action="Exam" asp-route-examId="@examId" class="tw14-hero-button">Exam evidence</a>
+    </header>
+    <section class="tw14-kpi-grid" aria-label="Publication overview">
+        <div class="tw14-kpi"><span class="tw14-kpi-icon"><i class="bi bi-people"></i></span><strong>@total</strong><span>Total attempts</span></div>
+        <div class="tw14-kpi"><span class="tw14-kpi-icon is-amber"><i class="bi bi-hourglass-split"></i></span><strong>@pending</strong><span>Awaiting release</span></div>
+        <div class="tw14-kpi"><span class="tw14-kpi-icon is-green"><i class="bi bi-check-circle"></i></span><strong>@released</strong><span>Published</span></div>
+        <div class="tw14-kpi"><span class="tw14-kpi-icon is-indigo"><i class="bi bi-shield-lock"></i></span><strong>@blocked</strong><span>Blocked attempts</span></div>
+    </section>
+    <section class="tw14-panel mb-3">
+        <div class="tw14-panel-header"><div><h2 class="tw14-section-title">Candidate review queue</h2><p class="tw14-muted">Inspect evidence and saved answers before releasing any pending result.</p></div></div>
+        <nav class="tw14-tabs" aria-label="Review categories">
+            <a asp-action="Index" asp-route-examId="@examId" asp-route-status="pending" class="@(selectedStatus == "pending" ? "active" : "")">Pending <span>@pending</span></a>
+            <a asp-action="Index" asp-route-examId="@examId" asp-route-status="released" class="@(selectedStatus == "released" ? "active" : "")">Published <span>@released</span></a>
+            <a asp-action="Index" asp-route-examId="@examId" asp-route-status="all" class="@(selectedStatus == "all" ? "active" : "")">All attempts <span>@total</span></a>
+        </nav>
+        <form asp-action="Index" method="get" class="tw14-inline-filter tw14-review-search" role="search">
+            <input type="hidden" name="examId" value="@examId" /><input type="hidden" name="status" value="@selectedStatus" />
+            <label for="tw14-review-search" class="visually-hidden">Search student</label>
+            <input id="tw14-review-search" type="search" class="form-control" name="search" value="@search" maxlength="100" placeholder="Search student or candidate number" />
+            <button class="btn btn-primary" type="submit">Search</button>
+        </form>
+        @if (Model.Count == 0)
+        {
+            <div class="tw14-empty tw14-empty-inline"><i class="bi bi-shield-check"></i><h3>No attempts in this section</h3><p>There are no matching attempts. Try another filter or examination.</p></div>
+        }
+        else
+        {
+            <div class="tw14-review-list">
+                @foreach (var attempt in Model)
+                {
+                    bool releasedResult = attempt.ResultReleasedAtUtc.HasValue;
+                    bool canDecide = !releasedResult &&
+                    (attempt.Status is AttemptStatus.Completed or AttemptStatus.AutoSubmitted or AttemptStatus.ProctoringBlocked or AttemptStatus.Disqualified);
+                    <article class="tw14-review-item">
+                        <div class="tw14-review-intro">
+                            <div><h3>@attempt.Student?.FullName</h3><p class="tw14-muted">Attempt #@attempt.AttemptId · @attempt.Status · @attempt.StartedAt.ToString("dd MMM yyyy")</p></div>
+                            <span class="tw14-status @(releasedResult ? "is-released" : "is-pending")">@(releasedResult ? "Published" : "Not released")</span>
+                        </div>
+                        <p class="mb-2"><strong>Academic marks:</strong> @(attempt.Result is null ? "Awaiting grading" : $"{attempt.Result.TotalMarksObtained:0.##} / {attempt.Result.TotalMarks:0.##}")</p>
+                        <div class="tw14-inline-actions">
+                            <a asp-controller="Monitoring" asp-action="ExamFolder" asp-route-examId="@examId" asp-route-studentId="@attempt.StudentId" asp-route-attemptId="@attempt.AttemptId" class="btn btn-outline-primary btn-sm">View evidence</a>
+                            <a asp-action="Preview" asp-route-attemptId="@attempt.AttemptId" class="btn btn-outline-primary btn-sm">Saved answers</a>
+                            @if (attempt.Result is not null)
+                            {
+                                <a asp-controller="Results" asp-action="Details" asp-route-id="@attempt.Result.ResultId" class="btn btn-outline-secondary btn-sm">Academic result</a>
+                            }
+                        </div>
+                        @if (canDecide)
+                        {
+                            <details class="tw14-decision-details">
+                                <summary>Record review decision</summary>
+                                <form asp-action="Review" method="post" class="tw14-decision-form">
+                                    @Html.AntiForgeryToken()
+                                    <input type="hidden" name="attemptId" value="@attempt.AttemptId" />
+                                    <label for="tw14-reason-@attempt.AttemptId" class="form-label">Reason (required)</label>
+                                    <textarea id="tw14-reason-@attempt.AttemptId" name="reason" class="form-control" required minlength="10" maxlength="1000"></textarea>
+                                    <div class="tw14-inline-actions mt-2">
+                                        <button class="btn btn-primary btn-sm" name="decision" value="Publish" type="submit">Finalize &amp; publish</button>
+                                        <button class="btn btn-outline-secondary btn-sm" name="decision" value="Hold" type="submit">Keep pending</button>
+                                    </div>
+                                </form>
+                            </details>
+                        }
+                    </article>
+                }
+            </div>
+            <nav class="tw14-pages" aria-label="Review pages">
+                <span class="tw14-muted small">Page @(currentPage) of @(pages)</span><div class="tw14-inline-actions">
+                    @if (currentPage > 1)
+                    {
+                        <a asp-action="Index" asp-route-examId="@examId" asp-route-status="@selectedStatus" asp-route-search="@search" asp-route-page="@(currentPage - 1)" class="btn btn-outline-primary btn-sm">Previous</a>
+                    }
+                    @if (currentPage < pages)
+                    {
+                        <a asp-action="Index" asp-route-examId="@examId" asp-route-status="@selectedStatus" asp-route-search="@search" asp-route-page="@(currentPage + 1)" class="btn btn-outline-primary btn-sm">Next</a>
+                    }
+                </div>
+            </nav>
+        }
+    </section>
+    <details class="tw14-panel tw14-bulk-panel">
+        <summary>Publish all currently eligible results</summary>
+        <p class="tw14-muted small mt-2">Only policy-eligible, finalized attempts are published. Active attempts and unresolved integrity reviews are excluded; this action never silently approves incidents.</p>
+        <form asp-action="ApproveAll" method="post" class="tw14-decision-form">
+            @Html.AntiForgeryToken()
+            <input type="hidden" name="examId" value="@examId" />
+            <label for="tw14-bulk-reason" class="form-label">Publication reason</label>
+            <textarea id="tw14-bulk-reason" name="reason" required minlength="10" maxlength="1000" class="form-control"></textarea>
+            <button type="submit" class="btn btn-primary mt-2">Publish eligible results</button>
+        </form>
+    </details>
+    @if (audits.Count > 0)
+    {
+        <details class="tw14-panel tw14-audit-panel mt-3">
+            <summary>Publication history (latest 100 records)</summary>
+            @foreach (var audit in audits)
+            {
+                <div class="tw14-audit-entry">
+                    <strong>Attempt @audit.AttemptId</strong> · @audit.Description <span class="tw14-muted">· @audit.CreatedDate.ToString("dd MMM yyyy, HH:mm")</span>
+                    <details><summary>Technical details</summary><pre class="text-wrap">@audit.MachineObservationsJson</pre></details>
+                </div>
+            }
+        </details>
+    }
+</div>

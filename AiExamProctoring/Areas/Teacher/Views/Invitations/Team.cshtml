@@ -1,11 +1,43 @@
 @model List<AiExamProctoring.Models.ExamTeamMessage>
-@{ ViewData["Title"] = "Exam team discussion"; }
-<h1>Exam team discussion</h1>
-<p>Coordinate subjects, question preparation and live monitoring with accepted teachers.</p>
-<div class="d-flex gap-2 flex-wrap mb-3"><a class="btn btn-outline-primary" asp-controller="ExamQuestion" asp-action="Index" asp-route-examId="@ViewBag.ExamId">Question paper</a><a class="btn btn-outline-primary" asp-controller="Monitoring" asp-action="Live" asp-route-examId="@ViewBag.ExamId">Live monitoring</a><a class="btn btn-outline-secondary" asp-action="Team" asp-route-examId="@ViewBag.ExamId">Refresh messages</a></div>
-<div id="live-chat" data-kind="team" data-room="@ViewBag.ExamId">
-@foreach (var message in Model) {
- <article class="card p-3 mb-2" data-message-id="@message.Id"><small>@(((Dictionary<string,string>)ViewBag.Names).GetValueOrDefault(message.SenderId, "Teacher")) · @message.SentAtUtc.ToLocalTime().ToString("dd MMM yyyy HH:mm")</small><p style="white-space:pre-wrap;overflow-wrap:anywhere">@message.Body</p></article>
+@using System.Security.Claims
+@{
+    ViewData["Title"] = "Exam team discussion";
+    var examId = (int)ViewBag.ExamId;
+    bool canEdit = ViewBag.CanEditQuestions == true;
+    bool canMonitor = ViewBag.CanMonitor == true;
+    bool archived = ViewBag.IsPast == true;
+    var names = ViewBag.Names as Dictionary<string, string> ?? new Dictionary<string, string>();
+    var chatPage = new AiExamProctoring.Areas.Teacher.Controllers.TeacherChatPage {
+        Kind = "team", RoomId = examId, Heading = "Exam team",
+        ActorId = User.FindFirstValue(ClaimTypes.NameIdentifier) ?? "" };
 }
-</div>
-<form asp-action="Message" method="post"><input type="hidden" name="examId" value="@ViewBag.ExamId"/><label for="teamMessage">Message to exam teachers</label><textarea id="teamMessage" class="form-control mb-2" name="body" maxlength="2000" rows="3" required></textarea><button class="btn btn-primary">Send message</button></form>
+<section class="teacher-chat-page tc-team-page">
+    <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-3">
+        <div><a class="tc-back" asp-action="@(archived ? "Past" : "Index")"><i class="bi bi-arrow-left"></i> Collaborations</a>
+            <h1 class="h3 mb-1">Exam team discussion</h1>
+            <p class="text-secondary mb-0">@(archived ? "Archived team conversation — read only." : "Private discussion for your authorized exam team.")</p></div>
+        <div class="d-flex gap-2 flex-wrap">
+            @if (canEdit && !archived) { <a class="btn btn-outline-primary" asp-controller="ExamQuestion" asp-action="Index" asp-route-examId="@examId">Question paper</a> }
+            @if (canMonitor && !archived) { <a class="btn btn-outline-primary" asp-controller="Monitoring" asp-action="Live" asp-route-examId="@examId">Live monitoring</a> }
+        </div>
+    </div>
+    @if (archived)
+    {
+        <div class="tc-archived-messages">
+            @if (Model.Count == 0) { <p class="text-secondary">No team messages were recorded.</p> }
+            @foreach (var message in Model)
+            {
+                <article class="tc-archived-message">
+                    <div class="d-flex justify-content-between gap-2 flex-wrap"><strong>@names.GetValueOrDefault(message.SenderId, "Teacher")</strong><small>@message.SentAtUtc.ToString("dd MMM yyyy, hh:mm tt") UTC</small></div>
+                    <p>@message.Body</p>
+                </article>
+            }
+        </div>
+    }
+    else
+    {
+        <partial name="~/Areas/Teacher/Views/Shared/_TeacherChatPane.cshtml" model="chatPage" />
+    }
+</section>
+@section Styles { <link rel="stylesheet" href="~/css/teacher-chat-v2.css" asp-append-version="true" /> }
+@section Scripts { @if (!archived) { <script src="~/js/teacher-chat-v2.js" asp-append-version="true"></script> } }

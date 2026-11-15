@@ -1,93 +1,184 @@
 @model AiExamProctoring.ViewModels.TeacherQuestionBankViewModel
 @{
-    ViewData["Title"] = "Teacher Question Bank";
+    ViewData["Title"] = "Question Bank";
 }
 
-<section class="dashboard-hero teacher-hero mb-4">
-    <div class="dashboard-hero-content">
-        <div><span class="eyebrow text-white-50">Teacher question bank</span><h1 class="h2 fw-bold text-white mb-2">Question Bank</h1><p class="text-white-50 mb-0">Browse verified Pakistani-test MCQs, manage your own questions and build examination papers subject by subject.</p></div>
-        <div class="d-flex flex-wrap gap-2"><a asp-controller="Catalog" asp-action="Index" asp-fragment="subjects" class="btn btn-outline-light rounded-pill px-4"><i class="bi bi-sliders2 me-1"></i>Manage Subjects</a><a asp-action="Create" asp-route-subjectId="@Model.SubjectId" class="btn btn-light rounded-pill px-4"><i class="bi bi-plus-lg me-1"></i>Add New MCQ</a></div>
-    </div>
-</section>
-
-<div class="alert alert-success border-0 rounded-4 d-flex align-items-start gap-3 mb-4"><i class="bi bi-check-circle-fill fs-4"></i><div><strong>The Question Bank is now fully available inside the Teacher module.</strong><div class="small mt-1">Verified starter MCQs and your own MCQs appear together. Starter content is protected; use “Make editable copy” when you want to customize it.</div></div></div>
-
-<div class="row g-3 mb-4">
-    <div class="col-6 col-xl-3"><div class="metric-card"><strong>@Model.SharedQuestionCount</strong><span>Verified shared MCQs</span></div></div>
-    <div class="col-6 col-xl-3"><div class="metric-card"><strong class="text-primary">@Model.MyQuestionCount</strong><span>My MCQs</span></div></div>
-    <div class="col-6 col-xl-3"><div class="metric-card"><strong>@Model.ActiveSubjectCount</strong><span>Active subjects</span></div></div>
-    <div class="col-6 col-xl-3"><div class="metric-card"><strong>@Model.TotalMatching</strong><span>Current results</span></div></div>
-</div>
-
-<section class="dashboard-card mb-4">
-    <div class="dashboard-card-header"><div><span class="eyebrow">Subjects</span><h2 class="h5 fw-bold mb-0 mt-1">Choose a subject</h2></div><a asp-controller="Catalog" asp-action="Index" asp-fragment="subjects" class="btn btn-sm btn-light border rounded-pill">Add / manage subjects</a></div>
-    <div class="dashboard-card-body">
-        <div class="subject-folder-grid teacher-bank-folders">
-            <a asp-action="Index" asp-route-source="@Model.Source" class="subject-folder @(!Model.SubjectId.HasValue ? "active" : null)"><span class="subject-folder-icon"><i class="bi bi-collection-fill"></i></span><span class="subject-folder-copy"><strong>All subjects</strong><small>@(Model.SharedQuestionCount + Model.MyQuestionCount) available</small></span><i class="bi bi-chevron-right"></i></a>
-            @foreach (var subject in Model.Subjects)
-            {
-                <a asp-action="Index" asp-route-subjectId="@subject.SubjectId" asp-route-source="@Model.Source" class="subject-folder @(Model.SubjectId == subject.SubjectId ? "active" : null)" title="@subject.Description"><span class="subject-folder-icon"><i class="bi bi-folder2-open"></i></span><span class="subject-folder-copy"><strong>@subject.SubjectName</strong><small>@subject.SharedQuestionCount shared · @subject.MyQuestionCount mine</small></span><i class="bi bi-chevron-right"></i></a>
-            }
+<div class="qb-page">
+    <header class="qb-hero">
+        <div>
+            <span class="qb-overline"><i class="bi bi-journal-richtext" aria-hidden="true"></i> Teacher Question Library</span>
+            <h1>Question Bank</h1>
+            <p>Find verified MCQs, organize your own questions and prepare your next examination with confidence.</p>
         </div>
-    </div>
-</section>
-
-<form method="get" class="dashboard-card mb-4" data-question-filter>
-    <div class="dashboard-card-body">
-        <input type="hidden" name="subjectId" value="@Model.SubjectId" />
-        <div class="row g-3 align-items-end">
-            <div class="col-lg-4"><label class="form-label fw-semibold">Search question, topic or tag</label><div class="input-group"><span class="input-group-text bg-white"><i class="bi bi-search"></i></span><input name="search" value="@Model.Search" class="form-control" placeholder="e.g. gravity, Pakistan, algebra" /></div></div>
-            <div class="col-lg-3"><label class="form-label fw-semibold">Question source</label><select name="source" class="form-select"><option value="all" selected="@(Model.Source == "all" ? "selected" : null)">All available questions</option><option value="shared" selected="@(Model.Source == "shared" ? "selected" : null)">Verified starter/shared</option><option value="mine" selected="@(Model.Source == "mine" ? "selected" : null)">My editable questions</option></select></div>
-            <div class="col-lg-3"><label class="form-label fw-semibold">Status</label><select name="active" class="form-select"><option value="">Any status</option><option value="true" selected="@(Model.Active is true ? "selected" : null)">Active</option><option value="false" selected="@(Model.Active is false ? "selected" : null)">Archived</option></select></div>
-            <div class="col-lg-2 d-grid"><button class="btn btn-primary" type="submit">Apply Filters</button></div>
+        <div class="qb-hero-actions">
+            <a asp-area="Teacher" asp-controller="Catalog" asp-action="Index" asp-fragment="subjects" class="btn qb-hero-secondary"><i class="bi bi-grid-3x3-gap me-2" aria-hidden="true"></i>Subjects</a>
+            <a asp-area="Teacher" asp-controller="Question" asp-action="Create" asp-route-subjectId="@Model.SubjectId" class="btn qb-hero-primary"><i class="bi bi-plus-lg me-2" aria-hidden="true"></i>Add MCQ</a>
         </div>
-    </div>
-</form>
+    </header>
 
-<section class="dashboard-card">
-    <div class="dashboard-card-header"><div><span class="eyebrow">@Model.SelectedSubjectName.ToUpperInvariant()</span><h2 class="h5 fw-bold mb-0 mt-1">@Model.TotalMatching MCQs found</h2></div><a asp-controller="Exam" asp-action="Index" class="btn btn-sm btn-outline-primary rounded-pill"><i class="bi bi-file-earmark-plus me-1"></i>Open exam paper builder</a></div>
-    <div class="table-responsive">
-        <table class="table align-middle table-modern mb-0">
-            <thead><tr><th>Subject / Source</th><th>Question and options</th><th>Correct answer</th><th>Status</th><th class="text-end">Action</th></tr></thead>
-            <tbody>
-            @foreach (var row in Model.Questions)
-            {
-                var q = row.Question;
-                <tr>
-                    <td><strong>@q.Subject?.SubjectName</strong><div class="small text-secondary">@(q.Topic ?? "General")</div><span class="badge-soft @(row.IsMine ? "soft-primary" : "soft-success") mt-2 d-inline-block">@row.SourceLabel</span></td>
-                    <td style="min-width:380px"><strong>@q.QuestionText</strong><div class="small text-secondary mt-2"><span class="d-block">A. @q.OptionA</span><span class="d-block">B. @q.OptionB</span><span class="d-block">C. @q.OptionC</span><span class="d-block">D. @q.OptionD</span>@if(!string.IsNullOrWhiteSpace(q.OptionE)){<span class="d-block">E. @q.OptionE</span>}</div></td>
-                    <td><span class="badge text-bg-success fs-6">@q.CorrectAnswer</span><div class="small text-secondary mt-2">@q.CorrectAnswerText</div></td>
-                    <td><span class="badge @(q.IsActive ? "text-bg-success" : "text-bg-secondary")">@(q.IsActive ? "Active" : "Archived")</span>@if(q.IsLocked){<div class="small text-danger mt-2"><i class="bi bi-lock-fill"></i> Locked paper</div>}</td>
-                    <td class="text-end text-nowrap">
-                        @if (row.IsMine)
+    <div class="qb-metrics" aria-label="Question bank summary">
+        <div class="qb-metric"><span class="qb-metric-icon qb-ic-blue"><i class="bi bi-patch-check" aria-hidden="true"></i></span><span><strong>@Model.SharedQuestionCount.ToString("N0")</strong><small>Verified shared</small></span></div>
+        <div class="qb-metric"><span class="qb-metric-icon qb-ic-violet"><i class="bi bi-person-lines-fill" aria-hidden="true"></i></span><span><strong>@Model.MyQuestionCount.ToString("N0")</strong><small>My questions</small></span></div>
+        <div class="qb-metric"><span class="qb-metric-icon qb-ic-teal"><i class="bi bi-collection" aria-hidden="true"></i></span><span><strong>@Model.ActiveSubjectCount.ToString("N0")</strong><small>Subjects</small></span></div>
+        <div class="qb-metric"><span class="qb-metric-icon qb-ic-amber"><i class="bi bi-funnel" aria-hidden="true"></i></span><span><strong>@Model.TotalMatching.ToString("N0")</strong><small>Matching questions</small></span></div>
+    </div>
+
+    <div class="qb-layout">
+        <aside class="qb-panel qb-subject-panel" aria-labelledby="qb-subject-heading">
+            <div class="qb-panel-head">
+                <div><span class="qb-mini-heading">Browse by</span><h2 id="qb-subject-heading">Subjects</h2></div>
+                <a asp-area="Teacher" asp-controller="Catalog" asp-action="Index" asp-fragment="subjects" title="Manage subjects" aria-label="Manage subjects"><i class="bi bi-gear" aria-hidden="true"></i></a>
+            </div>
+            <nav class="qb-subject-list" aria-label="Question subjects">
+                <a class="qb-subject-item @(!Model.SubjectId.HasValue ? "is-active" : "")"
+                   asp-area="Teacher" asp-controller="Question" asp-action="Index"
+                   asp-route-source="@Model.Source" asp-route-active="@Model.Active" asp-route-search="@Model.Search" asp-route-sort="@Model.Sort" asp-route-topic="@Model.Topic"
+                   aria-current="@(!Model.SubjectId.HasValue ? "page" : null)">
+                    <i class="bi bi-grid-1x2" aria-hidden="true"></i><span><strong>All subjects</strong><small>My library + verified shared</small></span>
+                    <span class="qb-subject-number">@(Model.MyQuestionCount + Model.SharedQuestionCount)</span>
+                </a>
+                @foreach (var folder in Model.Subjects)
+                {
+                    <a class="qb-subject-item @(Model.SubjectId == folder.SubjectId ? "is-active" : "")"
+                       asp-area="Teacher" asp-controller="Question" asp-action="Index" asp-route-subjectId="@folder.SubjectId"
+                       asp-route-source="@Model.Source" asp-route-active="@Model.Active" asp-route-search="@Model.Search" asp-route-sort="@Model.Sort" asp-route-topic="@Model.Topic"
+                       title="@folder.Description" aria-current="@(Model.SubjectId == folder.SubjectId ? "page" : null)">
+                        <i class="bi bi-folder2" aria-hidden="true"></i><span><strong>@folder.SubjectName</strong><small>@folder.SharedQuestionCount verified · @folder.MyQuestionCount mine @if (!folder.IsActive) { <span>(Archived subject)</span> }</small></span>
+                        <span class="qb-subject-number">@folder.TotalVisibleCount</span>
+                    </a>
+                }
+            </nav>
+        </aside>
+
+        <div class="qb-primary-column">
+            <section class="qb-panel qb-filter-panel" aria-label="Search and filter questions">
+                <form asp-area="Teacher" asp-controller="Question" asp-action="Index" method="get">
+                    <input type="hidden" name="subjectId" value="@Model.SubjectId" />
+                    <div class="qb-filter-top">
+                        <div><span class="qb-mini-heading">Discover</span><h2>Find a question</h2></div>
+                        @if (Model.HasFilters)
                         {
-                            <a asp-action="Edit" asp-route-id="@q.QuestionId" class="btn btn-sm btn-outline-primary rounded-pill"><i class="bi bi-pencil me-1"></i>Edit</a>
-                            <form asp-action="Toggle" method="post" class="d-inline">@Html.AntiForgeryToken()<input type="hidden" name="id" value="@q.QuestionId"/><button class="btn btn-sm btn-light border rounded-pill" type="submit">@(q.IsActive ? "Archive" : "Enable")</button></form>
+                            <a asp-area="Teacher" asp-controller="Question" asp-action="Index" class="qb-clear-link"><i class="bi bi-arrow-counterclockwise me-1" aria-hidden="true"></i>Clear filters</a>
+                        }
+                    </div>
+                    <div class="qb-search-field">
+                        <i class="bi bi-search" aria-hidden="true"></i>
+                        <label class="visually-hidden" for="qbSearch">Search question, topic or tags</label>
+                        <input id="qbSearch" type="search" name="search" value="@Model.Search" maxlength="120" placeholder="Search a question, topic or keyword" autocomplete="off" />
+                    </div>
+                    <div class="qb-filter-grid">
+                        <div><label for="qbSource">Source</label><select id="qbSource" name="source" class="form-select"><option value="all" selected="@(Model.Source == "all")">All available</option><option value="mine" selected="@(Model.Source == "mine")">My questions</option><option value="shared" selected="@(Model.Source == "shared")">Verified shared</option></select></div>
+                        <div><label for="qbTopic">Topic</label><select id="qbTopic" name="topic" class="form-select"><option value="">All topics</option>@foreach (var topic in Model.Topics){<option value="@topic" selected="@(topic == Model.Topic)">@topic</option>}@if (Model.Topic is not null && !Model.Topics.Contains(Model.Topic)){<option value="@Model.Topic" selected>Current: @Model.Topic</option>}</select></div>
+                        <div><label for="qbStatus">Status</label><select id="qbStatus" name="active" class="form-select"><option value="">Any status</option><option value="true" selected="@(Model.Active == true)">Active</option><option value="false" selected="@(Model.Active == false)">Archived</option></select></div>
+                        <div><label for="qbSort">Sort by</label><select id="qbSort" name="sort" class="form-select"><option value="subject" selected="@(Model.Sort == "subject")">Subject order</option><option value="newest" selected="@(Model.Sort == "newest")">Newest first</option><option value="oldest" selected="@(Model.Sort == "oldest")">Oldest first</option><option value="topic" selected="@(Model.Sort == "topic")">Topic A–Z</option></select></div>
+                    </div>
+                    <div class="qb-filter-footer"><span><i class="bi bi-shield-check me-1" aria-hidden="true"></i>Only your MCQs and verified shared questions are visible.</span><button type="submit" class="btn btn-primary"><i class="bi bi-funnel me-2" aria-hidden="true"></i>Apply filters</button></div>
+                </form>
+            </section>
+
+            <section class="qb-panel qb-results-panel" aria-labelledby="qb-results-title">
+                <div class="qb-results-heading">
+                    <div><span class="qb-mini-heading">@Model.SelectedSubjectName</span><h2 id="qb-results-title">Questions <span class="qb-results-total">@Model.TotalMatching</span></h2><p>Showing @Model.FirstRecord–@Model.LastRecord of @Model.TotalMatching</p></div>
+                    <a asp-area="Teacher" asp-controller="Exam" asp-action="Index" class="btn qb-soft-action"><i class="bi bi-journal-check me-2" aria-hidden="true"></i>My Examinations</a>
+                </div>
+                @if (Model.Questions.Any(r => r.IsMine && !r.Question.IsLocked))
+                {
+                    <form id="qb-bulk-form" asp-area="Teacher" asp-controller="Question" asp-action="BulkSetActive" method="post" class="qb-bulk-controls" aria-label="Bulk manage my questions">
+                        @Html.AntiForgeryToken()
+                        <span class="qb-bulk-hint"><i class="bi bi-check2-square me-1" aria-hidden="true"></i>Select your unlocked MCQs below (this page only)</span>
+                        <div class="qb-bulk-buttons">
+                            <button type="submit" name="operation" value="archive" class="btn btn-sm btn-outline-secondary">Archive selected</button>
+                            <button type="submit" name="operation" value="activate" class="btn btn-sm btn-outline-primary">Reactivate selected</button>
+                        </div>
+                    </form>
+                }
+                @if (Model.Questions.Count == 0)
+                {
+                    <div class="qb-empty"><i class="bi bi-search" aria-hidden="true"></i><h3>No questions found</h3><p>Choose another subject, clear your filters or create your first MCQ.</p><div class="d-flex flex-wrap justify-content-center gap-2"><a asp-area="Teacher" asp-controller="Question" asp-action="Index" class="btn btn-outline-primary">Clear filters</a><a asp-area="Teacher" asp-controller="Question" asp-action="Create" asp-route-subjectId="@Model.SubjectId" class="btn btn-primary">Add MCQ</a></div></div>
+                }
+                else
+                {
+                    <div class="qb-question-list">
+                        @foreach (var row in Model.Questions)
+                        {
+                            var q = row.Question;
+                            <article class="qb-question-card">
+                                <div class="qb-card-top">
+                                    @if (row.IsMine && !q.IsLocked)
+                                    {
+                                        <label class="qb-select-question" title="Select this MCQ for bulk actions">
+                                            <input type="checkbox" name="questionIds" value="@q.QuestionId" form="qb-bulk-form" aria-label="Select MCQ @q.QuestionId for bulk actions" />
+                                        </label>
+                                    }
+                                    <div class="qb-tags"><span class="qb-tag qb-tag-source @(row.IsMine ? "qb-tag-mine" : "qb-tag-verified")">@(row.IsMine ? "My question" : row.SourceLabel)</span><span class="qb-tag qb-tag-neutral">@(q.Subject?.SubjectName ?? "Uncategorized")</span>@if (!string.IsNullOrWhiteSpace(q.Topic)){<span class="qb-tag qb-tag-neutral">@q.Topic</span>}</div><span class="qb-tag @(q.IsActive ? "qb-tag-active" : "qb-tag-archived")">@(q.IsActive ? "Active" : "Archived")</span></div>
+                                <h3 class="qb-question-title">@q.QuestionText</h3>
+                                <div class="qb-question-meta">@if (q.IsLocked){<span><i class="bi bi-lock-fill" aria-hidden="true"></i> Locked paper</span>}@if (!string.IsNullOrWhiteSpace(q.Tags)){<span><i class="bi bi-tags" aria-hidden="true"></i> @q.Tags</span>}@if (!string.IsNullOrWhiteSpace(q.ImagePath)){<span><i class="bi bi-image" aria-hidden="true"></i> Image reference</span>}</div>
+                                <details class="qb-preview">
+                                    <summary><i class="bi bi-eye me-1" aria-hidden="true"></i>Preview answer options <i class="bi bi-chevron-down qb-preview-chevron" aria-hidden="true"></i></summary>
+                                    <div class="qb-preview-body">
+                                        <div class="qb-option-list">
+                                            <div class="qb-option @(q.CorrectAnswer == "A" ? "qb-option-correct" : "")"><strong>A</strong><span>@q.OptionA</span>@if(q.CorrectAnswer == "A"){<i class="bi bi-check-circle-fill" aria-label="Correct answer"></i>}</div>
+                                            <div class="qb-option @(q.CorrectAnswer == "B" ? "qb-option-correct" : "")"><strong>B</strong><span>@q.OptionB</span>@if(q.CorrectAnswer == "B"){<i class="bi bi-check-circle-fill" aria-label="Correct answer"></i>}</div>
+                                            <div class="qb-option @(q.CorrectAnswer == "C" ? "qb-option-correct" : "")"><strong>C</strong><span>@q.OptionC</span>@if(q.CorrectAnswer == "C"){<i class="bi bi-check-circle-fill" aria-label="Correct answer"></i>}</div>
+                                            <div class="qb-option @(q.CorrectAnswer == "D" ? "qb-option-correct" : "")"><strong>D</strong><span>@q.OptionD</span>@if(q.CorrectAnswer == "D"){<i class="bi bi-check-circle-fill" aria-label="Correct answer"></i>}</div>
+                                            @if(!string.IsNullOrWhiteSpace(q.OptionE)){<div class="qb-option @(q.CorrectAnswer == "E" ? "qb-option-correct" : "")"><strong>E</strong><span>@q.OptionE</span>@if(q.CorrectAnswer == "E"){<i class="bi bi-check-circle-fill" aria-label="Correct answer"></i>}</div>}
+                                        </div>
+                                        @if(!string.IsNullOrWhiteSpace(q.Explanation)){<div class="qb-explanation"><strong>Explanation</strong><p>@q.Explanation</p></div>}
+                                    </div>
+                                </details>
+                                <div class="qb-card-actions">
+                                    @if (row.IsMine)
+                                    {
+                                        if (!q.IsLocked)
+                                        {
+                                            <a asp-area="Teacher" asp-controller="Question" asp-action="Edit" asp-route-id="@q.QuestionId" class="btn qb-card-btn"><i class="bi bi-pencil-square me-1" aria-hidden="true"></i>Edit MCQ</a>
+                                            <form asp-area="Teacher" asp-controller="Question" asp-action="Toggle" method="post" class="qb-inline-form">
+                                                @Html.AntiForgeryToken()
+                                                <input type="hidden" name="id" value="@q.QuestionId" />
+                                                <button type="submit" class="btn qb-card-btn" aria-label="@(q.IsActive ? "Archive" : "Reactivate") question">@(q.IsActive ? "Archive" : "Reactivate")</button>
+                                            </form>
+                                        }
+                                        else
+                                        {
+                                            <span class="qb-readonly"><i class="bi bi-lock-fill me-1" aria-hidden="true"></i>Locked — read only</span>
+                                        }
+                                    }
+                                    else
+                                    {
+                                        <form asp-area="Teacher" asp-controller="Question" asp-action="CopyToMine" method="post" class="qb-inline-form">
+                                            @Html.AntiForgeryToken()
+                                            <input type="hidden" name="id" value="@q.QuestionId" />
+                                            <button type="submit" class="btn qb-card-btn"><i class="bi bi-copy me-1" aria-hidden="true"></i>Make editable copy</button>
+                                        </form>
+                                    }
+                                </div>
+                            </article>
+                        }
+                    </div>
+                }
+                @if (Model.TotalPages > 1)
+                {
+                    <nav aria-label="Question bank pages" class="qb-pagination">
+                        @if (Model.Page > 1)
+                        {
+                            <a class="btn qb-page-link" asp-area="Teacher" asp-controller="Question" asp-action="Index" asp-route-page="@(Model.Page - 1)" asp-route-subjectId="@Model.SubjectId" asp-route-search="@Model.Search" asp-route-source="@Model.Source" asp-route-active="@Model.Active" asp-route-topic="@Model.Topic" asp-route-sort="@Model.Sort">Previous</a>
                         }
                         else
                         {
-                            <form asp-action="CopyToMine" method="post" class="d-inline">@Html.AntiForgeryToken()<input type="hidden" name="id" value="@q.QuestionId"/><button class="btn btn-sm btn-outline-dark rounded-pill" type="submit"><i class="bi bi-copy me-1"></i>Make editable copy</button></form>
+                            <span class="btn qb-page-link disabled" aria-disabled="true">Previous</span>
                         }
-                    </td>
-                </tr>
-            }
-            @if (Model.Questions.Count == 0)
-            {
-                <tr><td colspan="5"><div class="empty-state py-5"><i class="bi bi-folder2-open"></i><h3 class="h5 fw-bold mt-3">No MCQ matches these filters</h3><p class="text-secondary">Clear filters, open another subject, or add your own question.</p><a asp-action="Create" asp-route-subjectId="@Model.SubjectId" class="btn btn-primary rounded-pill px-4">Add first MCQ</a></div></td></tr>
-            }
-            </tbody>
-        </table>
+                        <span class="qb-pagination-status">Page @Model.Page of @Model.TotalPages</span>
+                        @if (Model.Page < Model.TotalPages)
+                        {
+                            <a class="btn qb-page-link" asp-area="Teacher" asp-controller="Question" asp-action="Index" asp-route-page="@(Model.Page + 1)" asp-route-subjectId="@Model.SubjectId" asp-route-search="@Model.Search" asp-route-source="@Model.Source" asp-route-active="@Model.Active" asp-route-topic="@Model.Topic" asp-route-sort="@Model.Sort">Next</a>
+                        }
+                        else
+                        {
+                            <span class="btn qb-page-link disabled" aria-disabled="true">Next</span>
+                        }
+                    </nav>
+                }
+            </section>
+        </div>
     </div>
-</section>
-
-@if (Model.TotalPages > 1)
-{
-    <nav class="mt-4" aria-label="Question pages"><ul class="pagination justify-content-center"><li class="page-item @(Model.Page <= 1 ? "disabled" : null)"><a class="page-link" asp-route-page="@(Model.Page - 1)" asp-route-subjectId="@Model.SubjectId" asp-route-search="@Model.Search" asp-route-source="@Model.Source" asp-route-active="@Model.Active">Previous</a></li>@for(var i=Math.Max(1,Model.Page-2);i<=Math.Min(Model.TotalPages,Model.Page+2);i++){<li class="page-item @(i==Model.Page?"active":null)"><a class="page-link" asp-route-page="@i" asp-route-subjectId="@Model.SubjectId" asp-route-search="@Model.Search" asp-route-source="@Model.Source" asp-route-active="@Model.Active">@i</a></li>}<li class="page-item @(Model.Page >= Model.TotalPages ? "disabled" : null)"><a class="page-link" asp-route-page="@(Model.Page + 1)" asp-route-subjectId="@Model.SubjectId" asp-route-search="@Model.Search" asp-route-source="@Model.Source" asp-route-active="@Model.Active">Next</a></li></ul></nav>
-}
-
-@section Styles {
-<style>
-    .teacher-bank-folders{max-height:360px;overflow:auto;padding:2px}.teacher-bank-folders .subject-folder{min-height:82px}
-    @@media(max-width:767.98px){.teacher-bank-folders{max-height:none}}
-</style>
-}
+</div>

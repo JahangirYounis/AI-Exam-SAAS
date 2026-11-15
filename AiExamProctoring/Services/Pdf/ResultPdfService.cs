@@ -1,4 +1,5 @@
 using AiExamProctoring.Models;
+using AiExamProctoring.Services.Results;
 using QuestPDF.Fluent;
 using QuestPDF.Helpers;
 using QuestPDF.Infrastructure;
@@ -47,22 +48,6 @@ namespace AiExamProctoring.Services.Pdf
                             }
 
                             //--------------------------------------------------
-                            // Calculate Percentage Safely
-                            //--------------------------------------------------
-
-                            double percentage = 0;
-
-                            if (result.TotalMarks > 0)
-                            {
-                                percentage = Math.Round(
-                                    (double)(
-                                        result.TotalMarksObtained * 100m
-                                        / result.TotalMarks
-                                    ),
-                                    2);
-                            }
-
-                            //--------------------------------------------------
                             // Result Information
                             //--------------------------------------------------
 
@@ -82,13 +67,32 @@ namespace AiExamProctoring.Services.Pdf
                                 $"{result.TotalMarksObtained:0.##} / {result.TotalMarks:0.##}");
 
                             Row("Percentage",
-                                $"{percentage:0.##}%");
+                                $"{result.Percentage:0.##}%");
+
+                            Row("Grade",
+                                StudentResultAccess.GradeLabel(result.Percentage,
+                                    result.Attempt.Exam.PassingPercentage));
+
+                            Row("Examination date",
+                                result.Attempt.StartedAt.ToString("dd MMM yyyy"));
+
+                            Row("Review status",
+                                StudentResultAccess.ReviewStatus(result.Attempt));
+
+                            Row("Attempt completion",
+                                StudentResultAccess.CompletionStatus(result.Attempt));
 
                             Row("Correct / Wrong / Skipped",
                                 $"{result.CorrectAnswers} / {result.WrongAnswers} / {result.SkippedAnswers}");
 
-                            Row("Status",
-                                result.IsPassed ? "PASSED" : "FAILED");
+                            Row("Academic outcome",
+                                StudentResultAccess.IsAcademicPass(result.Percentage, result.Attempt!.Exam!.PassingPercentage) ? "Academic pass" : "Academic fail");
+
+                            Row("Integrity status",
+                                result.Attempt?.Status == AttemptStatus.ProctoringBlocked ||
+                                result.Attempt?.IsDisqualified == true
+                                    ? "Blocked / integrity restriction (not a completed attempt)"
+                                    : "No active integrity restriction");
 
                             Row("Result Generated",
                                 result.GeneratedDate.ToString("dd MMM yyyy, hh:mm tt"));

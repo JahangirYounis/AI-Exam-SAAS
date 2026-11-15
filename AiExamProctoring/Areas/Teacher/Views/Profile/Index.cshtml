@@ -12,6 +12,7 @@
                 <div class="eyebrow text-white-50">Teacher profile</div>
                 <h1 class="fw-bold text-white mb-1">@Model.FullName</h1>
                 <p class="text-white-50 mb-2">@Model.Email</p>
+                @if (!string.IsNullOrWhiteSpace(Model.TeacherHeadline)) { <p class="text-white mb-2">@Model.TeacherHeadline</p> }
                 <span class="badge rounded-pill @(Model.IsApproved ? "text-bg-success" : "text-bg-warning")">@(Model.IsApproved ? "Approved Teacher" : "Approval pending")</span>
             </div>
         </div>
@@ -38,6 +39,13 @@
         </section>
     </div>
     <div class="col-xl-4">
+        <section class="dashboard-card mb-4">
+            <div class="dashboard-card-body">
+                <h2 class="h6 fw-bold">Your professional community profile</h2>
+                <p class="text-secondary small">Share teaching ideas, connect with colleagues and manage your own posts.</p>
+                <a class="btn btn-primary" asp-controller="Community" asp-action="Profile" asp-route-id="@User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value">View community profile</a>
+            </div>
+        </section>
         <section class="dashboard-card mb-4">
             <div class="dashboard-card-header"><div><span class="eyebrow">Activity</span><h2 class="h5 fw-bold mb-0 mt-1">Your activity</h2></div></div>
             <div class="dashboard-card-body">

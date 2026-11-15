@@ -1,4 +1,59 @@
-@model List<AiExamProctoring.Models.ExamInvigilator>
-@{ViewData["Title"]="Exam collaboration invitations";}
-<h1>Exam collaboration invitations</h1><p>Accept to help build the draft question paper and monitor candidates live.</p>
-@foreach(var i in Model){<div class="card p-3 mb-3"><h3>@i.Exam?.ExamTitle</h3>@if(i.IsActive && i.AcceptedAtUtc != null){<a class="btn btn-outline-primary" asp-action="Team" asp-route-examId="@i.ExamId">Team discussion</a>@if(i.CanEditQuestions){<a class="btn btn-outline-primary" asp-controller="ExamQuestion" asp-action="Index" asp-route-examId="@i.ExamId">Build question paper</a>}@if(i.CanMonitor){<a asp-controller="Monitoring" asp-action="Live" asp-route-examId="@i.ExamId">Open live room</a>}}else if(i.RevokedAtUtc == null){<form asp-action="Accept" method="post"><input type="hidden" name="id" value="@i.Id"/><button class="btn btn-primary">Accept invitation</button></form>}</div>}
+@model AiExamProctoring.ViewModels.TeacherCollaborationPageViewModel
+@{
+    ViewData["Title"] = "Exam collaborations";
+}
+<div class="tc-page">
+    <header class="tc-hero">
+        <div>
+            <span class="tc-eyebrow"><i class="bi bi-people-fill" aria-hidden="true"></i> TEACHER COLLABORATION</span>
+            <h1>Work together on examinations</h1>
+            <p>Review your invitations, prepare question papers and monitor authorized examinations.</p>
+        </div>
+        <a class="tc-hero-link" asp-action="Past"><i class="bi bi-clock-history"></i> Past collaborations <span class="tc-count">@Model.Past.Count</span></a>
+    </header>
+
+    <nav class="tc-section-tabs" aria-label="Collaboration sections">
+        <a href="#pending-invitations"><i class="bi bi-envelope-paper"></i> Pending <span>@Model.Pending.Count</span></a>
+        <a href="#active-collaborations"><i class="bi bi-people"></i> Active <span>@Model.Active.Count</span></a>
+        <a asp-action="Past"><i class="bi bi-archive"></i> Past history</a>
+    </nav>
+
+    <section id="pending-invitations" class="tc-section" aria-labelledby="tc-pending-heading">
+        <div class="tc-section-heading">
+            <div><h2 id="tc-pending-heading">Pending invitations <span class="tc-heading-count">@Model.Pending.Count</span></h2>
+                <p>Invitations that still require your decision</p></div>
+        </div>
+        @if (Model.Pending.Count > 0)
+        {
+            <div class="tc-cards">
+                @foreach (var card in Model.Pending)
+                {
+                    <partial name="~/Areas/Teacher/Views/Invitations/_CollaborationCard.cshtml" model="card" />
+                }
+            </div>
+        }
+        else
+        {
+            <div class="tc-empty"><i class="bi bi-check-circle"></i><strong>You're all caught up</strong><span>No invitations are waiting for a decision.</span></div>
+        }
+    </section>
+    <section id="active-collaborations" class="tc-section" aria-labelledby="tc-active-heading">
+        <div class="tc-section-heading">
+            <div><h2 id="tc-active-heading">Active collaborations <span class="tc-heading-count">@Model.Active.Count</span></h2>
+                <p>Examinations where you have accepted collaboration permissions</p></div>
+        </div>
+        @if (Model.Active.Count > 0)
+        {
+            <div class="tc-cards">
+                @foreach (var card in Model.Active)
+                {
+                    <partial name="~/Areas/Teacher/Views/Invitations/_CollaborationCard.cshtml" model="card" />
+                }
+            </div>
+        }
+        else
+        {
+            <div class="tc-empty"><i class="bi bi-people"></i><strong>No active collaborations</strong><span>Accepted invitations appear here while their examination is active.</span></div>
+        }
+    </section>
+</div>

@@ -46,6 +46,8 @@ public sealed class SpeechContextAnalysis
     [JsonPropertyName("score")] public double? Score { get; set; }
     [JsonPropertyName("question_id")] public int? QuestionId { get; set; }
     [JsonPropertyName("match_kind")] public string? MatchKind { get; set; }
+    [JsonPropertyName("matched_phrases")] public List<string> MatchedPhrases { get; set; } = new();
+    [JsonPropertyName("relevance_margin")] public double? RelevanceMargin { get; set; }
     [JsonPropertyName("elapsed_ms")] public double? ElapsedMs { get; set; }
 }
 
@@ -63,6 +65,9 @@ public sealed record SpeechRecognitionCallResult(
 
 public sealed class SpeechRecognitionRequest
 {
+    public DateTimeOffset? AudioCapturedAtUtc { get; set; }
+    public double? AudioMonotonicStart { get; set; }
+    public double? AudioMonotonicEnd { get; set; }
     [System.ComponentModel.DataAnnotations.StringLength(300000)]
     public string? QuestionScreenshotDataUrl { get; set; }
     public int? DetectionLogId { get; set; }

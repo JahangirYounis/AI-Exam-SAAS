@@ -1,3 +1,4 @@
+using Microsoft.AspNetCore.DataProtection;
 using AiExamProctoring.Data;
 using AiExamProctoring.Models;
 using AiExamProctoring.Services.Email;
@@ -180,6 +181,7 @@ builder.Services.Configure<ProctoringOptions>(
 builder.Services.AddSingleton<IProctoringEvidenceStore, LocalProctoringEvidenceStore>();
 builder.Services.AddSingleton<AiExamProctoring.Services.Proctoring.LiveSignalStore>();
 builder.Services.AddSingleton<IProctoringVerificationTicketService, ProctoringVerificationTicketService>();
+builder.Services.AddDataProtection();
 builder.Services.AddHostedService<ProctoringEvidenceCleanupService>();
 
 // Server-authoritative session timeout, rest and result lifecycle.
@@ -642,6 +644,26 @@ app.UseStaticFiles(new StaticFileOptions
 // ============================================================
 
 app.UseRouting();
+// API requests must never expose developer exception pages or SQL stack traces.
+app.Use(async (context, next) =>
+{
+    var jsonRequest = context.Request.Headers.Accept.ToString().Contains("application/json", StringComparison.OrdinalIgnoreCase);
+    if (!jsonRequest) { await next(context); return; }
+    try { await next(context); }
+    catch (OperationCanceledException) when (context.RequestAborted.IsCancellationRequested)
+    {
+        // The caller left or cancelled: do not misreport device failure.
+        if (!context.Response.HasStarted) context.Response.StatusCode = 499;
+    }
+    catch (Exception exception) when (!context.Response.HasStarted)
+    {
+        var correlationId = context.TraceIdentifier;
+        app.Logger.LogError(exception, "API request failed {CorrelationId} {Path}", correlationId, context.Request.Path);
+        context.Response.Clear();
+        context.Response.StatusCode = StatusCodes.Status500InternalServerError;
+        await context.Response.WriteAsJsonAsync(new { code = "SERVER_ERROR", message = "The exam service could not complete this request. Retry or contact your supervisor.", correlationId });
+    }
+});
 // Cookie-authenticated WebSocket upgrades must originate from this application.
 app.Use(async (context, next) =>
 {

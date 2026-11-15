@@ -1,0 +1,69 @@
+@model AiExamProctoring.ViewModels.TeacherReviewRequestsViewModel
+@using AiExamProctoring.Services.Proctoring
+@{
+    ViewData["Title"] = "Student review requests";
+    var tabs = new[] { (Key: "pending", Label: "Pending", Count: Model.Pending),
+        (Key: "approved", Label: "Approved", Count: Model.Approved),
+        (Key: "rejected", Label: "Rejected", Count: Model.Rejected),
+        (Key: "completed", Label: "Completed", Count: Model.Completed) };
+}
+<div class="trr-page">
+    <header class="trr-hero">
+        <div><span class="trr-eyebrow"><i class="bi bi-shield-check" aria-hidden="true"></i> EXAMINATION INTEGRITY</span>
+            <h1>Student review requests</h1><p>Review blocked examination attempts, inspect recorded evidence, and record a fair, auditable decision.</p></div>
+        <a asp-area="Teacher" asp-controller="Monitoring" asp-action="Index" class="trr-hero-link"><i class="bi bi-folder2-open"></i> Evidence folders</a>
+    </header>
+    <div class="trr-summary" aria-label="Review request totals">
+        <div class="trr-summary-card"><i class="bi bi-hourglass-split trr-amber" aria-hidden="true"></i><strong>@Model.Pending</strong><span>Awaiting decision</span></div>
+        <div class="trr-summary-card"><i class="bi bi-check-circle trr-green" aria-hidden="true"></i><strong>@Model.Approved</strong><span>Approved</span></div>
+        <div class="trr-summary-card"><i class="bi bi-shield-lock trr-red" aria-hidden="true"></i><strong>@Model.Rejected</strong><span>Confirmed blocks</span></div>
+        <div class="trr-summary-card"><i class="bi bi-check2-all trr-blue" aria-hidden="true"></i><strong>@Model.Completed</strong><span>Closed / completed</span></div>
+    </div>
+    <nav class="trr-tabs" aria-label="Review request status">
+        <a class="@(Model.Filter == "all" ? "active" : "")" asp-action="Index" asp-route-status="all">All <span>@(Model.Pending + Model.Approved + Model.Rejected + Model.Completed)</span></a>
+        @foreach (var tab in tabs)
+        {
+            <a class="@(Model.Filter == tab.Key ? "active" : "")" asp-action="Index" asp-route-status="@tab.Key">@tab.Label <span>@tab.Count</span></a>
+        }
+    </nav>
+    <section class="trr-panel" aria-label="Review requests">
+        <div class="trr-panel-head"><div><h2>@(Model.Filter == "all" ? "All requests" : char.ToUpperInvariant(Model.Filter[0]) + Model.Filter[1..] + " requests")</h2>
+            <p>@Model.TotalMatching request(s). A monitoring observation is not, by itself, proof of cheating.</p></div></div>
+        @if (Model.Requests.Count == 0)
+        {
+            <div class="trr-empty"><i class="bi bi-inbox" aria-hidden="true"></i>
+                <strong>Nothing to review here</strong><p>New student requests will appear here automatically after a blocked student submits an appeal.</p></div>
+        }
+        else
+        {
+            <div class="trr-list">
+                @foreach (var request in Model.Requests)
+                {
+                    <article class="trr-request-card">
+                        <div class="trr-request-main">
+                            <div class="trr-initial" aria-hidden="true"><i class="bi bi-person"></i></div>
+                            <div class="trr-request-info"><div class="trr-request-top"><h3>@request.StudentName</h3>
+                                <span class="trr-status trr-status-@(request.Status.ToString().ToLowerInvariant())">@request.Status</span></div>
+                                <p><strong>@request.ExamTitle</strong> · Attempt #@request.AttemptId
+                                @if (!string.IsNullOrWhiteSpace(request.CandidateNumber)) { <span> · @request.CandidateNumber</span> }</p>
+                                <p class="trr-reason">@request.BlockReason</p>
+                                <div class="trr-meta"><span><i class="bi bi-clock"></i> @request.RequestedAt.ToString("dd MMM yyyy, hh:mm tt")</span>
+                                    <span><i class="bi bi-shield-exclamation"></i> @request.IncidentCount incident(s)</span>
+                                    <span><i class="bi bi-camera-video"></i> @request.EvidenceCount with evidence</span></div>
+                            </div>
+                        </div>
+                        <a class="trr-open" asp-action="Details" asp-route-id="@request.RequestId">Review details <i class="bi bi-arrow-right"></i></a>
+                    </article>
+                }
+            </div>
+        }
+        @if (Model.TotalPages > 1)
+        {
+            <nav class="trr-pagination" aria-label="Review request pages">
+                @if (Model.Page > 1) { <a asp-route-status="@Model.Filter" asp-route-page="@(Model.Page - 1)">Previous</a> }
+                <span>Page @Model.Page of @Model.TotalPages</span>
+                @if (Model.Page < Model.TotalPages) { <a asp-route-status="@Model.Filter" asp-route-page="@(Model.Page + 1)">Next</a> }
+            </nav>
+        }
+    </section>
+</div>

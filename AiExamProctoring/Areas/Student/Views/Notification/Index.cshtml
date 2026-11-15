@@ -1,0 +1,161 @@
+@model List<AiExamProctoring.Models.StudentNotification>
+
+@{
+    Layout = "~/Areas/Student/Views/Shared/_StudentLayout.cshtml";
+
+    ViewData["Title"] = "Notifications";
+
+    // Pagination variables
+    int currentPage = ViewBag.Page != null
+        ? Convert.ToInt32(ViewBag.Page)
+        : 1;
+
+    int totalPages = ViewBag.Pages != null
+        ? Convert.ToInt32(ViewBag.Pages)
+        : 1;
+
+    // Notification filters
+    bool unreadOnly = ViewBag.UnreadOnly != null
+        && Convert.ToBoolean(ViewBag.UnreadOnly);
+
+    int unreadCount = ViewBag.UnreadCount != null
+        ? Convert.ToInt32(ViewBag.UnreadCount)
+        : 0;
+}
+
+<section class="sd-notification-history"
+         aria-labelledby="student-notification-heading">
+
+    <!-- Page Header -->
+    <header class="sd-page-heading">
+        <div>
+            <span class="sd-eyebrow">MY UPDATES</span>
+
+            <h1 id="student-notification-heading">
+                Notifications
+            </h1>
+
+            <p>
+                Examination announcements, review decisions
+                and released results.
+            </p>
+        </div>
+
+        <span class="sd-unread-count">
+            @unreadCount unread
+        </span>
+    </header>
+
+    <div class="sd-panel">
+
+        <!-- Notification Filters -->
+        <nav class="sd-filter-tabs"
+             aria-label="Notification filters">
+
+            <a asp-area="Student"
+               asp-controller="Notification"
+               asp-action="Index"
+               asp-route-unreadOnly="false"
+               class="@(unreadOnly ? "" : "active")"
+               aria-current="@(unreadOnly ? null : "page")">
+                All updates
+            </a>
+
+            <a asp-area="Student"
+               asp-controller="Notification"
+               asp-action="Index"
+               asp-route-unreadOnly="true"
+               class="@(unreadOnly ? "active" : "")"
+               aria-current="@(unreadOnly ? "page" : null)">
+                Unread (@unreadCount)
+            </a>
+
+        </nav>
+
+        <!-- Empty State -->
+        @if (Model == null || Model.Count == 0)
+        {
+            <div class="sd-empty">
+                <i class="bi bi-bell"
+                   aria-hidden="true"></i>
+
+                <p>
+                    @(unreadOnly
+                                    ? "You're all caught up."
+                                    : "No notifications yet.")
+            </p>
+        </div>
+                }
+        else
+        {
+            <!-- Notification List -->
+            @foreach (var notification in Model)
+            {
+                <a asp-area="Student"
+                   asp-controller="Notification"
+                   asp-action="Open"
+                   asp-route-id="@notification.StudentNotificationId"
+                   class="sd-history-item @(notification.IsRead ? "" : "unread")">
+
+                    <span class="sd-update-dot @(notification.IsRead ? "read" : "")">
+                    </span>
+
+                    <span class="sd-history-copy">
+
+                        <strong>
+                            @notification.Title
+                        </strong>
+
+                        <small>
+                            @notification.Message
+                        </small>
+
+                        <span>
+                            @notification.CreatedDate.ToString("dd MMM yyyy, hh:mm tt")
+                        </span>
+
+                    </span>
+
+                    <i class="bi bi-chevron-right"
+                       aria-hidden="true"></i>
+                </a>
+            }
+        }
+
+        <!-- Pagination -->
+        @if (totalPages > 1)
+        {
+            <nav class="sd-pager"
+                 aria-label="Notification pages">
+
+                @if (currentPage > 1)
+                {
+                    <a asp-area="Student"
+                       asp-controller="Notification"
+                       asp-action="Index"
+                       asp-route-page="@(currentPage - 1)"
+                       asp-route-unreadOnly="@unreadOnly">
+                        Previous
+                    </a>
+                }
+
+                <span>
+                    Page @(currentPage) of @(totalPages)
+                </span>
+
+                @if (currentPage < totalPages)
+                {
+                    <a asp-area="Student"
+                       asp-controller="Notification"
+                       asp-action="Index"
+                       asp-route-page="@(currentPage + 1)"
+                       asp-route-unreadOnly="@unreadOnly">
+                        Next
+                    </a>
+                }
+
+            </nav>
+        }
+
+    </div>
+</section>

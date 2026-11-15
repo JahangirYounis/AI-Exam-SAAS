@@ -3,34 +3,152 @@
 @{
     ViewData["Title"] = "Teacher dashboard";
 }
+
 @if (Model is null)
 {
-    <div class="alert alert-warning">Dashboard could not load. Please reload.</div>
+    <div class="alert alert-warning" role="alert">Dashboard could not load. Please reload.</div>
 }
 else
 {
-    <div class="d-flex justify-content-between align-items-center flex-wrap gap-3 mb-4"><div><h1 class="h3 fw-bold">Your teaching workspace</h1><p class="text-secondary mb-0">Create tests, monitor students and review results.</p></div><a asp-controller="Exam" asp-action="Create" class="btn btn-primary">Create a test</a></div>
-    <div class="row g-3 mb-4">
-        <div class="col-6 col-lg-3"><div class="card h-100 p-3"><span class="text-secondary">Tests</span><strong class="fs-3">@Model.TotalExams</strong><a asp-controller="Exam" asp-action="Index">@Model.DraftExams drafts</a></div></div>
-        <div class="col-6 col-lg-3"><div class="card h-100 p-3"><span class="text-secondary">Question bank</span><strong class="fs-3">@Model.AvailableQuestionCount</strong><a asp-controller="Question" asp-action="Index">Browse questions</a></div></div>
-        <div class="col-6 col-lg-3"><div class="card h-100 p-3"><span class="text-secondary">Results</span><strong class="fs-3">@Model.Results</strong><a asp-controller="Results" asp-action="Index">View results</a></div></div>
-        <div class="col-6 col-lg-3"><div class="card h-100 p-3"><span class="text-secondary">Alerts to review</span><strong class="fs-3">@Model.PendingAlerts</strong><a asp-controller="Monitoring" asp-action="Index">@Model.BlockedAttempts blocked attempts</a></div></div>
-    </div>
-    <div class="card border-0 shadow-sm rounded-4 mb-4">
-        <div class="card-body p-4">
-            <div class="d-flex justify-content-between mb-3"><h2 class="h5 fw-bold">Recent tests</h2><a asp-controller="Exam" asp-action="Index">View all</a></div>
-            @if (Model.RecentExams?.Count > 0)
-            {
-                @foreach (var exam in Model.RecentExams)
-                {
-                    <div class="d-flex justify-content-between align-items-center gap-3 border-bottom py-3"><div><strong>@exam.ExamTitle</strong><div class="small text-secondary">@(exam.IsReusable ? "Always open" : exam.StartDate.ToString("dd MMM yyyy, hh:mm tt")) · @exam.TotalQuestions questions</div></div><a asp-controller="Exam" asp-action="Details" asp-route-id="@exam.ExamId" class="btn btn-sm btn-outline-primary">@(exam.IsPublished ? "Open test" : "Continue draft")</a></div>
-                }
-            }
-            else
-            {
-                <p class="text-secondary mb-0">Start with a test name, marks and time. Choose questions next; sections are prepared automatically when you publish.</p>
-            }
+    <div class="teacher-dashboard">
+        <section class="td-welcome" aria-labelledby="td-welcome-title">
+            <div class="td-welcome-copy">
+                <div class="td-eyebrow"><i class="bi bi-grid-1x2" aria-hidden="true"></i> Teacher workspace</div>
+                <h1 id="td-welcome-title">Your teaching workspace</h1>
+                <p>See your examinations, student progress and reviews in one place.</p>
+                <div class="td-welcome-meta">
+                    <span><i class="bi bi-journal-check" aria-hidden="true"></i> @Model.RunningExams running</span>
+                    <span><i class="bi bi-file-earmark-text" aria-hidden="true"></i> @Model.DraftExams drafts</span>
+                </div>
+            </div>
+            <a asp-area="Teacher" asp-controller="Exam" asp-action="Create" class="btn td-create-btn">
+                <i class="bi bi-plus-lg" aria-hidden="true"></i> Create a test
+            </a>
+        </section>
+
+        <section aria-labelledby="td-overview-title" class="td-overview">
+            <h2 id="td-overview-title" class="td-section-label">Overview</h2>
+            <div class="row g-3">
+                <div class="col-6 col-xl-3">
+                    <a class="td-stat-card" asp-area="Teacher" asp-controller="Exam" asp-action="Index" aria-label="@Model.TotalExams total tests; view all examinations">
+                        <span class="td-stat-top"><span class="td-stat-icon td-icon-blue"><i class="bi bi-journal-text" aria-hidden="true"></i></span><i class="bi bi-arrow-up-right td-stat-arrow" aria-hidden="true"></i></span>
+                        <span class="td-stat-number">@Model.TotalExams.ToString("N0")</span>
+                        <span class="td-stat-label">Total tests</span>
+                        <span class="td-stat-detail">@Model.DraftExams drafts to finish</span>
+                    </a>
+                </div>
+                <div class="col-6 col-xl-3">
+                    <div class="td-stat-card td-stat-static">
+                        <span class="td-stat-top"><span class="td-stat-icon td-icon-indigo"><i class="bi bi-people" aria-hidden="true"></i></span></span>
+                        <span class="td-stat-number">@Model.StudentsTested.ToString("N0")</span>
+                        <span class="td-stat-label">Students tested</span>
+                        <span class="td-stat-detail">Unique students across my tests</span>
+                    </div>
+                </div>
+                <div class="col-6 col-xl-3">
+                    <a class="td-stat-card @(Model.StudentsNeedingReview > 0 ? "td-stat-attention" : "")" asp-area="Teacher" asp-controller="Monitoring" asp-action="Index" aria-label="@Model.StudentsNeedingReview students requiring review; open candidate evidence">
+                        <span class="td-stat-top"><span class="td-stat-icon td-icon-amber"><i class="bi bi-shield-exclamation" aria-hidden="true"></i></span><i class="bi bi-arrow-up-right td-stat-arrow" aria-hidden="true"></i></span>
+                        <span class="td-stat-number">@Model.StudentsNeedingReview.ToString("N0")</span>
+                        <span class="td-stat-label">Students to review</span>
+                        <span class="td-stat-detail">@(Model.StudentsNeedingReview > 0 ? "Review candidate evidence" : "No reviews pending")</span>
+                    </a>
+                </div>
+                <div class="col-6 col-xl-3">
+                    <a class="td-stat-card" asp-area="Teacher" asp-controller="Results" asp-action="Index" aria-label="@Model.AvailableResults available results; open results">
+                        <span class="td-stat-top"><span class="td-stat-icon td-icon-green"><i class="bi bi-clipboard-data" aria-hidden="true"></i></span><i class="bi bi-arrow-up-right td-stat-arrow" aria-hidden="true"></i></span>
+                        <span class="td-stat-number">@Model.AvailableResults.ToString("N0")</span>
+                        <span class="td-stat-label">Available results</span>
+                        <span class="td-stat-detail">Released or clean completed attempts</span>
+                    </a>
+                </div>
+            </div>
+        </section>
+
+        <div class="row g-3 td-bottom-grid">
+            <section class="col-lg-7" aria-labelledby="td-recent-title">
+                <div class="td-panel h-100">
+                    <div class="td-panel-heading">
+                        <div>
+                            <h2 id="td-recent-title">Recent tests</h2>
+                            <p>Your two most recently created examinations</p>
+                        </div>
+                        <a asp-area="Teacher" asp-controller="Exam" asp-action="Index" class="td-view-all">View all <i class="bi bi-arrow-right" aria-hidden="true"></i></a>
+                    </div>
+                    @if (Model.RecentExams.Count > 0)
+                    {
+                        <div class="td-test-list">
+                            @foreach (var exam in Model.RecentExams)
+                            {
+                                <div class="td-test-row">
+                                    <span class="td-test-icon"><i class="bi bi-file-earmark-text" aria-hidden="true"></i></span>
+                                    <div class="td-test-info">
+                                        <h3>@exam.ExamTitle</h3>
+                                        <div class="td-test-meta">
+                                            <span>@(exam.IsReusable ? "Reusable practice test" : exam.StartDate.ToString("dd MMM yyyy · hh:mm tt"))</span>
+                                            <span aria-hidden="true">·</span>
+                                            <span>@exam.TotalQuestions questions</span>
+                                        </div>
+                                        <span class="td-status @(exam.Status == ExamStatus.Cancelled ? "td-status-muted" : exam.IsPublished ? "td-status-published" : "td-status-draft")">@(exam.Status == ExamStatus.Cancelled ? "Cancelled" : exam.Status == ExamStatus.Completed ? "Completed" : exam.Status == ExamStatus.Running ? "Running" : exam.IsPublished ? "Published" : exam.Status == ExamStatus.Ready ? "Ready" : "Draft")</span>
+                                    </div>
+                                    <a asp-area="Teacher" asp-controller="Exam" asp-action="Details" asp-route-id="@exam.ExamId" class="td-test-link" aria-label="@(exam.IsPublished ? "Open" : "Continue") @exam.ExamTitle">
+                                        <span class="d-none d-sm-inline">@(exam.IsPublished ? "Open" : "Continue")</span>
+                                        <i class="bi bi-arrow-up-right" aria-hidden="true"></i>
+                                    </a>
+                                </div>
+                            }
+                        </div>
+                    }
+                    else
+                    {
+                        <div class="td-empty">
+                            <i class="bi bi-journal-plus" aria-hidden="true"></i>
+                            <strong>No examinations yet</strong>
+                            <p>Your latest tests will appear here after you create one.</p>
+                            <a asp-area="Teacher" asp-controller="Exam" asp-action="Create">Create your first test</a>
+                        </div>
+                    }
+                </div>
+            </section>
+
+            <section class="col-lg-5" aria-labelledby="td-upcoming-title">
+                <div class="td-panel h-100">
+                    <div class="td-panel-heading">
+                        <div>
+                            <h2 id="td-upcoming-title">Upcoming tests</h2>
+                            <p>Your next scheduled examinations</p>
+                        </div>
+                        <span class="td-heading-icon"><i class="bi bi-calendar3" aria-hidden="true"></i></span>
+                    </div>
+                    @if (Model.UpcomingExams.Count > 0)
+                    {
+                        <div class="td-upcoming-list">
+                            @foreach (var exam in Model.UpcomingExams)
+                            {
+                                <a class="td-upcoming-row" asp-area="Teacher" asp-controller="Exam" asp-action="Details" asp-route-id="@exam.ExamId">
+                                    <span class="td-date-tile">
+                                        <strong>@exam.StartDate.ToString("dd")</strong>
+                                        <small>@exam.StartDate.ToString("MMM")</small>
+                                    </span>
+                                    <span class="td-upcoming-info">
+                                        <strong>@exam.ExamTitle</strong>
+                                        <small>@exam.StartDate.ToString("ddd · hh:mm tt")</small>
+                                    </span>
+                                    <i class="bi bi-chevron-right" aria-hidden="true"></i>
+                                </a>
+                            }
+                        </div>
+                    }
+                    else
+                    {
+                        <div class="td-empty td-empty-small">
+                            <i class="bi bi-calendar-check" aria-hidden="true"></i>
+                            <strong>No upcoming tests</strong>
+                            <p>Scheduled examinations will appear here automatically.</p>
+                            <a asp-area="Teacher" asp-controller="Exam" asp-action="Index">Manage examinations</a>
+                        </div>
+                    }
+                </div>
+            </section>
         </div>
     </div>
-    <div class="d-flex flex-wrap gap-2"><a asp-controller="Classes" asp-action="Index" class="btn btn-outline-secondary">Classes &amp; students</a><a asp-controller="Monitoring" asp-action="Live" class="btn btn-outline-secondary">Live monitoring</a><a asp-controller="Question" asp-action="Create" class="btn btn-outline-secondary">Write a question</a><a asp-controller="Catalog" asp-action="Index" class="btn btn-outline-secondary">Question subjects</a></div>
 }

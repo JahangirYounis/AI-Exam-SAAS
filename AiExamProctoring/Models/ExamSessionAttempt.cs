@@ -5,6 +5,7 @@ namespace AiExamProctoring.Models
 {
     public class ExamSessionAttempt
     {
+        [MaxLength(24000)] public string? ObjectTrackingJson { get; set; }
         [MaxLength(2000)] public string? DeviceHealthJson { get; set; }
         [Key]
         public int SessionAttemptId { get; set; }

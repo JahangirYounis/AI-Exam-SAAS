@@ -20,27 +20,48 @@ public sealed class QuestionController : Controller
     private string? TeacherId => User.FindFirstValue(ClaimTypes.NameIdentifier);
 
     [HttpGet]
-    public async Task<IActionResult> Index(int? subjectId, string? search, string source = "all", bool? active = null, int page = 1, CancellationToken cancellationToken = default)
+    public async Task<IActionResult> Index(int? subjectId, string? search, string source = "all",
+        bool? active = null, string? topic = null, string sort = "subject", int page = 1,
+        CancellationToken cancellationToken = default)
     {
         var teacherId = TeacherId;
-        if (teacherId is null) return Challenge();
-        source = source?.Trim().ToLowerInvariant() switch { "mine" => "mine", "shared" => "shared", _ => "all" };
+        if (string.IsNullOrWhiteSpace(teacherId)) return Challenge();
+
+        source = source?.Trim().ToLowerInvariant() switch
+        {
+            "mine" => "mine", "shared" => "shared", _ => "all"
+        };
+        sort = sort?.Trim().ToLowerInvariant() switch
+        {
+            "newest" => "newest", "oldest" => "oldest", "topic" => "topic", _ => "subject"
+        };
         search = string.IsNullOrWhiteSpace(search) ? null : search.Trim();
+        if (search is { Length: > 120 }) search = search[..120];
+        topic = string.IsNullOrWhiteSpace(topic) ? null : topic.Trim();
+        if (topic is { Length: > 150 }) topic = topic[..150];
         page = Math.Max(1, page);
 
-        var folders = await _db.Subjects.AsNoTracking().Where(x => x.IsActive).OrderBy(x => x.SubjectName)
+        // Subject counts must not include another teacher's unverified/private MCQs.
+        var folders = await _db.Subjects.AsNoTracking()
+            .Where(x => x.IsActive)
+            .OrderBy(x => x.SubjectName)
             .Select(x => new TeacherQuestionSubjectFolderViewModel
             {
                 SubjectId = x.SubjectId,
                 SubjectName = x.SubjectName,
                 Description = x.Description,
+                IsActive = x.IsActive,
                 MyQuestionCount = x.Questions.Count(q => q.CreatedBy == teacherId),
                 SharedQuestionCount = x.Questions.Count(q => q.IsActive && q.IsVerified && q.CreatedBy != teacherId)
             }).ToListAsync(cancellationToken);
-        if (subjectId.HasValue && folders.All(x => x.SubjectId != subjectId.Value)) subjectId = null;
 
-        var query = _db.Questions.AsNoTracking().Include(x => x.Subject)
-            .Where(x => x.CreatedBy == teacherId || (x.IsActive && x.IsVerified));
+        if (subjectId.HasValue && folders.All(x => x.SubjectId != subjectId.Value))
+            subjectId = null;
+
+        // Do not expose questions created privately by other teachers.
+        IQueryable<Question> query = _db.Questions.AsNoTracking()
+            .Where(x => x.Subject != null && x.Subject.IsActive &&
+                (x.CreatedBy == teacherId || (x.IsActive && x.IsVerified)));
         query = source switch
         {
             "mine" => query.Where(x => x.CreatedBy == teacherId),
@@ -49,13 +70,37 @@ public sealed class QuestionController : Controller
         };
         if (subjectId.HasValue) query = query.Where(x => x.SubjectId == subjectId.Value);
         if (active.HasValue) query = query.Where(x => x.IsActive == active.Value);
-        if (search is not null) query = query.Where(x => x.QuestionText.Contains(search) || (x.Topic != null && x.Topic.Contains(search)) || (x.Tags != null && x.Tags.Contains(search)));
+
+        // Suggest only accessible topics for the selected source and subject.
+        var availableTopics = await query
+            .Where(x => x.Topic != null && x.Topic != "")
+            .Select(x => x.Topic!)
+            .Distinct()
+            .OrderBy(x => x)
+            .Take(100)
+            .ToListAsync(cancellationToken);
+
+        if (topic is not null) query = query.Where(x => x.Topic == topic);
+        if (search is not null)
+            query = query.Where(x => x.QuestionText.Contains(search) ||
+                (x.Topic != null && x.Topic.Contains(search)) ||
+                (x.Tags != null && x.Tags.Contains(search)));
 
         var total = await query.CountAsync(cancellationToken);
         var totalPages = Math.Max(1, (int)Math.Ceiling(total / (double)PageSize));
         page = Math.Min(page, totalPages);
-        var questions = await query.OrderBy(x => x.Subject!.SubjectName).ThenBy(x => x.DisplayOrder).ThenBy(x => x.QuestionId)
-            .Skip((page - 1) * PageSize).Take(PageSize).ToListAsync(cancellationToken);
+        var ordered = sort switch
+        {
+            "newest" => query.OrderByDescending(x => x.CreatedDate).ThenByDescending(x => x.QuestionId),
+            "oldest" => query.OrderBy(x => x.CreatedDate).ThenBy(x => x.QuestionId),
+            "topic" => query.OrderBy(x => x.Topic).ThenBy(x => x.Subject!.SubjectName).ThenBy(x => x.QuestionId),
+            _ => query.OrderBy(x => x.Subject!.SubjectName).ThenBy(x => x.DisplayOrder).ThenBy(x => x.QuestionId)
+        };
+        var questions = await ordered.Include(x => x.Subject)
+            .Skip((page - 1) * PageSize)
+            .Take(PageSize)
+            .ToListAsync(cancellationToken);
+
         var rows = questions.Select(x => new TeacherQuestionRowViewModel
         {
             Question = x,
@@ -73,13 +118,56 @@ public sealed class QuestionController : Controller
             Search = search,
             Source = source,
             Active = active,
+            Topic = topic,
+            Topics = availableTopics,
+            Sort = sort,
             Page = page,
+            PageSize = PageSize,
             TotalPages = totalPages,
             TotalMatching = total,
             MyQuestionCount = folders.Sum(x => x.MyQuestionCount),
             SharedQuestionCount = folders.Sum(x => x.SharedQuestionCount),
-            ActiveSubjectCount = folders.Count
+            ActiveSubjectCount = folders.Count(x => x.IsActive)
         });
+    }
+
+    // Bulk changes apply only to this teacher's unlocked questions; verified shared
+    // questions and previously locked exam paper content are never modified.
+    [HttpPost, ValidateAntiForgeryToken]
+    public async Task<IActionResult> BulkSetActive(
+        int[]? questionIds, string operation, CancellationToken cancellationToken = default)
+    {
+        var teacherId = TeacherId;
+        if (string.IsNullOrWhiteSpace(teacherId)) return Challenge();
+        var ids = (questionIds ?? Array.Empty<int>()).Where(id => id > 0).Distinct().ToArray();
+        if (ids.Length == 0)
+        {
+            TempData["Error"] = "Select at least one of your unlocked questions.";
+            return RedirectToAction(nameof(Index), new { source = "mine" });
+        }
+        if (ids.Length > PageSize || (operation != "archive" && operation != "activate"))
+            return BadRequest("Choose a valid bulk action for up to 30 questions on this page.");
+
+        var questions = await _db.Questions
+            .Where(q => ids.Contains(q.QuestionId) && q.CreatedBy == teacherId && !q.IsLocked)
+            .ToListAsync(cancellationToken);
+        if (questions.Count != ids.Length)
+            return Forbid(); // Reject the whole request; never partially change a mixed selection.
+
+        var activate = operation == "activate";
+        var changed = 0;
+        foreach (var question in questions)
+        {
+            if (question.IsActive == activate) continue;
+            question.IsActive = activate;
+            question.IsVerified = false;
+            question.UpdatedDate = DateTime.Now;
+            question.UpdatedBy = teacherId;
+            changed++;
+        }
+        if (changed > 0) await _db.SaveChangesAsync(cancellationToken);
+        TempData["Success"] = $"{changed} question(s) {(activate ? "reactivated" : "archived")}. Locked papers remain unchanged.";
+        return RedirectToAction(nameof(Index), new { source = "mine" });
     }
 
     [HttpGet]
@@ -99,7 +187,7 @@ public sealed class QuestionController : Controller
 
     private Task<Exam?> EditableExamAsync(int examId, CancellationToken cancellationToken) =>
         _db.Exams.Include(x => x.ExamQuestions).Include(x => x.SubjectParts).Include(x => x.Sessions)
-            .FirstOrDefaultAsync(x => x.ExamId == examId && (x.CreatedBy == TeacherId || _db.ExamInvigilators.Any(i => i.ExamId == examId && i.TeacherId == TeacherId && i.IsActive && i.CanEditQuestions && i.AcceptedAtUtc != null)), cancellationToken);
+            .FirstOrDefaultAsync(x => x.ExamId == examId && (x.CreatedBy == TeacherId || _db.ExamInvigilators.Any(i => i.ExamId == examId && i.TeacherId == TeacherId && i.IsActive && i.CanEditQuestions && i.AcceptedAtUtc != null && i.RevokedAtUtc == null)), cancellationToken);
 
     [HttpPost, ValidateAntiForgeryToken]
     public async Task<IActionResult> Create([Bind("SubjectId,QuestionText,OptionA,OptionB,OptionC,OptionD,OptionE,CorrectAnswer,Topic,Tags,DisplayOrder,ImagePath,Explanation,IsActive")] Question model, CancellationToken cancellationToken, int? examId = null)
@@ -160,6 +248,11 @@ public sealed class QuestionController : Controller
     {
         var model = await _db.Questions.FirstOrDefaultAsync(x => x.QuestionId == id && x.CreatedBy == TeacherId, cancellationToken);
         if (model is null) return NotFound();
+        if (model.IsLocked)
+        {
+            TempData["Error"] = "This question is part of a locked examination paper and cannot be edited.";
+            return RedirectToAction(nameof(Index), new { subjectId = model.SubjectId, source = "mine" });
+        }
         await LoadSubjectsAsync(model.SubjectId, cancellationToken); return View(model);
     }
 
@@ -193,7 +286,7 @@ public sealed class QuestionController : Controller
     {
         var teacherId = TeacherId;
         if (teacherId is null) return Challenge();
-        var source = await _db.Questions.AsNoTracking().FirstOrDefaultAsync(x => x.QuestionId == id && x.IsActive && x.IsVerified, cancellationToken);
+        var source = await _db.Questions.AsNoTracking().FirstOrDefaultAsync(x => x.QuestionId == id && x.IsActive && x.IsVerified && x.Subject != null && x.Subject.IsActive, cancellationToken);
         if (source is null) return NotFound();
         var existingId = await _db.Questions.AsNoTracking().Where(x => x.CreatedBy == teacherId && x.SubjectId == source.SubjectId && x.QuestionText == source.QuestionText)
             .Select(x => (int?)x.QuestionId).FirstOrDefaultAsync(cancellationToken);

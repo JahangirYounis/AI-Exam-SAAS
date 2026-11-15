@@ -1,5 +1,7 @@
 using AiExamProctoring.Data;
 using AiExamProctoring.Models;
+using StudentAttemptUiState = AiExamProctoring.Services.Exam.StudentPortalAttemptState;
+using AiExamProctoring.Services.Results;
 using AiExamProctoring.ViewModels.Student;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authorization;
@@ -52,6 +54,11 @@ public class DashboardController : Controller
                 hasIdentityPhoto, !string.IsNullOrWhiteSpace(student.FatherName),
                 !string.IsNullOrWhiteSpace(student.District), !string.IsNullOrWhiteSpace(student.PermanentAddress)
             };
+            var missingProfile = new List<string>();
+            if (string.IsNullOrWhiteSpace(student.CNIC)) missingProfile.Add("CNIC");
+            if (string.IsNullOrWhiteSpace(student.FatherName)) missingProfile.Add("Father's name");
+            if (string.IsNullOrWhiteSpace(student.District)) missingProfile.Add("District");
+            if (!hasIdentityPhoto) missingProfile.Add("Profile photo");
             var model = new StudentDashboardViewModel
             {
                 StudentId = student.Id,
@@ -65,7 +72,8 @@ public class DashboardController : Controller
                 LastLogin = student.LastLoginDate,
                 MemberSince = student.CreatedDate,
                 ProfileCompletionPercentage = (int)Math.Round(profileChecks.Count(check => check) * 100d / profileChecks.Length),
-                HasIdentityPhoto = hasIdentityPhoto
+                HasIdentityPhoto = hasIdentityPhoto,
+                MissingProfileFields = missingProfile
             };
 
             var candidateExams = await _context.Exams.AsNoTracking()
@@ -80,28 +88,48 @@ public class DashboardController : Controller
 
             var attempts = _context.ExamAttempts.AsNoTracking().Where(attempt => attempt.StudentId == studentId);
             var attemptedIds = (await attempts.Select(attempt => attempt.ExamId).Distinct().ToListAsync(ct)).ToHashSet();
-            var ongoingQuery = attempts.Where(attempt => attempt.Status == AttemptStatus.InProgress || attempt.Status == AttemptStatus.ProctoringBlocked);
-            var ongoingIds = (await ongoingQuery.Select(attempt => attempt.ExamId).Distinct().ToListAsync(ct)).ToHashSet();
+            // Fetch only a small number of active/held attempts for cards. Attempt state is
+            // authoritative; a blocked attempt must never count as a resumable examination.
+            var unresolved = await attempts
+                .Where(a => a.ResultReleasedAtUtc == null &&
+                    (a.Status == AttemptStatus.ProctoringBlocked ||
+                     (a.Status == AttemptStatus.InProgress && a.CompletedAt == null)))
+                .Include(a => a.Exam)
+                .Include(a => a.SessionAttempts).ThenInclude(s => s.Session)
+                .OrderByDescending(a => a.StartedAt).ThenByDescending(a => a.AttemptId)
+                .ToListAsync(ct);
+            var held = unresolved.Where(StudentAttemptUiState.IsHeld).ToList();
+            var canContinue = unresolved.Where(a => StudentAttemptUiState.CanOfferResume(a, now)).ToList();
+            var needsStatusCheck = unresolved.Where(a => a.Status == AttemptStatus.InProgress &&
+                !StudentAttemptUiState.CanOfferResume(a, now)).ToList();
+            var activeExamIds = unresolved.Select(a => a.ExamId).ToHashSet();
             var upcoming = new List<Exam>();
             var available = new List<Exam>();
             foreach (var exam in candidateExams)
             {
-                if (ongoingIds.Contains(exam.ExamId) || attemptedIds.Contains(exam.ExamId) && !exam.AllowsRepeatAttempts) continue;
+                if (activeExamIds.Contains(exam.ExamId) ||
+                    (attemptedIds.Contains(exam.ExamId) && !exam.AllowsRepeatAttempts)) continue;
                 if (!exam.IsReusable && now > exam.LatestStartDate) continue;
-                if (!exam.IsPublished || !exam.IsReusable && now < exam.StartDate) upcoming.Add(exam);
+                if (!exam.IsPublished || (!exam.IsReusable && now < exam.StartDate)) upcoming.Add(exam);
                 else available.Add(exam);
             }
-            model.UpcomingExams = upcoming.Take(5).ToList();
-            model.AvailableExams = available.Take(10).ToList();
+            model.UpcomingExams = upcoming.Take(3).ToList();
+            model.AvailableExams = available.Take(4).ToList();
             model.UpcomingExamCount = upcoming.Count;
             model.AvailableExamCount = available.Count;
-            model.OngoingExamCount = await ongoingQuery.CountAsync(ct);
-            model.OngoingAttempts = await ongoingQuery.Include(attempt => attempt.Exam)
-                .OrderByDescending(attempt => attempt.StartedAt).ThenByDescending(attempt => attempt.AttemptId).Take(5).ToListAsync(ct);
-            model.RecentAttempts = await attempts.Include(attempt => attempt.Exam)
-                .Where(attempt => attempt.Status != AttemptStatus.InProgress && attempt.Status != AttemptStatus.ProctoringBlocked)
-                .OrderByDescending(attempt => attempt.StartedAt).ThenByDescending(attempt => attempt.AttemptId)
-                .Take(5).ToListAsync(ct);
+            model.OngoingExamCount = canContinue.Count;
+            model.BlockedAttemptCount = held.Count;
+            model.NeedsStatusCheckCount = needsStatusCheck.Count;
+            model.NeedsStatusCheckAttempts = needsStatusCheck.Take(2).ToList();
+            model.OngoingAttempts = canContinue.Take(3).ToList();
+            model.BlockedAttempts = held.Take(3).ToList();
+            model.RecentAttempts = await attempts.Include(a => a.Exam)
+                .Where(a => a.Status != AttemptStatus.InProgress && a.Status != AttemptStatus.ProctoringBlocked)
+                .OrderByDescending(a => a.StartedAt).ThenByDescending(a => a.AttemptId)
+                .Take(3).ToListAsync(ct);
+            model.PendingReviewCount = await attempts.CountAsync(a => a.ResultReleasedAtUtc == null &&
+                (a.Status == AttemptStatus.ProctoringBlocked || a.Status == AttemptStatus.Completed ||
+                 a.Status == AttemptStatus.AutoSubmitted || a.Status == AttemptStatus.Disqualified), ct);
 
             var attemptStats = await attempts.GroupBy(_ => 1).Select(group => new {
                 Total = group.Count(),
@@ -110,15 +138,14 @@ public class DashboardController : Controller
             model.TotalAttempts = attemptStats?.Total ?? 0;
             model.CompletedExamCount = attemptStats?.Completed ?? 0;
 
-            // Keep the same visibility policy as Student ResultController.
-            // Aggregates and answer totals must not reveal a withheld result.
-            var visibleResults = _context.ExamResults.AsNoTracking()
-                .Where(result => result.Attempt != null && result.Attempt.StudentId == studentId &&
-                    (result.Attempt.ResultReleasedAtUtc != null ||
-                     (!result.Attempt.SubmittedForViolations && result.Attempt.Status != AttemptStatus.ProctoringBlocked &&
-                      !_context.ProctoringLogs.Any(log => log.AttemptId == result.AttemptId && log.CountsAsViolation))));
-            model.RecentResults = await visibleResults.Include(result => result.Attempt).ThenInclude(attempt => attempt!.Exam)
-                .OrderByDescending(result => result.GeneratedDate).ThenByDescending(result => result.ResultId).Take(5).ToListAsync(ct);
+            // This must be EXACTLY the same release boundary used by Student ResultController.
+            // No clean-but-unreleased result may appear in dashboard KPIs or analytics.
+            var visibleResults = StudentResultAccess.ReleasedFor(_context, studentId);
+            model.ReleasedResultCount = await visibleResults.CountAsync(ct);
+            model.RecentResults = await visibleResults
+                .Include(result => result.Attempt).ThenInclude(a => a!.Exam)
+                .OrderByDescending(result => result.Attempt!.ResultReleasedAtUtc)
+                .ThenByDescending(result => result.ResultId).Take(3).ToListAsync(ct);
             var resultStats = await visibleResults.GroupBy(_ => 1).Select(group => new {
                 Passed = group.Count(result => result.IsPassed),
                 Failed = group.Count(result => !result.IsPassed),
@@ -142,7 +169,7 @@ public class DashboardController : Controller
 
             var notifications = await _context.StudentNotifications.AsNoTracking().Where(notification => notification.StudentId == studentId)
                 .OrderByDescending(notification => notification.CreatedDate).ThenByDescending(notification => notification.StudentNotificationId)
-                .Take(8).ToListAsync(ct);
+                .Take(3).ToListAsync(ct);
             model.Notifications = notifications.Select(notification => new StudentNotificationViewModel
             {
                 Title = notification.Title,

@@ -1,0 +1,68 @@
+@model AiExamProctoring.ViewModels.TeacherEvidenceExamViewModel
+@{
+    ViewData["Title"] = "Exam evidence · " + Model.ExamTitle;
+    var blockedRows = Model.Students.Where(s => s.IsBlocked).ToList();
+    var flaggedRows = Model.Students.Where(s => !s.IsBlocked).ToList();
+}
+<div class="teacher-evidence">
+    <nav class="te-breadcrumb" aria-label="Breadcrumb"><a asp-action="Index">Examination evidence</a><i class="bi bi-chevron-right"></i><span>@Model.ExamTitle</span></nav>
+    <header class="te-page-heading">
+        <div><span class="te-eyebrow">Exam #@Model.ExamId · @(Model.IsOwner ? "Exam owner" : "Authorized monitor")</span><h1>@Model.ExamTitle</h1><p>Blocked candidates are shown separately from candidates with observations who were not blocked.</p></div>
+        <a asp-action="Live" asp-route-examId="@Model.ExamId" class="btn btn-outline-primary"><i class="bi bi-camera-video me-2"></i>Live room</a>
+    </header>
+    <div class="te-stat-grid">
+        <div class="te-stat"><i class="bi bi-people"></i><strong>@Model.TotalStudents</strong><span>Flagged or blocked students</span></div>
+        <div class="te-stat"><i class="bi bi-lock"></i><strong>@Model.BlockedCount</strong><span>Currently blocked</span></div>
+        <div class="te-stat"><i class="bi bi-exclamation-triangle"></i><strong>@Model.FlaggedCount</strong><span>Flagged, not blocked</span></div>
+        <div class="te-stat"><i class="bi bi-clock-history"></i><strong>@Model.PendingCount</strong><span>Pending student reviews</span></div>
+    </div>
+    <section class="te-panel">
+        <div class="te-panel-heading te-panel-heading-stack">
+            <div><h2>Candidate folders</h2><p>Evidence is grouped by real examination attempts. No duplicates across Blocked and Flagged.</p></div>
+            <form method="get" asp-action="Exam" class="te-search" role="search">
+                <input type="hidden" name="examId" value="@Model.ExamId" />
+                <input type="hidden" name="category" value="@Model.Category" />
+                <label for="te-candidate-search" class="visually-hidden">Find candidate</label>
+                <input id="te-candidate-search" type="search" name="search" class="form-control" value="@Model.Search" placeholder="Student name, number or email" maxlength="120" />
+                <button type="submit" class="btn btn-primary">Search</button>
+            </form>
+        </div>
+        <nav class="te-tabs" aria-label="Evidence categories">
+            @foreach (var tab in new[] { (Key: "all", Title: "All", Count: Model.TotalStudents), (Key: "blocked", Title: "Blocked", Count: Model.BlockedCount), (Key: "flagged", Title: "Flagged", Count: Model.FlaggedCount), (Key: "pending", Title: "Pending review", Count: Model.PendingCount) })
+            {
+                <a asp-action="Exam" asp-route-examId="@Model.ExamId" asp-route-category="@tab.Key" asp-route-search="@Model.Search" class="te-tab @(Model.Category == tab.Key ? "active" : "")" aria-current="@(Model.Category == tab.Key ? "page" : null)">@tab.Title <span>@tab.Count</span></a>
+            }
+        </nav>
+        @if (Model.Students.Count == 0)
+        {
+            <div class="te-empty"><i class="bi bi-shield-check"></i><h3>No matching students</h3><p>No blocked or reviewable observations match this filter. Clean attempts do not create evidence alerts.</p><a asp-action="Exam" asp-route-examId="@Model.ExamId" class="btn btn-outline-primary">Clear filters</a></div>
+        }
+        @if (blockedRows.Count > 0)
+        {
+            <div class="te-group-title"><i class="bi bi-lock-fill text-danger"></i><h3>Blocked students</h3><span class="te-chip te-chip-danger">@blockedRows.Count on this page</span></div>
+            <div class="te-student-grid">
+                @foreach (var s in blockedRows)
+                {
+                    <a asp-action="Candidate" asp-route-examId="@Model.ExamId" asp-route-studentId="@s.StudentId" class="te-student-card te-student-blocked"><div class="te-student-heading"><span class="te-avatar"><i class="bi bi-person"></i></span><div><strong>@s.Name</strong><small>@(s.CandidateNumber ?? "No candidate number")</small></div><i class="bi bi-chevron-right text-secondary ms-auto"></i></div><div class="te-card-metrics"><span>@s.AttemptCount attempt(s)</span><span>@s.PendingEvents pending</span><span>@s.EvidenceFiles evidence file(s)</span></div><div class="te-student-status"><span class="te-chip te-chip-danger">Blocked</span><small>Latest @s.LatestAt.ToString("dd MMM, hh:mm tt")</small></div></a>
+                }
+            </div>
+        }
+        @if (flaggedRows.Count > 0)
+        {
+            <div class="te-group-title"><i class="bi bi-exclamation-triangle text-warning"></i><h3>Flagged, not blocked</h3><span class="te-chip">@flaggedRows.Count on this page</span></div>
+            <div class="te-student-grid">
+                @foreach (var s in flaggedRows)
+                {
+                    <a asp-action="Candidate" asp-route-examId="@Model.ExamId" asp-route-studentId="@s.StudentId" class="te-student-card"><div class="te-student-heading"><span class="te-avatar"><i class="bi bi-person"></i></span><div><strong>@s.Name</strong><small>@(s.CandidateNumber ?? "No candidate number")</small></div><i class="bi bi-chevron-right text-secondary ms-auto"></i></div><div class="te-card-metrics"><span>@s.AttemptCount attempt(s)</span><span>@s.ReviewEvents observations</span><span>@s.EvidenceFiles evidence file(s)</span></div><div class="te-student-status"><span class="te-chip @(s.IsReviewed ? "te-chip-green" : "te-chip-amber")">@(s.IsReviewed ? "Reviewed" : "Review pending")</span><small>@s.PendingEvents pending</small></div></a>
+                }
+            </div>
+        }
+    </section>
+    @if (Model.TotalPages > 1)
+    {
+        <nav class="te-pagination" aria-label="Candidate evidence pages">
+            <a class="btn btn-outline-secondary @(Model.Page == 1 ? "disabled" : "")" asp-action="Exam" asp-route-examId="@Model.ExamId" asp-route-category="@Model.Category" asp-route-search="@Model.Search" asp-route-page="@(Model.Page-1)">Previous</a><span>Page @Model.Page of @Model.TotalPages</span><a class="btn btn-outline-secondary @(Model.Page == Model.TotalPages ? "disabled" : "")" asp-action="Exam" asp-route-examId="@Model.ExamId" asp-route-category="@Model.Category" asp-route-search="@Model.Search" asp-route-page="@(Model.Page+1)">Next</a>
+        </nav>
+    }
+    <p class="te-footnote">AI observations require human judgment. Reviewing evidence does not automatically change marks or publish results.</p>
+</div>

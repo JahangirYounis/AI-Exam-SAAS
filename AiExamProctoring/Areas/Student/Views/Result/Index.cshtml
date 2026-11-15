@@ -1,37 +1,138 @@
-@model IEnumerable<AiExamProctoring.Models.ExamResult>
+@model AiExamProctoring.ViewModels.Student.StudentResultsIndexViewModel
+@using AiExamProctoring.Models
+@using AiExamProctoring.Services.Results
 @{
     Layout = "~/Areas/Student/Views/Shared/_StudentLayout.cshtml";
     ViewData["Title"] = "My Results";
 }
+@section Styles { <link rel="stylesheet" href="~/css/student-results.css" asp-append-version="true" /> }
+<section class="student-results" aria-labelledby="my-results-heading">
+    <div class="sr-page-header">
+        <div>
+            <div class="sr-eyebrow"><i class="bi bi-mortarboard" aria-hidden="true"></i> Examination performance</div>
+            <h1 id="my-results-heading">My Results</h1>
+            <p>Check finalized marks, pending reviews and your personal result documents.</p>
+        </div>
+        <div class="sr-summary" aria-label="Your result counts">
+            <div><strong>@Model.ReleasedTotal</strong><small>Released</small></div>
+            <div><strong>@Model.PendingTotal</strong><small>Pending</small></div>
+        </div>
+    </div>
 
-@if ((ViewBag.PendingCount as int? ?? 0) > 0) { <div class="alert alert-info">@ViewBag.PendingCount result(s) are awaiting your teacher's final review. <a asp-controller="Exam" asp-action="Evidence">View your evidence</a>.</div> }
-<div class="d-flex justify-content-between align-items-end flex-wrap gap-3 mb-4">
-    <div><div class="small text-primary fw-bold text-uppercase">Performance Center</div><h1 class="fw-bold mb-1">My Results</h1><p class="soft-muted mb-0">Completed examinations, answer reviews and detailed certificates.</p></div>
-    <div class="input-group" style="max-width:300px"><span class="input-group-text bg-white border-end-0"><i class="bi bi-search"></i></span><input id="resultSearch" class="form-control border-start-0" placeholder="Search result..."></div>
-</div>
-
-<div class="student-card p-3 p-md-4"><div class="table-responsive"><table class="table table-modern align-middle mb-0" id="resultsTable">
-    <thead><tr><th>Examination</th><th>Score</th><th>Performance</th><th>Status</th><th>AI Status</th><th>Date</th><th class="text-end">Action</th></tr></thead>
-    <tbody>
-    @foreach (var result in Model)
+    @if (Model.PendingTotal > 0)
     {
-        <tr>
-            <td><div class="fw-bold">@result.Attempt?.Exam?.ExamTitle</div><div class="small soft-muted">Attempt #@result.AttemptId</div></td>
-            <td><strong>@result.TotalMarksObtained / @result.TotalMarks</strong><div class="small soft-muted">@result.Percentage%</div></td>
-            <td><div class="progress progress-thin" style="min-width:100px"><div class="progress-bar" style="width:@Math.Min(100, Math.Max(0, (double)result.Percentage))%"></div></div></td>
-            <td><span class="badge-soft @(result.IsPassed ? "soft-success" : "soft-danger")">@(result.IsPassed ? "Passed" : "Failed")</span></td>
-            <td><span class="badge text-bg-light border">Not active</span></td>
-            <td class="soft-muted">@result.GeneratedDate.ToString("dd MMM yyyy")</td>
-            <td class="text-end"><div class="dropdown"><button class="btn btn-light rounded-pill btn-sm" data-bs-toggle="dropdown"><i class="bi bi-three-dots"></i></button><ul class="dropdown-menu dropdown-menu-end border-0 shadow rounded-4"><li><a class="dropdown-item" asp-action="Details" asp-route-id="@result.ResultId">View details</a></li><li><a class="dropdown-item" asp-action="QuestionReview" asp-route-id="@result.ResultId">Review answers</a></li><li><a class="dropdown-item" asp-action="DownloadPdf" asp-route-id="@result.ResultId">Download result PDF</a></li><li><a class="dropdown-item" asp-action="DownloadCertificate" asp-route-id="@result.ResultId">Download certificate</a></li></ul></div></td>
-        </tr>
+        <section class="sr-panel sr-pending-panel" aria-labelledby="pending-results-heading">
+            <div class="sr-section-heading">
+                <div><h2 id="pending-results-heading"><i class="bi bi-hourglass-split" aria-hidden="true"></i> Results awaiting release</h2>
+                <p>These marks remain private until processing finishes or a required Teacher review is completed.</p></div>
+                <span class="sr-count">@Model.PendingTotal</span>
+            </div>
+            <div class="sr-pending-list">
+                @foreach (var pending in Model.PendingAttempts)
+                {
+                    <article class="sr-pending-item">
+                        <div class="sr-test-icon"><i class="bi bi-shield-exclamation" aria-hidden="true"></i></div>
+                        <div class="sr-pending-info">
+                            <h3>@pending.ExamTitle</h3>
+                            <p>Attempt #@pending.AttemptId · @pending.ExaminationDate.ToString("dd MMM yyyy")</p>
+                            <span class="sr-subtle">@(pending.IsBlocked ? "Blocked — Teacher review required" : pending.NeedsTeacherReview ? "Awaiting Teacher review" : "Submitted — result processing")</span>
+                        </div>
+                        <a asp-area="Student" asp-controller="Exam" asp-action="@(pending.IsBlocked ? "Blocked" : "AttemptResult")" asp-route-attemptId="@pending.AttemptId" class="sr-outline-button">Check status</a>
+                    </article>
+                }
+            </div>
+            @if (Model.PendingPages > 1)
+            {
+                <nav class="sd-pager" aria-label="Pending result pages">
+                    @if (Model.PendingPage > 1)
+                    { <a asp-action="Index" asp-route-page="@Model.Page" asp-route-pendingPage="@(Model.PendingPage - 1)">Previous</a> }
+                    <span>Pending page @Model.PendingPage of @Model.PendingPages</span>
+                    @if (Model.PendingPage < Model.PendingPages)
+                    { <a asp-action="Index" asp-route-page="@Model.Page" asp-route-pendingPage="@(Model.PendingPage + 1)">Next</a> }
+                </nav>
+            }
+        </section>
     }
-    @if (!Model.Any())
-    {
-        <tr><td colspan="7"><div class="empty-state"><i class="bi bi-bar-chart"></i><h5 class="fw-bold mt-3">No results yet</h5><p class="soft-muted">Complete an examination and your result will appear here.</p></div></td></tr>
-    }
-    </tbody>
-</table></div></div>
 
+    <section class="sr-panel" aria-labelledby="released-results-heading">
+        <div class="sr-section-heading">
+            <div><h2 id="released-results-heading"><i class="bi bi-patch-check" aria-hidden="true"></i> Released Results</h2>
+            <p>Only results published to your account are listed here.</p></div>
+            @if (Model.ReleasedTotal > 0)
+            {
+                <label class="sr-search"><i class="bi bi-search" aria-hidden="true"></i>
+                    <span class="visually-hidden">Search released results</span>
+                    <input type="search" id="resultSearch" placeholder="Search examinations" autocomplete="off" />
+                </label>
+            }
+        </div>
+        @if (Model.ReleasedTotal == 0)
+        {
+            <div class="sr-empty"><i class="bi bi-clipboard-data" aria-hidden="true"></i>
+                <h3>No published results yet</h3><p>Your result will appear here when it becomes available.</p>
+                <a asp-area="Student" asp-controller="Exam" asp-action="Available" class="sr-primary-button">View examinations</a>
+            </div>
+        }
+        else
+        {
+            <div class="table-responsive">
+                <table class="table sr-result-table align-middle" id="resultsTable">
+                    <thead><tr><th>Examination</th><th>Academic marks</th><th>Outcome</th><th>Review status</th><th>Exam date</th><th class="text-end">Actions</th></tr></thead>
+                    <tbody>
+                    @foreach (var result in Model.ReleasedResults)
+                    {
+                        var attempt = result.Attempt;
+                        var exam = attempt?.Exam;
+                        var grade = StudentResultAccess.GradeLabel(result.Percentage, exam?.PassingPercentage ?? 100m);
+                        var passed = grade != "Fail";
+                        <tr>
+                            <td><strong>@exam?.ExamTitle</strong><small class="d-block sr-muted">Attempt #@result.AttemptId</small></td>
+                            <td><strong>@result.TotalMarksObtained.ToString("0.##") / @result.TotalMarks.ToString("0.##")</strong><small class="d-block sr-muted">@result.Percentage.ToString("0.##")%</small></td>
+                            <td><span class="sr-pill @(passed ? "sr-pill-success" : "sr-pill-danger")">@grade</span></td>
+                            <td><span class="sr-review-state">@StudentResultAccess.ReviewStatus(attempt)</span>
+                                @if (attempt?.Status == AttemptStatus.ProctoringBlocked || attempt?.IsDisqualified == true)
+                                { <small class="d-block sr-alert">Integrity restriction remains</small> }
+                            </td>
+                            <td class="sr-muted">@(attempt?.StartedAt.ToString("dd MMM yyyy") ?? "—")</td>
+                            <td class="text-end">
+                                <a asp-action="Details" asp-route-id="@result.ResultId" class="sr-outline-button">View result</a>
+                                <a asp-action="DownloadPdf" asp-route-id="@result.ResultId" class="sr-icon-link" title="Download your result PDF" aria-label="Download result PDF for @(exam?.ExamTitle)"><i class="bi bi-filetype-pdf" aria-hidden="true"></i></a>
+                            </td>
+                        </tr>
+                    }
+                    </tbody>
+                </table>
+            </div>
+            <p class="sr-no-search" id="noSearchResults" hidden>No results on this page match your search.</p>
+            @if (Model.ReleasedPages > 1)
+            {
+                <nav class="sd-pager" aria-label="Released result pages">
+                    @if (Model.Page > 1)
+                    { <a asp-action="Index" asp-route-page="@(Model.Page - 1)" asp-route-pendingPage="@Model.PendingPage">Previous</a> }
+                    <span>Result page @Model.Page of @Model.ReleasedPages</span>
+                    @if (Model.Page < Model.ReleasedPages)
+                    { <a asp-action="Index" asp-route-page="@(Model.Page + 1)" asp-route-pendingPage="@Model.PendingPage">Next</a> }
+                </nav>
+            }
+        }
+    </section>
+</section>
 @section Scripts {
-    <script>document.getElementById('resultSearch')?.addEventListener('input', function () { const query = this.value.toLowerCase(); document.querySelectorAll('#resultsTable tbody tr').forEach(row => row.style.display = row.innerText.toLowerCase().includes(query) ? '' : 'none'); });</script>
+<script>
+(() => {
+    const input = document.getElementById('resultSearch');
+    const rows = [...document.querySelectorAll('#resultsTable tbody tr')];
+    const empty = document.getElementById('noSearchResults');
+    input?.addEventListener('input', () => {
+        const search = input.value.trim().toLocaleLowerCase();
+        let visible = 0;
+        for (const row of rows) {
+            const show = row.textContent.toLocaleLowerCase().includes(search);
+            row.hidden = !show;
+            if (show) visible++;
+        }
+        if (empty) empty.hidden = visible > 0;
+    });
+})();
+</script>
 }

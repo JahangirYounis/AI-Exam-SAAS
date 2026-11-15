@@ -97,6 +97,8 @@ public sealed class ProfileController : Controller
         teacher.HighestQualification = Clean(model.HighestQualification);
         teacher.Department = Clean(model.Department);
         teacher.OrganizationName = Clean(model.OrganizationName);
+        teacher.TeacherHeadline = Clean(model.TeacherHeadline);
+        teacher.TeacherBio = Clean(model.TeacherBio);
         teacher.City = Clean(model.City);
         teacher.Country = Clean(model.Country);
         teacher.Address = Clean(model.Address);
@@ -138,6 +140,8 @@ public sealed class ProfileController : Controller
             Country = teacher.Country,
             Address = teacher.Address,
             ProfileImage = teacher.ProfileImage,
+            TeacherHeadline = teacher.TeacherHeadline,
+            TeacherBio = teacher.TeacherBio,
             ProfilePhotoCapturedAt = teacher.ProfilePhotoCapturedAt,
             IsApproved = teacher.IsApproved,
             CreatedDate = teacher.CreatedDate,

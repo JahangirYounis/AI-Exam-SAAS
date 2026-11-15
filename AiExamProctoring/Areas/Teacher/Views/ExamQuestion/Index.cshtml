@@ -18,14 +18,12 @@
     return;
 }
 
-<div class="d-flex gap-2 flex-wrap mb-3">
-@if(exam.CreatedBy == User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value) { <a class="btn btn-outline-primary" asp-controller="Invitations" asp-action="Manage" asp-route-examId="@exam.ExamId">Invite co-teachers</a> }
-<a class="btn btn-outline-primary" asp-controller="Invitations" asp-action="Team" asp-route-examId="@exam.ExamId">Team discussion</a></div>
+<div class="te-flow-links mb-3">@if(exam.CreatedBy == User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value){<a asp-controller="Exam" asp-action="Details" asp-route-id="@exam.ExamId" class="te-flow-link">Draft details</a>}else{<a asp-controller="Invitations" asp-action="Index" class="te-flow-link">My collaborations</a>}<span class="te-flow-link is-current">Choose MCQs</span><a asp-action="Selected" asp-route-examId="@exam.ExamId" class="te-flow-link">Review questions</a>@if(exam.CreatedBy == User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value){<a asp-controller="Invitations" asp-action="Manage" asp-route-examId="@exam.ExamId" class="te-flow-link">Invite paper teachers</a><a asp-controller="Exam" asp-action="Details" asp-route-id="@exam.ExamId" asp-fragment="teSessionSetup" class="te-flow-link">Sessions &amp; publish</a>}</div>
 <div class="d-flex flex-column flex-xl-row justify-content-between align-items-xl-end gap-3 mb-4">
     <div>
         <span class="eyebrow">Exam paper builder</span>
         <h2 class="fw-bold mt-1 mb-1">@exam.ExamTitle</h2>
-        <p class="text-secondary mb-0">Choose existing questions below, or use Write a new question to add your own MCQ directly to this paper. You can combine both. Subject and topic are optional when writing a question.</p>
+        <p class="text-secondary mb-0">Search by subject or keyword, then tick an MCQ to add it instantly. Create a question if it is missing.</p>
     </div>
     <div class="d-flex flex-wrap gap-2">
         @if (!exam.IsPublished && !exam.IsLocked && (!exam.QuestionLimit.HasValue || selectedCount < exam.QuestionLimit))
@@ -44,38 +42,13 @@
     <div class="col-md-4"><div class="metric-card"><strong id="marksPerQuestion">@(selectedCount == 0 ? "—" : (exam.TotalMarks / selectedCount).ToString("0.####"))</strong><span>Approx. Marks per Question</span></div></div>
 </div>
 
-<div class="alert alert-info border-0 rounded-4 d-flex gap-3 align-items-start">
-    <i class="bi bi-lightning-charge-fill fs-4"></i>
-    <div><strong>Instant paper building:</strong> checking a question saves it immediately. Example: if Total Marks = 50 and you select 100 questions, each question receives 0.50 marks. For totals that do not divide exactly, the system distributes hundredths fairly while keeping the exact exam total.</div>
-</div>
-
-<div class="portal-panel p-4 mb-4">
-    <div class="d-flex justify-content-between align-items-start flex-wrap gap-2 mb-3">
-        <div><span class="eyebrow">Subjects</span><h4 class="fw-bold mb-1">Filter questions by subject</h4><p class="small text-secondary mb-0">Filter by subject or search the question bank. Counts show questions still available for this test.</p></div>
-        @if (subjectId.HasValue)
-        {
-            <a asp-action="Index" asp-route-examId="@exam.ExamId" class="btn btn-sm btn-light border rounded-pill">Show all subjects</a>
-        }
-    </div>
-    <div class="subject-folder-grid">
-        @foreach (var subject in subjects)
-        {
-            var count = counts.TryGetValue(subject.SubjectId, out var n) ? n : 0;
-            <a asp-action="Index" asp-route-examId="@exam.ExamId" asp-route-subjectId="@subject.SubjectId" class="subject-folder @(subjectId == subject.SubjectId ? "active" : "")">
-                <span class="subject-folder-icon"><i class="bi bi-folder2-open"></i></span>
-                <span class="subject-folder-copy"><strong>@subject.SubjectName</strong><small><span id="subject-count-@subject.SubjectId">@count</span> MCQs available</small></span>
-                <i class="bi bi-chevron-right"></i>
-            </a>
-        }
-    </div>
-</div>
-
+<p class="te-builder-note"><i class="bi bi-check2-circle me-1"></i>MCQs save as you select them. Selected questions disappear from this list. Use <strong>Selected Questions</strong> to remove mistakes.</p>
 <div class="card border-0 shadow-sm rounded-4 overflow-hidden">
     <div class="card-body p-3 p-lg-4">
         <form asp-action="Index" method="get" class="row g-3 align-items-end mb-4">
             <input type="hidden" name="examId" value="@exam.ExamId" />
             <div class="col-lg-4">
-                <label class="form-label fw-semibold">Subject</label>
+                <label class="form-label fw-semibold">Choose subject</label>
                 <select name="subjectId" class="form-select" onchange="this.form.submit()">
                     <option value="">All Subjects</option>
                     @foreach (var subject in subjects)
@@ -93,7 +66,7 @@
                 </select>
             </div>
             <div class="col-lg-6">
-                <label class="form-label fw-semibold">Search Question, Topic or Tag</label>
+                <label class="form-label fw-semibold">Search MCQs</label>
                 <div class="input-group"><span class="input-group-text bg-white"><i class="bi bi-search"></i></span><input name="search" value="@search" class="form-control" placeholder="e.g. photosynthesis, algebra, Pakistan history" /></div>
             </div>
             <div class="col-lg-2 d-grid"><button class="btn btn-outline-primary" type="submit"><i class="bi bi-funnel me-1"></i>Filter</button></div>
@@ -105,7 +78,7 @@
         </div>
 
         <form id="antiForgeryForm" class="d-none">@Html.AntiForgeryToken()</form>
-        <div class="table-responsive">
+        <div class="table-responsive te-builder-results">
             <table class="table align-middle table-hover builder-table mb-0">
                 <thead><tr><th style="width:70px">Add</th><th style="min-width:180px">Subject / Topic</th><th>Question & Options</th><th style="width:95px">Answer</th></tr></thead>
                 <tbody id="questionRows">

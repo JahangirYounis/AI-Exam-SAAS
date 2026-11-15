@@ -1,4 +1,4 @@
-﻿using AiExamProctoring.Models;
+using AiExamProctoring.Models;
 
 namespace AiExamProctoring.ViewModels.Student
 {
@@ -33,6 +33,15 @@ namespace AiExamProctoring.ViewModels.Student
         public int CompletedExamCount { get; set; }
 
         public int OngoingExamCount { get; set; }
+
+        // An active attempt is not the same as an attempt held for teacher review.
+        public int BlockedAttemptCount { get; set; }
+        public int NeedsStatusCheckCount { get; set; }
+        public List<ExamAttempt> NeedsStatusCheckAttempts { get; set; } = new();
+        public int PendingReviewCount { get; set; }
+        public int ReleasedResultCount { get; set; }
+        public List<ExamAttempt> BlockedAttempts { get; set; } = new();
+        public List<string> MissingProfileFields { get; set; } = new();
 
         public int UpcomingExamCount { get; set; }
 

@@ -1,0 +1,99 @@
+@model AiExamProctoring.ViewModels.TeacherReviewRequestDetailsViewModel
+@using AiExamProctoring.Services.Proctoring
+@{
+    var item = Model.Request;
+    ViewData["Title"] = "Review request #" + item.RequestId;
+}
+<div class="trr-page">
+    <nav class="trr-breadcrumb" aria-label="Breadcrumb"><a asp-action="Index"><i class="bi bi-arrow-left"></i> Review requests</a><span> / </span><span>Request #@item.RequestId</span></nav>
+    <header class="trr-hero trr-hero-small">
+        <div><span class="trr-eyebrow"><i class="bi bi-clipboard2-check"></i> EVIDENCE-BASED DECISION</span>
+            <h1>@item.StudentName</h1><p>@item.ExamTitle · Attempt #@item.AttemptId</p></div>
+        <span class="trr-status trr-status-@(item.Status.ToString().ToLowerInvariant())">@item.Status</span>
+    </header>
+    <div class="trr-details-grid">
+        <section class="trr-panel"><h2>Request and examination</h2>
+            <dl class="trr-facts">
+                <div><dt>Candidate</dt><dd>@item.StudentName</dd></div>
+                <div><dt>Candidate number</dt><dd>@(item.CandidateNumber ?? "Not recorded")</dd></div>
+                <div><dt>Examination</dt><dd>@item.ExamTitle</dd></div>
+                <div><dt>Attempt</dt><dd>#@item.AttemptId · @item.AttemptStatus</dd></div>
+                <div><dt>Request received</dt><dd>@item.RequestedAt.ToString("dd MMM yyyy, hh:mm:ss tt")</dd></div>
+                <div><dt>Monitoring records</dt><dd>@item.IncidentCount incident(s), @item.EvidenceCount with evidence</dd></div>
+            </dl>
+            <div class="trr-reason-panel"><strong>Recorded block reason</strong><p>@item.BlockReason</p></div>
+            <a class="trr-open" asp-area="Teacher" asp-controller="Monitoring" asp-action="ExamFolder"
+               asp-route-examId="@item.ExamId" asp-route-studentId="@item.StudentId" asp-route-attemptId="@item.AttemptId">
+                <i class="bi bi-folder2-open"></i> Open candidate evidence folder
+            </a>
+        </section>
+        <section class="trr-panel trr-decision-panel"><h2>Teacher decision</h2>
+            @if (item.Status == ReviewRequestStatus.Pending && item.CanDecide)
+            {
+                <p>Inspect the recorded evidence before taking an action. Reasons are permanently recorded with the teacher's identity and timestamp.</p>
+                <form asp-action="Decide" asp-route-id="@item.RequestId" method="post" class="trr-decision-form">
+                    @Html.AntiForgeryToken()
+                    <label for="decisionReason">Decision reason <span class="text-danger">*</span></label>
+                    <textarea id="decisionReason" name="reason" minlength="10" maxlength="300" rows="5" required
+                              placeholder="Explain the incidents reviewed and the reason for your decision (10–300 characters)."></textarea>
+                    <div class="trr-decision-buttons">
+                        @if (item.BlockReason?.StartsWith("[DEVICE_HOLD]", StringComparison.Ordinal) != true)
+                        {
+                            <button name="decision" value="approve" type="submit" class="btn btn-success"><i class="bi bi-unlock"></i> Resume / unblock</button>
+                        }
+                        <button name="decision" value="reject" type="submit" class="btn btn-outline-danger"><i class="bi bi-shield-lock"></i> Confirm blocked</button>
+                    </div>
+                </form>
+                @if (item.BlockReason?.StartsWith("[DEVICE_HOLD]", StringComparison.Ordinal) == true)
+                {
+                    <p class="trr-footnote">Ask the candidate to reopen the saved attempt and complete the camera and microphone recovery checks. Their saved answers and remaining time are preserved.</p>
+                }
+                else
+                {
+                    <p class="trr-footnote">Resume requires a valid blocked session with remaining time and no finalized result. Confirming the block does not erase saved answers or marks.</p>
+                }
+            }
+            else if (item.Status == ReviewRequestStatus.Pending)
+            {
+                <p class="trr-reason-panel">This blocked attempt cannot be resumed under its current examination state. Its saved answers remain preserved. Review its finalization status before making changes.</p>
+            }
+            else
+            {
+                <div class="trr-decision-closed"><i class="bi bi-check2-circle"></i><strong>@item.Status</strong><p>@(item.DecisionReason ?? "This request is no longer awaiting a decision.")</p>
+                    @if (item.DecidedAt.HasValue) { <small>@item.ReviewerName · @item.DecidedAt.Value.ToString("dd MMM yyyy, hh:mm:ss tt")</small> }</div>
+            }
+        </section>
+    </div>
+    <section class="trr-panel trr-history"><div class="trr-panel-head"><div><h2>Recorded incidents and evidence</h2><p>Most recent 100 of @Model.TotalIncidents event(s). Original records remain in secure storage.</p></div></div>
+        @if (Model.Incidents.Count == 0) { <p class="text-secondary">No incident records are available for this attempt.</p> }
+        else
+        {
+            <ol class="trr-incident-list">
+                @foreach (var log in Model.Incidents)
+                {
+                    <li><div class="trr-incident-head"><strong>@log.AlertTypeDisplay</strong>
+                            <time datetime="@log.CreatedDate.ToString("O")">@log.CreatedDate.ToString("dd MMM yyyy, hh:mm:ss tt")</time></div>
+                        <p>@(log.Description ?? "Recorded observation")</p>
+                        <div class="trr-meta">
+                            @if (log.ScreenshotPath != null || log.RecordingPath != null || log.VideoEvidencePath != null)
+                            { <span><i class="bi bi-camera"></i> Media available</span> }
+                            <a asp-area="Teacher" asp-controller="Alerts" asp-action="Incident" asp-route-id="@log.LogId">View incident #@log.LogId and evidence</a>
+                        </div>
+                    </li>
+                }
+            </ol>
+        }
+    </section>
+    <section class="trr-panel trr-history"><h2>Teacher decision history</h2>
+        @if (Model.Decisions.Count == 0) { <p class="text-secondary">No decision has been recorded yet.</p> }
+        else
+        {
+            <ol class="trr-incident-list">
+                @foreach (var history in Model.Decisions)
+                { <li><div class="trr-incident-head"><strong>@(history.ModelVersion == "approved" ? "Resumption approved" : "Block confirmed")</strong>
+                        <time datetime="@history.CreatedDate.ToString("O")">@history.CreatedDate.ToString("dd MMM yyyy, hh:mm:ss tt")</time></div>
+                        <p>@history.Description</p><small>Reviewed by @history.ActionByName · Audit #@history.LogId</small></li> }
+            </ol>
+        }
+    </section>
+</div>

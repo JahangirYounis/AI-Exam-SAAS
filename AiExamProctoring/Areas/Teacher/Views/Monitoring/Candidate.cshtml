@@ -1,5 +1,23 @@
-@model AiExamProctoring.ViewModels.ProctoringCandidateFolderPageViewModel
-@{ViewData["Title"]="Candidate Evidence";var c=Model.Candidate;var imageUrl=string.IsNullOrWhiteSpace(c.ProfileImage)?Url.Content("~/images/default-user.svg"):Url.Content(c.ProfileImage);}
-<nav class="small mb-3"><a asp-action="Index">Candidate folders</a><span class="mx-2 text-secondary">/</span><span>@c.CandidateName</span></nav>
-<div class="proctor-candidate-hero mb-4"><img src="@imageUrl" alt="@c.CandidateName"/><div class="min-w-0 flex-grow-1"><span class="eyebrow">Candidate folder</span><h2 class="fw-bold mb-1">@c.CandidateName</h2><p class="mb-0 text-secondary">@c.CandidateNumber · @c.Email</p></div><div class="d-flex flex-wrap gap-2"><span class="badge-soft soft-primary">@c.ExamFolderCount exams</span><span class="badge-soft soft-warning">@c.PendingCount pending</span><span class="badge-soft soft-danger">@c.HighSeverityCount high</span></div></div>
-<div class="row g-4">@foreach(var f in Model.ExamFolders){<div class="col-md-6 col-xl-4"><a asp-action="ExamFolder" asp-route-studentId="@c.StudentId" asp-route-examId="@f.ExamId" class="proctor-folder-card h-100"><div class="d-flex gap-3 align-items-start"><div class="exam-folder-icon"><i class="bi bi-folder2-open"></i></div><div class="min-w-0 flex-grow-1"><strong class="d-block text-truncate">@f.ExamTitle</strong><small class="text-secondary">@f.Audience · @f.Purpose</small></div><i class="bi bi-chevron-right text-secondary"></i></div><div class="proctor-folder-metrics"><span><strong>@f.AttemptCount</strong> attempts</span><span><strong>@f.AlertCount</strong> events</span><span><strong>@f.EvidenceCount</strong> files</span></div><div class="d-flex justify-content-between align-items-center mt-3"><span class="badge-soft @(f.PendingCount>0?"soft-warning":"soft-success")">@f.PendingCount pending</span><small class="text-secondary">@(f.LatestEventAt?.ToString("dd MMM, hh:mm tt")??"—")</small></div></a></div>}</div>
+@model AiExamProctoring.ViewModels.TeacherEvidenceCandidateViewModel
+@{
+    ViewData["Title"] = "Candidate evidence · " + Model.StudentName;
+}
+<div class="teacher-evidence">
+    <nav class="te-breadcrumb" aria-label="Breadcrumb"><a asp-action="Index">Examination evidence</a><i class="bi bi-chevron-right"></i><a asp-action="Exam" asp-route-examId="@Model.ExamId">@Model.ExamTitle</a><i class="bi bi-chevron-right"></i><span>@Model.StudentName</span></nav>
+    <header class="te-page-heading"><div><span class="te-eyebrow">Student attempt folders</span><h1>@Model.StudentName</h1><p>@(Model.CandidateNumber ?? "Candidate number unavailable") · @Model.ExamTitle</p></div><span class="te-chip">@Model.Attempts.Count attempt(s)</span></header>
+    <section class="te-panel">
+        <div class="te-panel-heading"><div><h2>Examination attempts</h2><p>Each attempt contains its own incidents, evidence and review state.</p></div></div>
+        @foreach (var a in Model.Attempts)
+        {
+            <a class="te-attempt-row" asp-action="ExamFolder" asp-route-studentId="@Model.StudentId" asp-route-examId="@Model.ExamId" asp-route-attemptId="@a.AttemptId">
+                <span class="te-folder-icon"><i class="bi bi-folder2-open"></i></span>
+                <div class="te-attempt-main"><strong>Attempt #@a.AttemptId</strong><small>Started @a.StartedAt.ToString("dd MMM yyyy, hh:mm tt") · @(a.CompletedAt.HasValue ? "Finished " + a.CompletedAt.Value.ToString("dd MMM, hh:mm tt") : "Not yet completed")</small></div>
+                <div class="te-attempt-metrics"><span class="te-chip @(a.Status == AiExamProctoring.Models.AttemptStatus.ProctoringBlocked ? "te-chip-danger" : "")">@a.Status</span><span>@a.PendingEvents pending</span><span>@a.EvidenceFiles files</span></div><i class="bi bi-chevron-right"></i>
+            </a>
+        }
+        @if (Model.Attempts.Count == 0)
+        {
+            <div class="te-empty"><h3>No attempts</h3><p>No valid Student-role exam attempts are available.</p></div>
+        }
+    </section>
+</div>

@@ -1,41 +1,188 @@
-@model IEnumerable<AiExamProctoring.Models.Exam>
+@model AiExamProctoring.ViewModels.TeacherExamIndexViewModel
 @using AiExamProctoring.Models
 @{
-    ViewData["Title"] = "My tests";
-    var exams = Model?.ToList() ?? new();
-    var past = ViewBag.Past is bool value && value;
-    var now = DateTime.Now;
+    ViewData["Title"] = "My examinations";
+    var tabs = new[]
+    {
+        (Key: "all", Title: "All tests", Count: Model.AllCount, Icon: "bi-grid"),
+        (Key: "current", Title: "Current", Count: Model.CurrentCount, Icon: "bi-play-circle"),
+        (Key: "scheduled", Title: "Scheduled", Count: Model.ScheduledCount, Icon: "bi-calendar-event"),
+        (Key: "drafts", Title: "Drafts", Count: Model.DraftCount, Icon: "bi-pencil-square"),
+        (Key: "past", Title: "Past", Count: Model.PastCount, Icon: "bi-archive")
+    };
 }
-<div class="d-flex justify-content-between align-items-start flex-wrap gap-3 mb-4">
-    <div><h1 class="h3 fw-bold">My tests</h1><p class="text-secondary mb-0">Create a draft, choose questions, then review and publish.</p></div>
-    <a asp-action="Create" class="btn btn-primary">Create a test</a>
-</div>
-<div class="d-flex flex-wrap gap-2 mb-3">
-    <a asp-action="Index" asp-route-past="false" class="btn @(past ? "btn-outline-primary" : "btn-primary")">Current tests</a>
-    <a asp-action="Index" asp-route-past="true" class="btn @(past ? "btn-primary" : "btn-outline-primary")">Past tests</a>
-    <a asp-controller="Monitoring" asp-action="Live" class="btn btn-outline-secondary">Live monitoring</a>
-    <a asp-controller="Results" asp-action="Index" class="btn btn-outline-secondary">Results</a>
-</div>
-<div class="card border-0 shadow-sm rounded-4 table-responsive">
-    <table class="table align-middle mb-0">
-        <thead class="table-light"><tr><th>Test</th><th>Schedule</th><th>Paper</th><th>Status</th><th><span class="visually-hidden">Actions</span></th></tr></thead>
-        <tbody>
-            @if (exams.Count == 0)
+<div class="teacher-exams">
+    <header class="te-hero">
+        <div class="te-hero-copy">
+            <div class="te-eyebrow"><i class="bi bi-journal-check" aria-hidden="true"></i> Examination management</div>
+            <h1>My examinations</h1>
+            <p>Find a test, manage its paper, and follow its progress from draft to results.</p>
+        </div>
+        <a class="te-create" asp-area="Teacher" asp-controller="Exam" asp-action="Create">
+            <i class="bi bi-plus-lg" aria-hidden="true"></i> Create a test
+        </a>
+    </header>
+
+    <nav class="te-tabs" aria-label="Examination categories">
+        @foreach (var tab in tabs)
+        {
+            var active = tab.Key == Model.ActiveTab;
+            <a class="te-tab @(active ? "is-active" : "")"
+               asp-area="Teacher" asp-controller="Exam" asp-action="Index"
+               asp-route-tab="@tab.Key" asp-route-search="@Model.Search" asp-route-sort="@Model.Sort"
+               aria-current="@(active ? "page" : null)">
+                <i class="bi @tab.Icon" aria-hidden="true"></i>
+                <span>@tab.Title</span>
+                <span class="te-tab-count">@tab.Count.ToString("N0")</span>
+            </a>
+        }
+    </nav>
+
+    <section class="te-tools" aria-label="Find and navigate examinations">
+        <form asp-area="Teacher" asp-controller="Exam" asp-action="Index" method="get" class="te-filter-form" role="search">
+            <input type="hidden" name="tab" value="@Model.ActiveTab" />
+            <label class="te-search-wrap" for="teExamSearch">
+                <i class="bi bi-search" aria-hidden="true"></i>
+                <input id="teExamSearch" type="search" name="search" value="@Model.Search" maxlength="100"
+                       placeholder="Search by test name, date or status" aria-label="Search examinations" />
+            </label>
+            <label for="teExamSort" class="visually-hidden">Sort examinations</label>
+            <select id="teExamSort" class="te-select" name="sort">
+                <option value="recommended" selected="@(Model.Sort == "recommended")">Recommended</option>
+                <option value="recent" selected="@(Model.Sort == "recent")">Recently created</option>
+                <option value="oldest" selected="@(Model.Sort == "oldest")">Oldest first</option>
+                <option value="start" selected="@(Model.Sort == "start")">Start date</option>
+                <option value="name" selected="@(Model.Sort == "name")">Name (A–Z)</option>
+            </select>
+            <button type="submit" class="te-apply"><i class="bi bi-funnel" aria-hidden="true"></i> Apply</button>
+            @if (!string.IsNullOrWhiteSpace(Model.Search) || Model.Sort != "recommended")
             {
-                <tr><td colspan="5" class="text-center text-secondary py-5">@(past ? "No past tests." : "No tests yet. Create your first test to get started.")</td></tr>
+                <a class="te-clear" asp-area="Teacher" asp-controller="Exam" asp-action="Index" asp-route-tab="@Model.ActiveTab">Clear</a>
             }
-            @foreach (var exam in exams)
-            {
-                var state = exam.Status == ExamStatus.Cancelled ? "Cancelled" : !exam.IsReusable && exam.Status == ExamStatus.Completed ? "Completed" :
-                !exam.IsPublished ? "Draft" : exam.IsReusable ? "Open" : now < exam.StartDate ? "Scheduled" : now <= exam.LatestStartDate ? "Entry open" : "Entry closed";
-                <tr>
-                    <td><strong>@exam.ExamTitle</strong><div class="small text-secondary">@exam.AudienceDisplay</div></td>
-                    <td>@(exam.IsReusable ? "Always open" : exam.StartDate.ToString("dd MMM yyyy, hh:mm tt"))</td>
-                    <td>@exam.TotalQuestions questions<div class="small text-secondary">@exam.TotalMarks.ToString("0.##") marks · @exam.DurationMinutes min</div></td>
-                    <td><span class="badge @(exam.IsPublished ? "text-bg-success" : "text-bg-secondary")">@state</span></td>
-                    <td class="text-end"><a asp-action="Details" asp-route-id="@exam.ExamId" class="btn btn-sm btn-outline-primary">@(exam.IsPublished ? "Open" : "Continue draft")</a></td>
-                </tr>
-            }
-        </tbody>
-    </table>
+        </form>
+        <div class="te-quicklinks" aria-label="Examination tools">
+            <a asp-area="Teacher" asp-controller="Monitoring" asp-action="Live"><i class="bi bi-camera-video" aria-hidden="true"></i> Live monitoring</a>
+            <a asp-area="Teacher" asp-controller="Results" asp-action="Index"><i class="bi bi-graph-up-arrow" aria-hidden="true"></i> Results</a>
+        </div>
+    </section>
+
+    <section class="te-list-section" aria-labelledby="te-list-title">
+        <div class="te-list-heading">
+            <div>
+                <h2 id="te-list-title">@(tabs.First(t => t.Key == Model.ActiveTab).Title)</h2>
+                <p>
+                    @if (Model.MatchedCount == 0)
+                    {
+                        <text>No matching examinations</text>
+                    }
+                    else
+                    {
+                        <text>Showing @((Model.Page - 1) * Model.PageSize + 1)–@(Math.Min(Model.Page * Model.PageSize, Model.MatchedCount)) of @Model.MatchedCount test@(Model.MatchedCount == 1 ? "" : "s")</text>
+                    }
+                </p>
+            </div>
+            <span class="te-heading-detail"><i class="bi bi-shield-check" aria-hidden="true"></i> Your examinations only</span>
+        </div>
+
+        @if (Model.Exams.Count == 0)
+        {
+            <div class="te-empty">
+                <span class="te-empty-icon"><i class="bi @(string.IsNullOrWhiteSpace(Model.Search) ? "bi-journal-plus" : "bi-search")" aria-hidden="true"></i></span>
+                <h3>@(string.IsNullOrWhiteSpace(Model.Search) ? "No tests in this section" : "No matches found")</h3>
+                <p>@(string.IsNullOrWhiteSpace(Model.Search) ? "Tests will appear here when they reach this stage. You can create a new test or explore another category." : "Try a different test name, date or status, or clear your search filters.")</p>
+                <div class="te-empty-actions">
+                    <a asp-area="Teacher" asp-controller="Exam" asp-action="Index" class="btn btn-outline-primary">View all tests</a>
+                    @if (Model.AllCount == 0)
+                    {
+                        <a asp-area="Teacher" asp-controller="Exam" asp-action="Create" class="btn btn-primary">Create first test</a>
+                    }
+                </div>
+            </div>
+        }
+        else
+        {
+            <div class="te-exam-list">
+                @foreach (var item in Model.Exams)
+                {
+                    var exam = item.Exam;
+                    <article class="te-exam-card" aria-labelledby="te-exam-@exam.ExamId">
+                        <div class="te-exam-main">
+                            <div class="te-exam-tags">
+                                <span class="te-status te-status-@item.BadgeClass"><span class="te-status-dot" aria-hidden="true"></span>@item.StatusLabel</span>
+                                <span class="te-exam-id">Test #@exam.ExamId</span>
+                            </div>
+                            <h3 id="te-exam-@exam.ExamId"><a asp-area="Teacher" asp-controller="Exam" asp-action="Details" asp-route-id="@exam.ExamId">@exam.ExamTitle</a></h3>
+                            <p class="te-category">@exam.PurposeDisplay <span aria-hidden="true">·</span> @exam.AudienceDisplay</p>
+                            <div class="te-exam-facts">
+                                <span><i class="bi bi-calendar3" aria-hidden="true"></i> @(exam.IsReusable ? "Always open" : exam.StartDate.ToString("dd MMM yyyy, hh:mm tt"))</span>
+                                <span><i class="bi bi-ui-checks-grid" aria-hidden="true"></i> @exam.TotalQuestions questions</span>
+                                <span><i class="bi bi-clock" aria-hidden="true"></i> @exam.DurationMinutes min</span>
+                                <span><i class="bi bi-award" aria-hidden="true"></i> @exam.TotalMarks.ToString("0.##") marks</span>
+                            </div>
+                            @if (exam.IsPublished && !exam.IsReusable && (item.Group is "current" or "scheduled"))
+                            {
+                                <p class="te-exam-window">Entry until @exam.LatestStartDate.ToString("dd MMM, hh:mm tt") <span aria-hidden="true">·</span> Scheduled end @exam.EndDate.ToString("dd MMM, hh:mm tt")</p>
+                            }
+                        </div>
+                        <div class="te-exam-actions">
+                            <a class="te-manage" asp-area="Teacher" asp-controller="Exam" asp-action="Details" asp-route-id="@exam.ExamId">
+                                @(item.CanEdit ? "Continue draft" : "Manage test") <i class="bi bi-arrow-up-right" aria-hidden="true"></i>
+                            </a>
+                            <div class="dropdown">
+                                <button type="button" class="te-actions-menu dropdown-toggle" data-bs-toggle="dropdown" aria-expanded="false" aria-label="More actions for @exam.ExamTitle">
+                                    Actions
+                                </button>
+                                <ul class="dropdown-menu dropdown-menu-end shadow-sm">
+                                    @if (item.CanEdit)
+                                    {
+                                        <li><a class="dropdown-item" asp-area="Teacher" asp-controller="Exam" asp-action="Edit" asp-route-id="@exam.ExamId"><i class="bi bi-pencil-square me-2" aria-hidden="true"></i>Edit test details</a></li>
+                                        <li><a class="dropdown-item" asp-area="Teacher" asp-controller="ExamQuestion" asp-action="Index" asp-route-examId="@exam.ExamId"><i class="bi bi-list-check me-2" aria-hidden="true"></i>Build question paper</a></li>
+                                    }
+                                    else
+                                    {
+                                        <li><a class="dropdown-item" asp-area="Teacher" asp-controller="ExamQuestion" asp-action="Selected" asp-route-examId="@exam.ExamId"><i class="bi bi-file-earmark-text me-2" aria-hidden="true"></i>View question paper</a></li>
+                                    }
+                                    @if (item.CanManageCandidates)
+                                    {
+                                        <li><a class="dropdown-item" asp-area="Teacher" asp-controller="Exam" asp-action="Candidates" asp-route-id="@exam.ExamId"><i class="bi bi-people me-2" aria-hidden="true"></i>Assign exam candidates</a></li>
+                                    }
+                                    @if (item.CanMonitor)
+                                    {
+                                        <li><a class="dropdown-item" asp-area="Teacher" asp-controller="Monitoring" asp-action="Live" asp-route-examId="@exam.ExamId"><i class="bi bi-camera-video me-2" aria-hidden="true"></i>Live monitoring</a></li>
+                                    }
+                                    @if (item.CanViewResults)
+                                    {
+                                        <li><a class="dropdown-item" asp-area="Teacher" asp-controller="Results" asp-action="Index" asp-route-examId="@exam.ExamId"><i class="bi bi-bar-chart-line me-2" aria-hidden="true"></i>View results</a></li>
+                                    }
+                                </ul>
+                            </div>
+                        </div>
+                    </article>
+                }
+            </div>
+        }
+
+        @if (Model.PageCount > 1)
+        {
+            <nav class="te-pagination" aria-label="Examinations pagination">
+                @if (Model.Page > 1)
+                {
+                    <a asp-area="Teacher" asp-controller="Exam" asp-action="Index" asp-route-tab="@Model.ActiveTab" asp-route-search="@Model.Search" asp-route-sort="@Model.Sort" asp-route-page="@(Model.Page - 1)" aria-label="Previous page"><i class="bi bi-chevron-left" aria-hidden="true"></i> Previous</a>
+                }
+                else
+                {
+                    <span class="te-page-disabled">Previous</span>
+                }
+                <span class="te-page-current">Page @Model.Page of @Model.PageCount</span>
+                @if (Model.Page < Model.PageCount)
+                {
+                    <a asp-area="Teacher" asp-controller="Exam" asp-action="Index" asp-route-tab="@Model.ActiveTab" asp-route-search="@Model.Search" asp-route-sort="@Model.Sort" asp-route-page="@(Model.Page + 1)" aria-label="Next page">Next <i class="bi bi-chevron-right" aria-hidden="true"></i></a>
+                }
+                else
+                {
+                    <span class="te-page-disabled">Next</span>
+                }
+            </nav>
+        }
+    </section>
 </div>

@@ -5,6 +5,7 @@ public sealed class FaceIdentityOptions
     public const string SectionName = "FaceIdentity";
     public bool Enabled { get; set; } = true;
     public string BaseUrl { get; set; } = "http://127.0.0.1:8001/";
+    public string MonitoringBaseUrl { get; set; } = "http://127.0.0.1:8008/";
     public string ApiKey { get; set; } = string.Empty;
     public int EnrollmentMinimumImages { get; set; } = 5;
     public int EnrollmentMaximumImages { get; set; } = 10;

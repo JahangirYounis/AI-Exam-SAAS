@@ -1,5 +1,41 @@
 @model AiExamProctoring.Models.AcademicClass
-@{ViewData["Title"]="Class roster";var students=ViewBag.Students as List<AiExamProctoring.Models.ApplicationUser> ?? new();}
-<h1>@Model.Name</h1><p>Select the approved students. Enrollment cannot be changed by sharing an exam code.</p>
-<form asp-action="Rename" asp-route-id="@Model.Id" method="post" class="d-flex gap-2 mb-3"><input name="name" value="@Model.Name" maxlength="120" required class="form-control"/><button class="btn btn-outline-primary">Rename class</button></form>
-<form asp-action="Roster" asp-route-id="@Model.Id" method="post"><div class="card p-3 mb-3">@foreach(var s in students){<label class="d-block mb-2"><input type="checkbox" name="studentIds" value="@s.Id" checked="@Model.Members.Any(m=>m.StudentId==s.Id&&m.IsActive)"/> @s.FullName — @s.Email</label>}</div><button class="btn btn-primary">Save approved roster</button></form>
+@{
+    ViewData["Title"] = "Class roster";
+    var students = ViewBag.RosterStudents as List<AiExamProctoring.Models.ApplicationUser> ?? new();
+}
+<div class="tw14-workspace tw14-classes">
+    <nav class="tw14-back" aria-label="Breadcrumb"><a asp-action="Index"><i class="bi bi-arrow-left" aria-hidden="true"></i> My classes</a></nav>
+    <header class="tw14-hero"><div>
+        <span class="tw14-eyebrow"><i class="bi bi-people" aria-hidden="true"></i> Read-only class roster</span>
+        <h1>@Model.Name</h1>
+        <p>@students.Count enrolled students · @(Model.IsActive ? "Active" : "Archived") · Managed by the Administrator</p>
+    </div>
+        @if (Model.IsActive)
+        {
+            <a asp-controller="Exam" asp-action="Create" asp-route-purpose="AcademicClass" asp-route-audience="Private" class="tw14-hero-button"><i class="bi bi-plus-circle" aria-hidden="true"></i> Create test</a>
+        }
+    </header>
+    <section class="tw14-panel">
+        <div class="tw14-panel-header"><div><h2 class="tw14-section-title">Enrolled students</h2><p class="tw14-muted">You can view this roster but cannot change student memberships.</p></div><span class="tw14-status is-muted">View only</span></div>
+        @if (students.Count == 0)
+        {
+            <div class="tw14-empty tw14-empty-inline"><i class="bi bi-person-x" aria-hidden="true"></i><h3>No enrolled students</h3><p>Ask the Administrator to update this class roster.</p></div>
+        }
+        else
+        {
+            <div class="table-responsive">
+                <table class="table table-hover align-middle tw14-table"><thead>
+                    <tr><th scope="col">#</th><th scope="col">Student</th><th scope="col">Candidate number</th><th scope="col">Email</th></tr>
+                    </thead><tbody>
+                    @{ int position = 0; }
+                    @foreach (var student in students)
+                    {
+                        position++;
+                        <tr><td class="text-secondary">@position</td><td><strong>@student.FullName</strong></td><td>@(student.CandidateNumber ?? "—")</td><td class="text-break">@(student.Email ?? "—")</td></tr>
+                    }
+                    </tbody>
+                </table>
+            </div>
+        }
+    </section>
+</div>

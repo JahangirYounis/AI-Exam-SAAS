@@ -82,7 +82,7 @@ public sealed class EntranceService(ApplicationDbContext db, IDataProtectionProv
         await WriteAsync(examId, async () => {
             var exam = await db.Exams.SingleAsync(x => x.ExamId == examId, ct);
             if (exam.ResultsPublishedAtUtc is not null) throw new InvalidOperationException("Published entry test is read only.");
-            var teachers = await db.ExamInvigilators.Where(x => x.ExamId == examId && x.IsActive && x.CanMonitor && x.AcceptedAtUtc != null).OrderBy(x => x.TeacherId).ToListAsync(ct);
+            var teachers = await db.ExamInvigilators.Where(x => x.ExamId == examId && x.IsActive && x.CanMonitor && x.AcceptedAtUtc != null && x.RevokedAtUtc == null).OrderBy(x => x.TeacherId).ToListAsync(ct);
             var apps = await db.AdmissionApplications.Where(x => x.ExamId == examId && x.Status == AdmissionStatus.Approved).OrderBy(x => x.Id).ToListAsync(ct);
             var activeIds = teachers.Select(x => x.TeacherId).ToHashSet();
             var counts = teachers.ToDictionary(x => x.TeacherId, x => apps.Count(a => a.InvigilatorId == x.TeacherId));
@@ -117,18 +117,17 @@ public sealed class EntranceService(ApplicationDbContext db, IDataProtectionProv
                 decision = new() { AttemptId = attemptId, QuestionId = questionId };
                 db.AdmissionQuestionDecisions.Add(decision);
             }
-            var deduction = confirmed && answer.IsCorrect == true ? Math.Max(0, answer.MarksAwarded) : 0;
+            // Integrity decisions are audited independently; new decisions never deduct academic marks.
+            var deduction = 0m;
             Audit(db, examId, app.Id, teacher, "QuestionDecision", $"Attempt {attemptId}; question {questionId}; evidence {evidenceId}; confirmed {confirmed}; prior deduction {decision.DeductedMarks}; new deduction {deduction}. {reason}");
             decision.EvidenceLogId = evidenceId; decision.CheatingConfirmed = confirmed; decision.DeductedMarks = deduction;
             decision.Reason = reason; decision.ReviewerId = teacher; decision.ReviewedAtUtc = DateTime.UtcNow;
             log.IsReviewed = true; app.ReviewCompletedAtUtc = null; app.ReviewedBy = null;
             await db.SaveChangesAsync(ct);
-            var totalDeduction = await db.AdmissionQuestionDecisions.Where(x => x.AttemptId == attemptId).SumAsync(x => x.DeductedMarks, ct);
-            var raw = attempt.Result.TotalMarksObtained + attempt.Result.ReviewDeduction;
-            attempt.Result.ReviewDeduction = totalDeduction;
-            attempt.TotalMarksObtained = attempt.Result.TotalMarksObtained = raw - totalDeduction;
-            attempt.Percentage = attempt.Result.Percentage = attempt.TotalMarks <= 0 ? 0 : Math.Round(attempt.TotalMarksObtained / attempt.TotalMarks * 100, 2);
-            attempt.IsPassed = attempt.Result.IsPassed = !attempt.IsDisqualified && attempt.Percentage >= app.Exam.PassingPercentage;
+            // Preserve existing historical grades/deductions; publication and academic
+            // grading are owned by ExamResultFinalizationService. Evidence review does
+            // not rewrite an ExamResult (including already released results).
+
         }, ct);
     }
 

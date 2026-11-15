@@ -12,6 +12,17 @@ public sealed class TeacherDashboardViewModel
     public int PublicExams { get; init; }
     public int AssignedStudents { get; init; }
     public int Attempts { get; init; }
+
+    // Distinct student accounts with at least one started attempt in my exams.
+    public int StudentsTested { get; init; }
+
+    // Distinct student accounts with unresolved, actionable monitoring review.
+    public int StudentsNeedingReview { get; init; }
+
+    // Number of individual ExamResult records that students can already access.
+    public int AvailableResults { get; init; }
+
+    // Previous names retained to avoid breaking callers during later tasks.
     public int Results { get; init; }
     public int PendingAlerts { get; init; }
     public int TotalQuestions { get; init; }

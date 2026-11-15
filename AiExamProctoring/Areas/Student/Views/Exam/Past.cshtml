@@ -1,25 +1,95 @@
-@model IEnumerable<AiExamProctoring.Models.Exam>
+@using System
+@using System.Linq
+@using System.Collections.Generic
 @using AiExamProctoring.Models
+@model IEnumerable<AiExamProctoring.Models.Exam>
 @{
     Layout = "~/Areas/Student/Views/Shared/_StudentLayout.cshtml";
     ViewData["Title"] = "Past examinations";
-    var attempts = ViewBag.Attempts as List<ExamAttempt> ?? new();
+    var exams = Model?.ToList() ?? new List<Exam>();
+    var attempts = ViewBag.Attempts as List<ExamAttempt> ?? new List<ExamAttempt>();
 }
-<h1>Past examinations</h1>
-<p>Entry has closed for these exams. Your saved attempts and results remain in your record.</p>
-<a asp-action="Available" class="btn btn-outline-primary mb-4">Available examinations</a>
-<a asp-area="Student" asp-controller="Result" asp-action="Index" class="btn btn-primary mb-4">My results</a>
-<div class="row g-3">
-@foreach (var exam in Model)
-{
-    var attempt = attempts.FirstOrDefault(x => x.ExamId == exam.ExamId);
-    var ongoing = attempt != null && (attempt.Status == AttemptStatus.InProgress || attempt.Status == AttemptStatus.ProctoringBlocked);
-    <div class="col-md-6"><article class="student-card p-4 h-100">
-        <h2 class="h4">@exam.ExamTitle</h2>
-        <p>Entry closed: @exam.LatestStartDate.ToString("dd MMM yyyy, hh:mm tt")</p>
-        <span class="badge text-bg-secondary">@(ongoing ? "Attempt in progress" : attempt != null ? attempt.Status.ToString() : exam.Status == ExamStatus.Completed ? "Completed" : "Entry closed")</span>
-        @if (ongoing) { <p class="mt-3">Your own exam timer still applies.</p><a asp-action="Resume" asp-route-attemptId="@attempt!.AttemptId" class="btn btn-primary">Resume examination</a> }
-    </article></div>
+@section Styles {
+    <link rel="stylesheet" href="~/css/student-exam-hub.css" asp-append-version="true" />
 }
-@if (!Model.Any()) { <p>No past examinations yet.</p> }
-</div>
+<section class="student-exam-hub" aria-labelledby="past-title">
+    <header class="exam-hub-header mb-3">
+        <div>
+            <div class="small text-primary fw-bold text-uppercase">Student assessment center</div>
+            <h1 id="past-title" class="fw-bold mb-1">Past examinations</h1>
+            <p class="soft-muted mb-0">Previously closed and completed tests. Your saved attempts remain available for review.</p>
+        </div>
+    </header>
+
+    <nav class="exam-hub-navigation mb-4" aria-label="Examination categories">
+        <a asp-area="Student" asp-controller="Exam" asp-action="Available" asp-route-view="current" class="exam-hub-link">
+            <i class="bi bi-play-circle" aria-hidden="true"></i><span>Current Tests</span><i class="bi bi-chevron-right exam-hub-tail" aria-hidden="true"></i>
+        </a>
+        <a asp-area="Student" asp-controller="Exam" asp-action="Available" asp-route-view="resume" class="exam-hub-link">
+            <i class="bi bi-arrow-clockwise" aria-hidden="true"></i><span>Resume Tests</span><i class="bi bi-chevron-right exam-hub-tail" aria-hidden="true"></i>
+        </a>
+        <a asp-area="Student" asp-controller="Exam" asp-action="Available" asp-route-view="upcoming" class="exam-hub-link">
+            <i class="bi bi-calendar-event" aria-hidden="true"></i><span>Upcoming Tests</span><i class="bi bi-chevron-right exam-hub-tail" aria-hidden="true"></i>
+        </a>
+        <a asp-area="Student" asp-controller="Exam" asp-action="Available" asp-route-view="blocked" class="exam-hub-link">
+            <i class="bi bi-shield-lock" aria-hidden="true"></i><span>Blocked / Held</span><i class="bi bi-chevron-right exam-hub-tail" aria-hidden="true"></i>
+        </a>
+        <a asp-area="Student" asp-controller="Exam" asp-action="Past" class="exam-hub-link is-active" aria-current="page">
+            <i class="bi bi-clock-history" aria-hidden="true"></i><span>Past Tests</span>
+        </a>
+        <a asp-area="Student" asp-controller="Exam" asp-action="Available" asp-route-view="all" class="exam-hub-link">
+            <i class="bi bi-grid" aria-hidden="true"></i><span>All Tests</span><i class="bi bi-chevron-right exam-hub-tail" aria-hidden="true"></i>
+        </a>
+    </nav>
+    <a asp-area="Student" asp-controller="Exam" asp-action="Available" asp-route-view="all" class="btn btn-outline-primary mb-4">
+        <i class="bi bi-arrow-left me-1" aria-hidden="true"></i>All examinations
+    </a>
+
+    <div class="row g-3">
+        @foreach (var exam in exams)
+        {
+            var attempt = attempts.Where(a => a.ExamId == exam.ExamId)
+            .OrderByDescending(a => a.StartedAt).ThenByDescending(a => a.AttemptId).FirstOrDefault();
+            var blocked = attempt?.Status == AttemptStatus.ProctoringBlocked;
+            var ongoing = attempt?.Status == AttemptStatus.InProgress;
+            var finished = attempt?.Status == AttemptStatus.Completed || attempt?.Status == AttemptStatus.AutoSubmitted;
+            <div class="col-md-6 col-xl-4">
+                <article class="student-card p-3 p-md-4 h-100 d-flex flex-column">
+                    <h2 class="h5 fw-bold mb-2">@exam.ExamTitle</h2>
+                    <p class="small soft-muted mb-2">Entry closed: @exam.LatestStartDate.ToString("dd MMM yyyy, hh:mm tt")</p>
+                    <span class="badge align-self-start @(blocked ? "text-bg-warning" : finished ? "text-bg-success" : "text-bg-secondary")">
+                        @(blocked ? "Under teacher review" : ongoing ? "In progress" : finished ? "Submitted" : attempt != null ? attempt.Status.ToString() : "Entry closed")
+                    </span>
+                    <div class="mt-auto pt-3">
+                        @if (blocked)
+                        {
+                            <a asp-action="Blocked" asp-route-attemptId="@attempt!.AttemptId" class="btn btn-outline-warning w-100">View teacher review</a>
+                        }
+                        else if (ongoing)
+                        {
+                            <a asp-action="Resume" asp-route-attemptId="@attempt!.AttemptId" class="btn btn-primary w-100">Resume saved exam</a>
+                        }
+                        else if (attempt != null)
+                        {
+                            <a asp-area="Student" asp-controller="Result" asp-action="Index" class="btn btn-outline-primary w-100">View my results</a>
+                        }
+                        else
+                        {
+                            <span class="text-secondary small">No attempt recorded</span>
+                        }
+                    </div>
+                </article>
+            </div>
+        }
+        @if (exams.Count == 0)
+        {
+            <div class="col-12">
+                <div class="student-card exam-hub-empty" role="status">
+                    <i class="bi bi-calendar-check" aria-hidden="true"></i>
+                    <h2 class="h5">No past examinations yet</h2>
+                    <p class="soft-muted mb-0">Previous tests will appear here after their entry window has closed.</p>
+                </div>
+            </div>
+        }
+    </div>
+</section>

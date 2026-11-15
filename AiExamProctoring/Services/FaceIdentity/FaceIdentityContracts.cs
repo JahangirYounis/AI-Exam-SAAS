@@ -21,6 +21,7 @@ public sealed class FaceIdentityResponse
     [JsonPropertyName("photo_count")] public int PhotoCount { get; set; }
     [JsonPropertyName("image_count")] public int ImageCount { get; set; }
     [JsonPropertyName("frame_count")] public int FrameCount { get; set; }
+    [JsonPropertyName("reference_count")] public int ReferenceCount { get; set; }
     [JsonPropertyName("passing_frames")] public int PassingFrames { get; set; }
     [JsonPropertyName("vote_ratio")] public decimal VoteRatio { get; set; }
     [JsonPropertyName("median_similarity")] public decimal MedianSimilarity { get; set; }
@@ -44,11 +45,4 @@ public sealed class FaceIdentityFrameRequest
     public int AttemptId { get; set; }
     public int SessionAttemptId { get; set; }
     public List<IFormFile> Frames { get; set; } = new();
-}
-
-public sealed class FaceEnrollmentRequest
-{
-    public List<IFormFile> Images { get; set; } = new();
-    public string? CapturedImagesJson { get; set; }
-    public string? ReturnUrl { get; set; }
 }

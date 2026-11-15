@@ -1,9 +1,11 @@
-﻿<Project Sdk="Microsoft.NET.Sdk.Web">
+<Project Sdk="Microsoft.NET.Sdk.Web">
 
   <PropertyGroup>
     <TargetFramework>net8.0</TargetFramework>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
+    <!-- Exclude generated evidence: long candidate and hash names can exceed Windows MAX_PATH during MSBuild glob evaluation. -->
+    <DefaultItemExcludes>$(DefaultItemExcludes);App_Data\ProctoringEvidence\**</DefaultItemExcludes>
     <Product>AI Based Online Examination System</Product>
     <Title>AI Based Online Examination System</Title>
     <Description>A simple online examination system with AI-assisted proctoring.</Description>
@@ -11,6 +13,9 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <!-- Ship the curated question bank in local builds and published deployments. -->
+    <Content Update="Data\Seeds\ComputerScienceBank.v1.json"
+             CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
     <Content Update="App_Data\**;logs\**;appsettings.Development.json" CopyToPublishDirectory="Never" />
     <None Update="App_Data\**;logs\**" CopyToPublishDirectory="Never" />
   </ItemGroup>

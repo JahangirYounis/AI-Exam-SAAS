@@ -1,10 +1,18 @@
 @inject AiExamProctoring.Data.ApplicationDbContext TeacherDb
 @using Microsoft.EntityFrameworkCore
+@using AiExamProctoring.Services.Collaboration
 @inject Microsoft.AspNetCore.Identity.UserManager<AiExamProctoring.Models.ApplicationUser> UserManager
 @{
     var controller = ViewContext.RouteData.Values["Controller"]?.ToString();
     var teacher = await UserManager.GetUserAsync(User);
-    var pendingInvites = teacher is null ? 0 : await TeacherDb.ExamInvigilators.CountAsync(i => i.TeacherId == teacher.Id && !i.IsActive && i.AcceptedAtUtc == null && i.RevokedAtUtc == null);
+    // Use the same lifecycle rule as /Teacher/Invitations/Pending.
+    var pendingInvitationRows = teacher is null
+        ? new List<AiExamProctoring.Models.ExamInvigilator>()
+        : await TeacherDb.ExamInvigilators.AsNoTracking()
+            .Include(i => i.Exam).ThenInclude(e => e!.Sessions)
+            .Where(i => i.TeacherId == teacher.Id && !i.IsActive && i.AcceptedAtUtc == null && i.RevokedAtUtc == null)
+            .ToListAsync();
+    var pendingInvites = pendingInvitationRows.Count(i => !CollaborationLifecycle.IsExamPast(i.Exam, DateTime.Now));
     var displayName = teacher?.FullName ?? User.Identity?.Name ?? "Teacher";
     var profileImage = string.IsNullOrWhiteSpace(teacher?.ProfileImage)
       ? Url.Content("~/images/default-user.svg")
@@ -24,7 +32,7 @@
     <link rel="stylesheet" href="~/css/experience.css" asp-append-version="true" />
     <link rel="stylesheet" href="~/css/exam-polish.css" asp-append-version="true" />
     <link rel="stylesheet" href="~/css/teacher-workspace.css" asp-append-version="true" />
-<link rel="stylesheet" href="~/css/device-layout.css" asp-append-version="true" />
+    <link rel="stylesheet" href="~/css/device-layout.css" asp-append-version="true" />
 </head>
 <body class="admin-body teacher-body">
     <a class="skip-link" href="#main-content">Skip to main content</a>
@@ -39,6 +47,56 @@
                     <a class="btn btn-light btn-sm d-none d-md-inline-flex align-items-center gap-2" asp-area="Teacher" asp-controller="Exam" asp-action="Create"><i class="bi bi-plus-circle"></i>Create Exam</a>
                     <a class="btn btn-light btn-sm d-none d-sm-inline-flex" asp-area="Teacher" asp-controller="Classes" asp-action="Index">Classes</a>
                     <a class="btn btn-light btn-sm" asp-area="Teacher" asp-controller="Invitations" asp-action="Index" id="invitationBadge" aria-live="polite">Invites (@pendingInvites)</a>
+                    @* Task 03: one unified, per-teacher notification inbox. Incident history remains in the database. *@
+                    <details id="teacher-notifications" class="tn-root" data-account="@teacher?.Id">
+                        <summary class="btn btn-light btn-sm tn-trigger" aria-label="Open teacher notifications">
+                            <i class="bi bi-bell" aria-hidden="true"></i>
+                            <span class="tn-trigger-label">Notifications</span>
+                            <span class="tn-unread-badge" data-unified-count aria-live="polite">0</span>
+                        </summary>
+                        <section class="tn-panel" aria-label="Teacher notification inbox">
+                            @Html.AntiForgeryToken()
+                            <header class="tn-head">
+                                <div>
+                                    <h2>Notifications</h2>
+                                    <p>Important updates from your examinations</p>
+                                </div>
+                                <button class="tn-close" type="button" data-tn-close aria-label="Close notifications"><i class="bi bi-x-lg"></i></button>
+                            </header>
+                            <div class="tn-toolbar">
+                                <div class="tn-tabs" role="group" aria-label="Filter notifications by read status">
+                                    <button type="button" class="tn-tab is-active" data-tn-tab="All" aria-pressed="true">All</button>
+                                    <button type="button" class="tn-tab" data-tn-tab="Unread" aria-pressed="false">Unread</button>
+                                </div>
+                                <button type="button" class="tn-mark-all" data-tn-read-all>Mark all as read</button>
+                            </div>
+                            <div class="tn-category-row">
+                                <label for="tn-category">Category</label>
+                                <select id="tn-category" class="tn-category-select" data-tn-category>
+                                    <option value="All">All updates</option>
+                                    <option value="Review Requests">Review requests</option>
+                                    <option value="Monitoring">Monitoring</option>
+                                    <option value="Examinations">Examinations</option>
+                                    <option value="Messages">Messages</option>
+                                    <option value="Invitations">Invitations</option>
+                                    <option value="Connections">Connections</option>
+                                </select>
+                            </div>
+                            <p class="tn-status" role="status" aria-live="polite" data-unified-status>Loading notifications…</p>
+                            <ul class="tn-list" data-unified-list aria-label="Notifications"></ul>
+                            <details class="tn-preferences">
+                                <summary>Alert preferences</summary>
+                                <div class="tn-preference-actions">
+                                    <button type="button" data-tn-browser>Enable desktop alerts</button>
+                                    <button type="button" data-tn-sound>Sound off</button>
+                                </div>
+                            </details>
+                            <div class="tn-foot">
+                                <button type="button" class="tn-more" data-tn-more hidden>Load older notifications</button>
+                                <a asp-area="Teacher" asp-controller="Monitoring" asp-action="Index" class="tn-history-link">Candidate evidence <i class="bi bi-arrow-up-right"></i></a>
+                            </div>
+                        </section>
+                    </details>
                     <div class="dropdown">
                         <button class="btn user-menu dropdown-toggle" data-bs-toggle="dropdown">
                             <img src="@profileImage" class="avatar object-fit-cover" alt="Teacher profile" onerror="this.onerror=null;this.src='@Url.Content("~/images/default-user.svg")';" />
@@ -66,9 +124,11 @@
     <script src="~/lib/jquery/dist/jquery.min.js"></script>
     <script src="~/lib/bootstrap/dist/js/bootstrap.bundle.min.js"></script>
     <script src="~/js/site.js" asp-append-version="true"></script>
+    <script src="~/lib/signalr/signalr.min.js"></script>
+    <script src="~/js/proctoring-client.js" asp-append-version="true"></script>
     @await RenderSectionAsync("Scripts", required: false)
     <script src="~/js/teacher-invitations.js" asp-append-version="true"></script>
-<script src="~/lib/signalr/signalr.min.js"></script>
-<script src="~/js/teacher-collaboration.js" asp-append-version="true"></script>
+    <script src="~/js/teacher-notifications-v2.js" asp-append-version="true"></script>
+    <script src="~/js/teacher-collaboration.js" asp-append-version="true"></script>
 </body>
 </html>

@@ -13,6 +13,8 @@ public sealed class TeacherProfileViewModel
     [StringLength(100)] public string? HighestQualification { get; set; }
     [StringLength(100)] public string? Department { get; set; }
     [StringLength(150)] public string? OrganizationName { get; set; }
+    [StringLength(140)] public string? TeacherHeadline { get; set; }
+    [StringLength(700)] public string? TeacherBio { get; set; }
     [StringLength(100)] public string? City { get; set; }
     [StringLength(100)] public string? Country { get; set; }
     [StringLength(250)] public string? Address { get; set; }

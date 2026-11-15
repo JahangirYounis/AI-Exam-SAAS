@@ -1,6 +1,45 @@
 @model List<AiExamProctoring.Models.AcademicClass>
-@{ViewData["Title"]="Classes";}
-<h1>Classes and approved rosters</h1><p>Create your 12 university classes here. Each class has its own approved student list and assessments.</p>
-<form asp-action="CreateTwelve" method="post" class="mb-3"><button class="btn btn-outline-primary">Create 12 starter classes</button></form>
-<form asp-action="Create" method="post" class="d-flex gap-2 mb-4"><input name="name" class="form-control" required maxlength="120" placeholder="Class / programme / semester"/><button class="btn btn-primary">Create class</button></form>
-<div class="row g-3">@foreach(var c in Model){<div class="col-md-4"><div class="card p-3"><h3>@c.Name</h3><p>@c.Members.Count(m=>m.IsActive) approved students</p><a asp-action="Roster" asp-route-id="@c.Id">Manage roster</a><a asp-controller="Exam" asp-action="Create">Create assessment</a></div></div>}</div>
+@{
+    ViewData["Title"] = "My classes";
+    int activeClasses = Model.Count(c => c.IsActive);
+    int students = Model.SelectMany(c => c.Members.Where(m => m.IsActive).Select(m => m.StudentId)).Distinct().Count();
+}
+<div class="tw14-workspace tw14-classes">
+    <header class="tw14-hero">
+        <div><span class="tw14-eyebrow"><i class="bi bi-collection" aria-hidden="true"></i> Assigned classes</span>
+            <h1>My classes</h1><p>View your assigned students and prepare examinations. Class membership is managed by Admin.</p></div>
+        <a asp-controller="Exam" asp-action="Create" class="tw14-hero-button"><i class="bi bi-plus-circle" aria-hidden="true"></i> Create test</a>
+    </header>
+    <section class="tw14-kpi-grid tw14-kpi-three" aria-label="Class overview">
+        <div class="tw14-kpi"><span class="tw14-kpi-icon"><i class="bi bi-collection"></i></span><strong>@Model.Count</strong><span>Assigned classes</span></div>
+        <div class="tw14-kpi"><span class="tw14-kpi-icon is-green"><i class="bi bi-check-circle"></i></span><strong>@activeClasses</strong><span>Active classes</span></div>
+        <div class="tw14-kpi"><span class="tw14-kpi-icon is-indigo"><i class="bi bi-people"></i></span><strong>@students</strong><span>Enrolled students</span></div>
+    </section>
+    <section class="tw14-panel">
+        <div class="tw14-panel-header"><div><h2 class="tw14-section-title">Class directory</h2><p class="tw14-muted">Only classes assigned to your Teacher account appear here.</p></div></div>
+        @if (Model.Count == 0)
+        {
+            <div class="tw14-empty tw14-empty-inline"><i class="bi bi-people" aria-hidden="true"></i><h3>No classes assigned</h3><p>An Administrator can assign a class to your account. You can still prepare independent exams.</p><a asp-controller="Exam" asp-action="Index" class="btn btn-outline-primary btn-sm">My examinations</a></div>
+        }
+        else
+        {
+            <div class="tw14-class-grid">
+                @foreach (var group in Model)
+                {
+                    <article class="tw14-class-card">
+                        <div class="tw14-class-card-top"><span class="tw14-class-icon"><i class="bi bi-collection" aria-hidden="true"></i></span>
+                            <span class="tw14-status @(group.IsActive ? "is-released" : "is-muted")">@(group.IsActive ? "Active" : "Archived")</span></div>
+                        <h3>@group.Name</h3><p class="tw14-muted">@group.Members.Count(m => m.IsActive) enrolled students</p>
+                        <div class="tw14-inline-actions mt-auto">
+                            <a asp-action="Roster" asp-route-id="@group.Id" class="btn btn-outline-primary btn-sm">View roster <i class="bi bi-arrow-right" aria-hidden="true"></i></a>
+                            @if (group.IsActive)
+                            {
+                                <a asp-controller="Exam" asp-action="Create" asp-route-purpose="AcademicClass" asp-route-audience="Private" class="btn btn-light btn-sm border">Create test</a>
+                            }
+                        </div>
+                    </article>
+                }
+            </div>
+        }
+    </section>
+</div>

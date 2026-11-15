@@ -6,6 +6,7 @@ using AiExamProctoring.Services.BehaviorAnalysis;
 using AiExamProctoring.Services.ObjectDetection;
 using AiExamProctoring.Services.SpeechRecognition;
 using AiExamProctoring.Services.Proctoring;
+using StudentAttemptUiState = AiExamProctoring.Services.Exam.StudentPortalAttemptState;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
@@ -248,12 +249,15 @@ public partial class ExamController : Controller
                 .Where(attempt => attempt.StudentId == studentId)
                 .Select(attempt => attempt.ExamId).Distinct().ToListAsync(cancellationToken)).ToHashSet();
 
-            ViewBag.ResumableAttempts = await _context.ExamAttempts.AsNoTracking()
-                .Include(attempt => attempt.Exam)
-                .Where(attempt => attempt.StudentId == studentId &&
-                    (attempt.Status == AttemptStatus.InProgress || attempt.Status == AttemptStatus.ProctoringBlocked))
-                .OrderByDescending(attempt => attempt.StartedAt)
-                .ToListAsync(cancellationToken);
+            var attemptCandidates = await _context.ExamAttempts.AsNoTracking()
+                .Include(a => a.Exam)
+                .Include(a => a.SessionAttempts).ThenInclude(s => s.Session)
+                .Where(a => a.StudentId == studentId && a.ResultReleasedAtUtc == null &&
+                    (a.Status == AttemptStatus.InProgress || a.Status == AttemptStatus.ProctoringBlocked))
+                .OrderByDescending(a => a.StartedAt).ToListAsync(cancellationToken);
+            // Include timed-out in-progress records for a "Check status" action,
+            // never label them as resumable before authoritative server reconciliation.
+            ViewBag.ResumableAttempts = attemptCandidates;
 
             var available = exams.Where(exam =>
                 (exam.AllowsRepeatAttempts || !attemptedIds.Contains(exam.ExamId)) &&
@@ -287,8 +291,7 @@ public partial class ExamController : Controller
         var now = DateTime.Now;
         var exams = await _context.Exams.AsNoTracking()
             .Where(x => x.Attempts.Any(a => a.StudentId == StudentId) ||
-                x.Assignments.Any(a => a.StudentId == StudentId && a.IsActive) ||
-                (x.Audience == ExamAudience.Public && x.IsPublished))
+                x.Assignments.Any(a => a.StudentId == StudentId && a.IsActive))
             .OrderByDescending(x => x.ExamDate).ToListAsync(cancellationToken);
         ViewBag.Attempts = await _context.ExamAttempts.AsNoTracking()
             .Where(x => x.StudentId == StudentId).OrderByDescending(x => x.StartedAt)
@@ -350,11 +353,12 @@ public partial class ExamController : Controller
         if (activeAttemptId.HasValue)
             return RedirectToAction(nameof(Resume), new { attemptId = activeAttemptId.Value });
 
-        var hasPreviousAttempt = await _context.ExamAttempts.AsNoTracking()
-            .AnyAsync(x => x.ExamId == examId && x.StudentId == StudentId);
-        if (hasPreviousAttempt && !exam.AllowsRepeatAttempts)
+        var usedAttempts = await _context.ExamAttempts.AsNoTracking()
+            .CountAsync(x => x.ExamId == examId && x.StudentId == StudentId);
+        if (usedAttempts > 0 && !exam.AllowsRepeatAttempts ||
+            exam.AllowsRepeatAttempts && usedAttempts >= Math.Max(1, exam.MaximumAttempts))
         {
-            TempData["Error"] = "You have already used your one allowed attempt for this examination.";
+            TempData["Error"] = "You have reached the allowed number of attempts for this examination.";
             return RedirectToAction(nameof(Available));
         }
 
@@ -367,15 +371,7 @@ public partial class ExamController : Controller
 
         if (!InstructionsAccepted(examId)) return View("Instructions", exam);
 
-        var unread = await _context.StudentNotifications
-            .Where(x => x.StudentId == StudentId && x.ExamId == examId && !x.IsRead)
-            .ToListAsync();
-        foreach (var notification in unread)
-        {
-            notification.IsRead = true;
-            notification.ReadDate = DateTime.Now;
-        }
-        if (unread.Count > 0) await _context.SaveChangesAsync();
+        // Opening precheck must not mark examination notifications as read.
 
         var student = await _context.ApplicationUsers.AsNoTracking()
             .FirstOrDefaultAsync(x => x.Id == StudentId);
@@ -423,6 +419,12 @@ public partial class ExamController : Controller
 
         var exam = await _context.Exams.AsNoTracking().FirstOrDefaultAsync(x => x.ExamId == request.ExamId);
         if (exam is null) return NotFound(new { message = "This examination no longer exists. Return to examinations." });
+        if (!exam.IsPublished || exam.Status == ExamStatus.Cancelled ||
+            (!exam.IsReusable && (exam.Status == ExamStatus.Completed || DateTime.Now > exam.LatestStartDate)))
+            return Conflict(new { ok = false, message = "Examination entry is not available. Return to examinations." });
+        var eligibleStudent = await _context.ApplicationUsers.AsNoTracking().AnyAsync(x =>
+            x.Id == StudentId && x.IsApproved && !x.IsBlocked);
+        if (!eligibleStudent) return Forbid();
         if (exam.Audience == ExamAudience.Private && !await _context.ExamAssignments.AsNoTracking().AnyAsync(x => x.ExamId == request.ExamId && x.StudentId == StudentId && x.IsActive))
             return StatusCode(403, new { message = "You are not assigned to this examination." });
         var images = await ReadFaceFramesAsync(request.Frames, HttpContext.RequestAborted);
@@ -432,7 +434,7 @@ public partial class ExamController : Controller
         if (!result.Success || result.Data is null)
         {
             var statusCode = result.ServiceUnavailable ? StatusCodes.Status503ServiceUnavailable : StatusCodes.Status422UnprocessableEntity;
-            return StatusCode(statusCode, new { ok = false, message = IdentityMessage.For(result.Data?.ReasonCode, result.Message), status = result.Data?.Status, reasonCode = result.Data?.ReasonCode });
+            return StatusCode(statusCode, new { ok = false, identityState = result.ServiceUnavailable ? "IDENTITY_VERIFICATION_UNAVAILABLE" : "FACE_TRACKING_UNCERTAIN", message = IdentityMessage.For(result.Data?.ReasonCode, result.Message), status = result.Data?.Status, reasonCode = result.Data?.ReasonCode });
         }
         if (!result.Data.Verified)
             return StatusCode(result.Data.Status == "retry" ? StatusCodes.Status422UnprocessableEntity : StatusCodes.Status403Forbidden,
@@ -461,10 +463,12 @@ public partial class ExamController : Controller
     }
     [HttpPost, ValidateAntiForgeryToken]
     [Route("/Student/Exam/Start")]
-    public async Task<IActionResult> Start(int examId, string? verificationTicket)
+    public async Task<IActionResult> Start(int examId, string? verificationTicket, string? displaySurface = null)
     {
         if (StudentId is null) return Challenge();
         if (!InstructionsAccepted(examId)) return RedirectToAction(nameof(PreCheck), new { examId });
+        if (displaySurface != "monitor")
+            return BadRequest(new { message = "Choose Entire Screen before starting the exam." });
         var student = await _context.ApplicationUsers.AsNoTracking().FirstOrDefaultAsync(x => x.Id == StudentId);
         if (student is null) return Challenge();
         if (student.IsBlocked) { TempData["Error"] = "Your student account is blocked. Please contact the administrator."; return RedirectToAction(nameof(Available)); }
@@ -514,9 +518,10 @@ public partial class ExamController : Controller
             x.Status is AttemptStatus.InProgress or AttemptStatus.ProctoringBlocked);
         if (activeAttempt is not null)
             return RedirectToAction(nameof(Resume), new { attemptId = activeAttempt.AttemptId });
-        if (existingAttempts.Count > 0 && !exam.AllowsRepeatAttempts)
+        if (existingAttempts.Count > 0 && !exam.AllowsRepeatAttempts ||
+            exam.AllowsRepeatAttempts && existingAttempts.Count >= Math.Max(1, exam.MaximumAttempts))
         {
-            TempData["Error"] = "You have already used your one allowed attempt for this examination.";
+            TempData["Error"] = "You have reached the allowed number of attempts for this examination.";
             return RedirectToAction(nameof(Available));
         }
 
@@ -532,13 +537,16 @@ public partial class ExamController : Controller
         var galleryStatus = await _faceIdentity.TemplateStatusAsync(studentId!, HttpContext.RequestAborted);
         var enrolledPhoto = galleryStatus.Success && galleryStatus.Data?.Exists == true
             ? await _faceIdentity.EnrollmentPhotoAsync(studentId!, galleryStatus.Data.BestPhotoIndex, HttpContext.RequestAborted) : null;
-        if (enrolledPhoto?.Bytes is not { Length: > 0 and <= 5000000 }) {
+        if (enrolledPhoto?.Bytes is not { Length: > 0 and <= 5000000 })
+        {
             TempData["Error"] = "Your saved identity photo could not be loaded. Please retry or ask your teacher to check your enrollment.";
             return RedirectToAction(nameof(PreCheck), new { examId });
         }
         var attemptPhoto = enrolledPhoto.Bytes;
         var entryLogId = 0;
         var duplicateAttemptDetected = false;
+        var entryTicketAlreadyUsed = false;
+        var verificationUseKey = "precheck:" + Convert.ToHexString(SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(verified.Nonce)))[..32];
         var firstSessionId = first.SessionId;
         var firstSessionMarks = first.TotalMarks;
         var examTotalMarks = exam.TotalMarks;
@@ -551,12 +559,20 @@ public partial class ExamController : Controller
             // permits another completed attempt, never two active attempts.
             await using var tx = await _context.Database.BeginTransactionAsync(IsolationLevel.Serializable);
 
+            if (await _context.ProctoringLogs.AnyAsync(l => l.ClientEventId == verificationUseKey))
+            {
+                entryTicketAlreadyUsed = true;
+                await tx.RollbackAsync();
+                return;
+            }
+
             var transactionAttempts = await _context.ExamAttempts
                 .Where(x => x.StudentId == studentId && x.ExamId == examId)
                 .Select(x => x.Status)
                 .ToListAsync();
             if (transactionAttempts.Any(s => s is AttemptStatus.InProgress or AttemptStatus.ProctoringBlocked)
-                || (transactionAttempts.Count > 0 && !exam.AllowsRepeatAttempts))
+                || (transactionAttempts.Count > 0 && !exam.AllowsRepeatAttempts)
+                || (exam.AllowsRepeatAttempts && transactionAttempts.Count >= Math.Max(1, exam.MaximumAttempts)))
             {
                 duplicateAttemptDetected = true;
                 await tx.RollbackAsync();
@@ -587,8 +603,13 @@ public partial class ExamController : Controller
             _context.ExamSessionAttempts.Add(sessionAttempt);
             await _context.SaveChangesAsync();
             createdSessionAttemptId = sessionAttempt.SessionAttemptId;
-            _context.AttemptIdentityPhotos.Add(new AttemptIdentityPhoto { AttemptId=attempt.AttemptId,
-                ImageBytes=attemptPhoto, Sha256=Convert.ToHexString(SHA256.HashData(attemptPhoto)), CapturedAtUtc=DateTime.UtcNow });
+            _context.AttemptIdentityPhotos.Add(new AttemptIdentityPhoto
+            {
+                AttemptId = attempt.AttemptId,
+                ImageBytes = attemptPhoto,
+                Sha256 = Convert.ToHexString(SHA256.HashData(attemptPhoto)),
+                CapturedAtUtc = DateTime.UtcNow
+            });
             await _context.SaveChangesAsync();
 
 
@@ -606,7 +627,7 @@ public partial class ExamController : Controller
                 ConfidenceScore = verified.IdentityScore,
                 ModelName = _faceOptions.ModelName,
                 ModelVersion = verified.ModelVersion,
-                ClientEventId = Guid.NewGuid().ToString("N")
+                ClientEventId = verificationUseKey
             };
             _context.ProctoringLogs.Add(identityLog);
             await _context.SaveChangesAsync();
@@ -615,6 +636,11 @@ public partial class ExamController : Controller
             await tx.CommitAsync();
         });
 
+        if (entryTicketAlreadyUsed)
+        {
+            TempData["Error"] = "This verification was already used. Complete a fresh live identity check.";
+            return RedirectToAction(nameof(PreCheck), new { examId });
+        }
         if (duplicateAttemptDetected || createdSessionAttemptId <= 0)
         {
             TempData["Error"] = "The examination attempt already exists.";
@@ -627,7 +653,10 @@ public partial class ExamController : Controller
             ExpiresAtUtc = DateTime.UtcNow.AddSeconds(30),
             Nonce = $"session:{createdSessionAttemptId}:{entryLogId}"
         });
-        return RedirectToAction(nameof(Session), new { sessionAttemptId = createdSessionAttemptId, entryTicket });
+        var sessionUrl = Url.Action(nameof(Session), new { sessionAttemptId = createdSessionAttemptId, entryTicket });
+        return Request.Headers.Accept.ToString().Contains("application/json", StringComparison.OrdinalIgnoreCase)
+            ? Json(new { sessionUrl })
+            : RedirectToAction(nameof(Session), new { sessionAttemptId = createdSessionAttemptId, entryTicket });
     }
 
     [HttpGet]
@@ -651,6 +680,11 @@ public partial class ExamController : Controller
         {
             return RedirectToAction(nameof(Blocked), new { attemptId });
         }
+
+        // Result release and finalization always win over an old resume link.
+        if (attempt.CompletedAt.HasValue || attempt.ResultReleasedAtUtc.HasValue || attempt.IsDisqualified ||
+            attempt.Exam?.Status == ExamStatus.Cancelled || attempt.Exam?.Status == ExamStatus.Completed)
+            return RedirectToAction(nameof(AttemptResult), new { attemptId });
 
         // If attempt is already completed, show result
         if (attempt.Status != AttemptStatus.InProgress)
@@ -685,6 +719,7 @@ public partial class ExamController : Controller
 
     [HttpGet]
     [Route("/Student/Exam/Session")]
+    [ResponseCache(NoStore = true, Location = ResponseCacheLocation.None)]
     public async Task<IActionResult> Session(int sessionAttemptId, string? entryTicket)
     {
         if (StudentId is null) return Challenge();
@@ -701,7 +736,10 @@ public partial class ExamController : Controller
 
         if (DateTime.Now >= (sa.StartedAt ?? DateTime.Now).AddMinutes(sa.Session.DurationMinutes))
         {
-            await FinalizeSession(sa, await GetSessionQuestionsAsync(sa), true);
+            // Browser GET never closes a session without grading persisted answers.
+            // The lifecycle helper applies the same attempt-row lock as SubmitSession.
+            await AiExamProctoring.Services.Exam.ExamLifecycleService.AutoSubmitSessionAsync(
+                _context, sa, DateTime.Now, HttpContext.RequestAborted);
             return RedirectToAction(nameof(Continue), new { attemptId = sa.AttemptId });
         }
 
@@ -712,6 +750,7 @@ public partial class ExamController : Controller
             !entry.Nonce.StartsWith($"session:{sessionAttemptId}:", StringComparison.Ordinal) ||
             !await HasRecentIdentityAsync(sessionAttemptId, entry.Nonce))
         {
+            HttpContext.Items["ExamCaptureFrame"] = true;
             return View("IdentityEntry", sa);
         }
 
@@ -721,31 +760,42 @@ public partial class ExamController : Controller
         var resumeQuestionId = sa.LastQuestionId.HasValue && questions.Any(x => x.QuestionId == sa.LastQuestionId.Value)
             ? sa.LastQuestionId.Value
             : questions[0].QuestionId;
-        var existing = await _context.StudentAnswers.AsNoTracking().Where(a => a.SessionAttemptId == sessionAttemptId)
-            .ToDictionaryAsync(a => a.QuestionId, a => a.SelectedOption);
-        var reviewed = await _context.StudentAnswers.AsNoTracking().Where(a => a.SessionAttemptId == sessionAttemptId && a.IsMarkedForReview)
-            .Select(a => a.QuestionId).ToListAsync();
+        // One read for saved answers and review flags; these must describe the same snapshot.
+        var savedRows = await _context.StudentAnswers.AsNoTracking()
+            .Where(a => a.SessionAttemptId == sessionAttemptId)
+            .Select(a => new { a.QuestionId, a.SelectedOption, a.IsMarkedForReview })
+            .ToListAsync(HttpContext.RequestAborted);
+        var existing = savedRows.ToDictionary(a => a.QuestionId, a => a.SelectedOption);
+        var reviewed = savedRows.Where(a => a.IsMarkedForReview).Select(a => a.QuestionId).ToList();
         var sessionIndex = await _context.ExamSessions.Where(x => x.ExamId == exam.ExamId && x.IsActive && x.DisplayOrder <= sa.Session.DisplayOrder).CountAsync();
         // Authoritative session time is server-side and starts only when this
         // session attempt is created. Rest between sessions never consumes it.
         var expires = (sa.StartedAt ?? DateTime.Now).AddMinutes(sa.Session.DurationMinutes);
         if (DateTime.Now >= expires)
         {
-            await FinalizeSession(sa, questions, true);
+            // Browser GET never closes a session without grading persisted answers.
+            // The lifecycle helper applies the same attempt-row lock as SubmitSession.
+            await AiExamProctoring.Services.Exam.ExamLifecycleService.AutoSubmitSessionAsync(
+                _context, sa, DateTime.Now, HttpContext.RequestAborted);
             return RedirectToAction(nameof(Continue), new { attemptId = sa.AttemptId });
         }
         ViewBag.ResumeQuestionId = resumeQuestionId;
-        var objectHealth = await _objectDetection.HealthAsync(HttpContext.RequestAborted);
+        // Independent service health probes run concurrently to keep session entry responsive.
+        var objectHealthTask = _objectDetection.HealthAsync(HttpContext.RequestAborted);
+        var speechHealthTask = _speechRecognition.HealthAsync(HttpContext.RequestAborted);
+        await Task.WhenAll(objectHealthTask, speechHealthTask);
+        var objectHealth = await objectHealthTask;
         ViewBag.ObjectDetectionReady = objectHealth.Success && objectHealth.Data?.Ready == true;
         ViewBag.ObjectDetectionEnabled = _objectOptions.Enabled;
         ViewBag.ObjectDetectionMessage = objectHealth.Success
             ? objectHealth.Data?.Message ?? "Model 3 is ready."
             : objectHealth.Message;
-        var speechHealth = await _speechRecognition.HealthAsync(HttpContext.RequestAborted);
+        var speechHealth = await speechHealthTask;
         ViewBag.SpeechRecognitionReady = speechHealth.Success && speechHealth.Data?.Ready == true;
         ViewBag.SpeechRecognitionMessage = speechHealth.Success
             ? speechHealth.Data?.Message ?? "Model 4 is ready."
             : speechHealth.Message;
+        HttpContext.Items["ExamCaptureFrame"] = true;
         return View("Attempt", new SessionAttemptViewModel { SessionAttempt = sa, Exam = exam, Session = sa.Session, Questions = questions, ExistingAnswers = existing, ReviewedQuestionIds = reviewed.ToHashSet(), SessionIndex = sessionIndex, TotalSessions = exam.NumberOfSessions, ExpiresAt = expires, ServerNow = DateTime.Now });
     }
 
@@ -831,9 +881,8 @@ public partial class ExamController : Controller
             return RedirectToAction(nameof(Available));
         }
 
-        var autoSubmitted = bool.TryParse(
-            form["autoSubmitted"].FirstOrDefault(),
-            out var postedAutoSubmit) && postedAutoSubmit;
+        // The browser cannot decide whether the authoritative server clock
+        // has expired. A client-provided autoSubmitted flag is informational.
 
         var answers = new Dictionary<int, string?>();
 
@@ -892,7 +941,7 @@ public partial class ExamController : Controller
         if (sa.FrozenAtUtc.HasValue) return RedirectToAction(nameof(Session), new { sessionAttemptId });
 
         var serverAutoSubmit = DateTime.Now >= expiry;
-        autoSubmitted = autoSubmitted || serverAutoSubmit;
+        var autoSubmitted = serverAutoSubmit;
 
         if (!serverAutoSubmit && !await HasRecentIdentityAsync(sessionAttemptId))
         {
@@ -912,73 +961,20 @@ public partial class ExamController : Controller
                 .ToDictionaryAsync(a => a.QuestionId, a => a.SelectedOption);
         }
 
-        var oldAnswers = await _context.StudentAnswers
-            .Where(a => a.SessionAttemptId == sessionAttemptId)
-            .ToListAsync();
+        // Use one server-owned scoring implementation for manual submit, timeout,
+        // and blocked-attempt review. This action already holds the attempt UPDLOCK
+        // and transaction in SubmitSession().
+        await AiExamProctoring.Services.Results.ExamResultFinalizationService.ScoreSessionAsync(
+            _context, sa, sa.Attempt!.Exam!.ShuffleOptions, serverAutoSubmit ? null : answers,
+            DateTime.Now, latestSavedAt: serverAutoSubmit ? expiry : null,
+            ct: HttpContext.RequestAborted);
+        await _context.SaveChangesAsync(HttpContext.RequestAborted);
 
-        decimal marks = 0m;
-        var correct = 0;
-        var wrong = 0;
-        var skipped = 0;
-        var answeredAt = DateTime.Now;
-
-        foreach (var question in questions)
-        {
-            answers.TryGetValue(question.QuestionId, out var selected);
-            selected = string.IsNullOrWhiteSpace(selected)
-                ? null
-                : selected.Trim().ToUpperInvariant();
-
-            if (selected is not null && !IsValidOption(question, selected))
-                selected = null;
-
-            var answer = oldAnswers.FirstOrDefault(a => a.QuestionId == question.QuestionId);
-            if (answer is null)
-            {
-                answer = new StudentAnswer { SessionAttemptId = sessionAttemptId, QuestionId = question.QuestionId };
-                _context.StudentAnswers.Add(answer);
-            }
-            answer.SelectedOption = selected;
-            answer.AnsweredAt = answeredAt;
-
-            if (selected is null)
-            {
-                answer.IsCorrect = null;
-                answer.MarksAwarded = 0m;
-                skipped++;
-            }
-            else if (string.Equals(
-                         selected,
-                         question.CorrectAnswer,
-                         StringComparison.OrdinalIgnoreCase))
-            {
-                answer.IsCorrect = true;
-                answer.MarksAwarded = question.ExamMarks;
-                marks += question.ExamMarks;
-                correct++;
-            }
-            else
-            {
-                answer.IsCorrect = false;
-                answer.MarksAwarded = -question.ExamNegativeMarks;
-                marks -= question.ExamNegativeMarks;
-                wrong++;
-            }
-
-        }
-
-        sa.MarksObtained = marks;
-        sa.TotalMarks = questions.Sum(q => q.ExamMarks);
-        sa.CorrectAnswers = correct;
-        sa.WrongAnswers = wrong;
-        sa.SkippedAnswers = skipped;
-
-        await _context.SaveChangesAsync();
         await FinalizeSession(sa, questions, autoSubmitted);
 
         if (await NextSession(sa.AttemptId) is null)
         {
-            await FinalizeAttempt(sa.Attempt);
+            await FinalizeAttempt(sa.Attempt, callerHoldsAttemptLock: true);
             return RedirectToAction(nameof(Completed), new { sessionAttemptId });
         }
         return RedirectToAction(nameof(Break), new { attemptId = sa.AttemptId });
@@ -997,6 +993,8 @@ public partial class ExamController : Controller
             return RedirectToAction(nameof(Blocked), new { attemptId = session.AttemptId });
         if (session.Status is not (AttemptStatus.Completed or AttemptStatus.AutoSubmitted))
             return RedirectToAction(nameof(Session), new { sessionAttemptId });
+        if (session.Attempt?.Status == AttemptStatus.Completed)
+            return RedirectToAction(nameof(AttemptResult), new { attemptId = session.AttemptId });
         return View(session);
     }
 
@@ -1005,12 +1003,25 @@ public partial class ExamController : Controller
     public async Task<IActionResult> SaveAnswer(int sessionAttemptId, int questionId, string? selectedOption)
     {
         if (StudentId is null) return Unauthorized();
+        var attemptId = await _context.ExamSessionAttempts.AsNoTracking()
+            .Where(s => s.SessionAttemptId == sessionAttemptId && s.Attempt!.StudentId == StudentId)
+            .Select(s => (int?)s.AttemptId).SingleOrDefaultAsync(HttpContext.RequestAborted);
+        if (attemptId == null) return NotFound();
+        // MVC ExamWriteGuard already owns this transaction; direct callers use the same lock below.
+        if (_context.Database.CurrentTransaction != null) return await SaveAnswerCore(sessionAttemptId, questionId, selectedOption);
+        return await Services.Results.ExamResultFinalizationService.WriteAsync(_context, attemptId.Value,
+            () => SaveAnswerCore(sessionAttemptId, questionId, selectedOption), HttpContext.RequestAborted);
+    }
+
+    private async Task<IActionResult> SaveAnswerCore(int sessionAttemptId, int questionId, string? selectedOption)
+    {
+        if (StudentId is null) return Unauthorized();
         var sa = await _context.ExamSessionAttempts
             .Include(x => x.Attempt).ThenInclude(x => x!.Exam)
             .Include(x => x.Session)
             .FirstOrDefaultAsync(x => x.SessionAttemptId == sessionAttemptId && x.Attempt!.StudentId == StudentId);
         if (sa is null || sa.Session is null || sa.FrozenAtUtc.HasValue || sa.Status != AttemptStatus.InProgress ||
-            sa.Attempt?.Status == AttemptStatus.ProctoringBlocked)
+            sa.Attempt?.Status != AttemptStatus.InProgress || sa.Attempt.CompletedAt.HasValue || sa.Attempt.ResultReleasedAtUtc.HasValue)
         {
             if (sa?.Attempt?.Status == AttemptStatus.ProctoringBlocked)
                 return StatusCode(StatusCodes.Status423Locked, new
@@ -1033,6 +1044,13 @@ public partial class ExamController : Controller
                 redirectUrl = Url.Action(nameof(Session), new { sessionAttemptId })
             });
         if (currentQuestion is null) return BadRequest(new { ok = false, message = "Invalid question." });
+        // Forward-only examinations must enforce question order on the server too.
+        // Use the same stable permutation as the page, once per write.
+        var orderedQuestions = await GetSessionQuestionsAsync(sa);
+        var submittedIndex = orderedQuestions.FindIndex(q => q.QuestionId == questionId);
+        if (submittedIndex < 0 || !sa.Attempt.Exam!.AllowBackNavigation &&
+            submittedIndex != sa.CurrentQuestionIndex)
+            return StatusCode(StatusCodes.Status409Conflict, new { ok = false, message = "This question cannot be edited after advancing." });
         var option = string.IsNullOrWhiteSpace(selectedOption) ? null : selectedOption.Trim().ToUpperInvariant();
         if (option is not null && !IsValidOption(currentQuestion, option))
             return BadRequest(new { ok = false, message = "Invalid option for this question." });
@@ -1040,7 +1058,7 @@ public partial class ExamController : Controller
         if (answer is null) { answer = new StudentAnswer { SessionAttemptId = sessionAttemptId, QuestionId = questionId }; _context.StudentAnswers.Add(answer); }
         answer.SelectedOption = option; answer.AnsweredAt = DateTime.Now; answer.IsCorrect = null; answer.MarksAwarded = 0;
         sa.LastQuestionId = questionId;
-        sa.CurrentQuestionIndex = (await GetSessionQuestionsAsync(sa)).FindIndex(q => q.QuestionId == questionId);
+        sa.CurrentQuestionIndex = submittedIndex;
         await _context.SaveChangesAsync();
         return Json(new { ok = true, savedAt = DateTime.Now.ToString("HH:mm:ss") });
     }
@@ -1055,7 +1073,8 @@ public partial class ExamController : Controller
             .Include(x => x.Session)
             .FirstOrDefaultAsync(x => x.SessionAttemptId == sessionAttemptId && x.Attempt!.StudentId == StudentId);
         if (sa is null || sa.Session is null || sa.FrozenAtUtc.HasValue || sa.Status != AttemptStatus.InProgress ||
-            sa.Attempt?.Status == AttemptStatus.ProctoringBlocked)
+            sa.Attempt?.Status != AttemptStatus.InProgress || sa.Attempt.CompletedAt.HasValue ||
+            sa.Attempt.ResultReleasedAtUtc.HasValue)
         {
             if (sa?.Attempt?.Status == AttemptStatus.ProctoringBlocked)
                 return StatusCode(StatusCodes.Status423Locked, new
@@ -1070,6 +1089,12 @@ public partial class ExamController : Controller
         if (DateTime.Now >= expiry)
             return StatusCode(StatusCodes.Status409Conflict, new { ok = false, expired = true });
         if (await GetSessionQuestionAsync(sa, questionId) is null) return BadRequest(new { ok = false });
+        if (!sa.Attempt.Exam!.AllowBackNavigation)
+        {
+            var questionsInOrder = await GetSessionQuestionsAsync(sa);
+            if (questionsInOrder.FindIndex(q => q.QuestionId == questionId) != sa.CurrentQuestionIndex)
+                return StatusCode(StatusCodes.Status409Conflict, new { ok = false, message = "This question is not the active question in a forward-only exam." });
+        }
         var answer = await _context.StudentAnswers.FirstOrDefaultAsync(a => a.SessionAttemptId == sessionAttemptId && a.QuestionId == questionId);
         if (answer is null) { answer = new StudentAnswer { SessionAttemptId = sessionAttemptId, QuestionId = questionId }; _context.StudentAnswers.Add(answer); }
         answer.IsMarkedForReview = marked; answer.AnsweredAt = DateTime.Now;
@@ -1091,6 +1116,8 @@ public partial class ExamController : Controller
 
         if (sessionAttempt?.Attempt?.Exam is null || sessionAttempt.Session is null ||
             sessionAttempt.Status != AttemptStatus.InProgress ||
+            sessionAttempt.FrozenAtUtc.HasValue ||
+            sessionAttempt.Attempt.CompletedAt.HasValue || sessionAttempt.Attempt.ResultReleasedAtUtc.HasValue ||
             sessionAttempt.Attempt.Status != AttemptStatus.InProgress)
         {
             return BadRequest(new { ok = false });
@@ -1100,6 +1127,16 @@ public partial class ExamController : Controller
             x.ExamId == sessionAttempt.Attempt.ExamId && x.SessionId == sessionAttempt.SessionId &&
             x.QuestionId == questionId && x.IsActive && x.Question!.IsActive, HttpContext.RequestAborted);
         if (!belongsToSession) return BadRequest(new { ok = false });
+        if (DateTime.Now >= (sessionAttempt.StartedAt ?? DateTime.Now).AddMinutes(sessionAttempt.Session.DurationMinutes))
+            return StatusCode(StatusCodes.Status409Conflict, new { ok = false, expired = true });
+        if (!sessionAttempt.Attempt.Exam.AllowBackNavigation && sessionAttempt.LastQuestionId.HasValue)
+        {
+            var ordered = await GetSessionQuestionsAsync(sessionAttempt);
+            var destinationIndex = ordered.FindIndex(q => q.QuestionId == questionId);
+            if (destinationIndex < sessionAttempt.CurrentQuestionIndex ||
+                destinationIndex > sessionAttempt.CurrentQuestionIndex + 1)
+                return StatusCode(StatusCodes.Status409Conflict, new { ok = false, message = "Only the next question is available in a forward-only examination." });
+        }
 
         if (sessionAttempt.LastQuestionId != questionId)
         {
@@ -1138,6 +1175,8 @@ public partial class ExamController : Controller
         {
             return BadRequest(new { ok = false, message = "Unsupported proctoring event type." });
         }
+
+        if (alertType == ProctoringAlertType.TabSwitch) { alertType = ProctoringAlertType.ExamPageHidden; severity = ProctoringSeverity.Low; request.Description = "The exam page became hidden. The specific browser action could not be determined."; }
 
         var active = await FindActiveSessionAsync(request.AttemptId, request.SessionAttemptId);
         if (active?.Attempt is null)
@@ -1200,7 +1239,8 @@ public partial class ExamController : Controller
             ClientEventId = clientEventId,
             FrameCapturedAt = request.FrameCapturedAt ?? DateTime.Now,
             CountsAsViolation = false,
-            PolicyPending = alertType is ProctoringAlertType.TabSwitch or ProctoringAlertType.FullScreenExit,
+            // The legacy form has no fullscreen episode lifecycle. Only BrowserObservation can submit a qualifying exit.
+            PolicyProcessed = alertType == ProctoringAlertType.FullScreenExit,
             IsReviewed = false,
             CreatedDate = DateTime.Now
         };
@@ -1256,7 +1296,7 @@ public partial class ExamController : Controller
         var images = await ReadFaceFramesAsync(request.Frames, HttpContext.RequestAborted);
         if (images.Count != _faceOptions.ContinuousVerificationFrames)
             return BadRequest(new { ok = false, message = "One or more camera frames were invalid." });
-        var result = await _faceIdentity.VerifyAsync(StudentId, images, HttpContext.RequestAborted);
+        var result = await _faceIdentity.VerifyActiveAsync(StudentId, images, HttpContext.RequestAborted);
         // Another model can lock the attempt while identity inference is in flight.
         var currentState = await _states.GetAsync(request.AttemptId, HttpContext.RequestAborted);
         if (currentState?.Status == nameof(AttemptStatus.ProctoringBlocked))
@@ -1264,39 +1304,83 @@ public partial class ExamController : Controller
         var presentationUnconfirmed = result.Data?.ReasonCode == "presentation_unconfirmed";
         if ((!result.Success && !presentationUnconfirmed) || result.Data is null)
         {
-            await RecordIdentityUncertaintyAsync(active, result.Data?.ReasonCode ?? "service_unavailable", result.Message);
+            await RecordIdentityUncertaintyAsync(active, result.Data?.ReasonCode ?? "service_unavailable", result.Message, observationStartedAt);
             return StatusCode(result.ServiceUnavailable ? StatusCodes.Status503ServiceUnavailable : StatusCodes.Status422UnprocessableEntity,
-                new { ok = false, message = IdentityMessage.For(result.Data?.ReasonCode, result.Message), status = result.Data?.Status, reasonCode = result.Data?.ReasonCode });
+                new { ok = false, identityState = result.ServiceUnavailable ? "IDENTITY_VERIFICATION_UNAVAILABLE" : "FACE_TRACKING_UNCERTAIN", message = IdentityMessage.For(result.Data?.ReasonCode, result.Message), status = result.Data?.Status, reasonCode = result.Data?.ReasonCode });
         }
 
-        var criticalMismatch = result.Data.FrameCount > 0 && !presentationUnconfirmed &&
-            !result.Data.Verified && result.Data.Status != "retry" && result.Data.ReasonCode == "identity_mismatch" &&
-            1m - result.Data.MedianSimilarity > .45m;
+        // Only a fully usable, explicitly rejected gallery comparison may start
+        // a substitution confirmation sequence. Borderline scores, poor lighting,
+        // PAD uncertainty and service errors are technical/review observations.
+        // No hard-coded similarity cutoff may override the Python model's
+        // configured, still-provisional gallery calibration.
+        var criticalMismatch = result.Success &&
+            result.Data.FrameCount >= _faceOptions.ContinuousVerificationFrames &&
+            result.Data.ReferenceCount >= 5 && !presentationUnconfirmed &&
+            !result.Data.Verified && result.Data.Status == "rejected" &&
+            result.Data.ReasonCode == "identity_mismatch";
+        string? checkEvidenceKey = null;
+        if (_proctoringOptions.CaptureEvidence && result.Data.Verified && !await _context.ProctoringLogs.AnyAsync(l => l.AttemptId == active.AttemptId && l.AlertType == ProctoringAlertType.IdentityVerified && l.ScreenshotPath != null, HttpContext.RequestAborted))
+        {
+            var original = images[^1];
+            var prefix = original.ContentType.Equals("image/png", StringComparison.OrdinalIgnoreCase) ? "data:image/png;base64," : "data:image/jpeg;base64,";
+            try
+            {
+                checkEvidenceKey = await _evidenceStore.SaveDataUrlAsync(StudentId, active.Attempt.ExamId, active.AttemptId,
+                prefix + Convert.ToBase64String(original.Bytes), HttpContext.RequestAborted);
+            }
+            catch (Exception error) when (error is not OperationCanceledException)
+            {
+                HttpContext.RequestServices.GetService<ILogger<ExamController>>()?.LogWarning(error, "Identity check evidence unavailable for attempt {AttemptId}", active.AttemptId);
+            }
+        }
+        int? confirmedSampleId = null;
         if (criticalMismatch)
         {
+            var previousDecision = await _context.ProctoringLogs.AsNoTracking()
+                .Where(l => l.AttemptId == active.AttemptId && l.SessionAttemptId == active.SessionAttemptId &&
+                    (l.AlertType == ProctoringAlertType.IdentityVerified || l.AlertType == ProctoringAlertType.IdentityMismatch && l.Severity == ProctoringSeverity.High))
+                .OrderByDescending(l => l.LogId).FirstOrDefaultAsync(HttpContext.RequestAborted);
+            if (previousDecision?.AlertType == ProctoringAlertType.IdentityMismatch &&
+                (!active.Attempt.TeacherResumedAtUtc.HasValue || previousDecision.FrameCapturedAt?.ToUniversalTime() > active.Attempt.TeacherResumedAtUtc))
+                return Json(new
+                {
+                    ok = true,
+                    verified = false,
+                    identityState = "MANUAL_IDENTITY_REVIEW_REQUIRED",
+                    message = "Candidate identity change suspected. Teacher review is already pending.",
+                    logId = previousDecision.LogId
+                });
             var frameHash = string.Join(":", images.Select(image => Convert.ToHexString(SHA256.HashData(image.Bytes))[..16]).Distinct().OrderBy(x => x, StringComparer.Ordinal));
-            if (!await ConfirmIdentityMismatchAsync(active.AttemptId, active.SessionAttemptId,
-                observationStartedAt, frameHash, result.Data.MedianSimilarity, HttpContext.RequestAborted))
+            var confirmation = await ConfirmIdentityMismatchAsync(active.AttemptId, active.SessionAttemptId,
+                observationStartedAt, frameHash, result.Data.MedianSimilarity, HttpContext.RequestAborted, checkEvidenceKey);
+            confirmedSampleId = confirmation.ConfirmedSampleId;
+            if (!confirmedSampleId.HasValue)
                 return Json(new
                 {
                     ok = true,
                     verified = false,
                     confirmationPending = true,
-                    retryAfterMilliseconds = 12000,
+                    identityState = "POSSIBLE_IDENTITY_MISMATCH",
+                    retryAfterMilliseconds = IdentityRecheckPolicy.SuggestedIntervalSeconds * 1000,
+                    confirmedMismatchBatches = confirmation.Count,
+                    requiredMismatchBatches = IdentityRecheckPolicy.RequiredMismatchBatches,
+                    messageCode = "FRESH_IDENTITY_RECHECK_PENDING",
                     message = "Checking identity again. Please face the camera while fresh frames are compared."
                 });
         }
-        var isVerified = result.Data.Verified && !criticalMismatch;
+        var isVerified = result.Data.Verified && result.Data.FrameCount >= _faceOptions.ContinuousVerificationFrames && !presentationUnconfirmed && !criticalMismatch;
         // Uncertain presentation and borderline similarity need a fresh sample;
         // neither is evidence that the candidate has been replaced.
-        if (!isVerified && !criticalMismatch && (presentationUnconfirmed || result.Data.Status == "retry" || result.Data.ReasonCode != "identity_mismatch"))
+        if (!isVerified && !criticalMismatch)
         {
-            await RecordIdentityUncertaintyAsync(active, result.Data.ReasonCode ?? "identity_uncertain", result.Data.Message ?? result.Message);
+            await RecordIdentityUncertaintyAsync(active, result.Data.ReasonCode ?? "identity_uncertain", result.Data.Message ?? result.Message, observationStartedAt);
             return UnprocessableEntity(new
             {
                 ok = false,
                 verified = false,
                 retry = true,
+                identityState = "REVERIFICATION_REQUIRED",
                 reasonCode = result.Data.ReasonCode,
                 message = IdentityMessage.For(result.Data.ReasonCode, result.Data.Message ?? result.Message)
             });
@@ -1308,8 +1392,8 @@ public partial class ExamController : Controller
                 x.ModelName == "Identity monitoring health" && !x.IsReviewed).ToListAsync(HttpContext.RequestAborted);
             foreach (var health in recovered) health.IsReviewed = true;
         }
-        string? identityEvidenceKey = null;
-        if (!isVerified && _proctoringOptions.CaptureEvidence)
+        string? identityEvidenceKey = checkEvidenceKey;
+        if (criticalMismatch && identityEvidenceKey is null && _proctoringOptions.CaptureEvidence)
         {
             var evidenceFrame = images[^1];
             var prefix = evidenceFrame.ContentType.Equals("image/png", StringComparison.OrdinalIgnoreCase)
@@ -1340,7 +1424,7 @@ public partial class ExamController : Controller
             SessionAttemptId = active.SessionAttemptId,
             AlertType = isVerified ? ProctoringAlertType.IdentityVerified : ProctoringAlertType.IdentityMismatch,
             Severity = isVerified ? ProctoringSeverity.Low : ProctoringSeverity.High,
-            Description = presentationUnconfirmed ? "Camera presentation could not be authenticated. Fresh verification is required; this is not a misconduct finding." : $"Model 1 periodic identity observation: {result.Data.Status}; median={result.Data.MedianSimilarity:0.0000}, threshold={result.Data.Threshold:0.0000}, vote={result.Data.VoteRatio:0.00}.",
+            Description = presentationUnconfirmed ? "Camera presentation could not be authenticated. Fresh verification is required; this is not a misconduct finding." : (isVerified ? "Registered candidate verified against the authorized reference." : "Student Changed: three fresh checks did not match the registered candidate. Examination held for teacher review."),
             ScreenshotPath = identityEvidenceKey,
             ConfidenceScore = result.Data.MedianSimilarity,
             DetectedFaceCount = 1,
@@ -1349,24 +1433,57 @@ public partial class ExamController : Controller
             ClientEventId = Guid.NewGuid().ToString("N"),
             FrameCapturedAt = observationStartedAt,
             CountsAsViolation = false,
+            // Only a confirmed, fresh-batch sequence can trigger the identity hold.
+            MachineObservationsJson = criticalMismatch
+                ? System.Text.Json.JsonSerializer.Serialize(new
+                {
+                    identityConfirmation = IdentityRecheckPolicy.ConfirmationMarker,
+                    confirmedBatches = IdentityRecheckPolicy.RequiredMismatchBatches,
+                    requiresTeacherReview = true,
+                    notProofOfMisconduct = true
+                }) : null,
             PolicyPending = criticalMismatch,
             IsReviewed = isVerified,
             CreatedDate = DateTime.Now
         };
-        _context.ProctoringLogs.Add(log);
-        await _context.SaveChangesAsync();
+        var decisionSaved = await _context.Database.CreateExecutionStrategy().ExecuteAsync(async () => {
+            await using var transaction = await _context.Database.BeginTransactionAsync(HttpContext.RequestAborted);
+            await AiExamProctoring.Services.Proctoring.ProctoringStateService.LockAttemptAsync(_context, active.AttemptId, HttpContext.RequestAborted);
+            if (!await IsCurrentIdentityObservationAsync(active.AttemptId, active.SessionAttemptId,
+                observationStartedAt, HttpContext.RequestAborted)) return false;
+            var latest = await _context.ProctoringLogs.AsNoTracking().Where(l =>
+                l.AttemptId == active.AttemptId && l.SessionAttemptId == active.SessionAttemptId &&
+                (l.AlertType == ProctoringAlertType.IdentityVerified || l.AlertType == ProctoringAlertType.IdentityMismatch ||
+                 l.ModelName == "Identity monitoring health"))
+                .OrderByDescending(l => l.FrameCapturedAt ?? l.CreatedDate).ThenByDescending(l => l.LogId)
+                .FirstOrDefaultAsync(HttpContext.RequestAborted);
+            // An older successful inference must not erase a newer identity concern.
+            if (latest is not null && (latest.FrameCapturedAt ?? latest.CreatedDate).ToUniversalTime() >
+                observationStartedAt.ToUniversalTime()) return false;
+            if (criticalMismatch && latest?.LogId != confirmedSampleId) return false;
+            var liveAttempt = await _context.ExamAttempts.AsNoTracking().SingleAsync(a => a.AttemptId == active.AttemptId, HttpContext.RequestAborted);
+            if (liveAttempt.Status != AttemptStatus.InProgress || liveAttempt.TeacherResumedAtUtc > observationStartedAt.ToUniversalTime()) return false;
+            if (criticalMismatch && latest?.AlertType == ProctoringAlertType.IdentityMismatch && latest.Severity == ProctoringSeverity.High) return false;
+            _context.ProctoringLogs.Add(log);
+            await _context.SaveChangesAsync(HttpContext.RequestAborted);
+            await transaction.CommitAsync(HttpContext.RequestAborted);
+            return true;
+        });
+        if (!decisionSaved) return Conflict(new { ok = false, identityState = "REVERIFICATION_REQUIRED", message = "Identity state changed while checking. Please retry with fresh frames." });
         if (criticalMismatch) await _states.ApplyLogAsync(log.LogId, HttpContext.RequestAborted);
         if (criticalMismatch)
         {
             var confirmedState = await _states.GetAsync(request.AttemptId, HttpContext.RequestAborted);
             if (confirmedState?.Status == nameof(AttemptStatus.ProctoringBlocked))
-                return StatusCode(423, new { ok = false, blocked = true, state = confirmedState });
+                return StatusCode(423, new { ok = false, blocked = true, state = confirmedState, logIds = new[] { log.LogId } });
             return Json(new
             {
                 ok = true,
                 verified = false,
                 identityMismatchConfirmed = true,
-                message = "Identity mismatch confirmed. Your teacher has been notified for urgent review.",
+                logIds = new[] { log.LogId },
+                identityState = "REPEATED_IDENTITY_MISMATCH",
+                message = "Candidate identity change suspected. Repeated checks require urgent teacher review.",
                 blocked = false,
                 state = confirmedState
             });
@@ -1380,27 +1497,27 @@ public partial class ExamController : Controller
         {
             ok = true,
             verified = isVerified,
+            identityState = isVerified ? "REGISTERED_CANDIDATE_VERIFIED" : "MANUAL_IDENTITY_REVIEW_REQUIRED",
             entryTicket,
             candidateName = await _context.Users.Where(x => x.Id == StudentId)
                 .Select(x => x.FullName).FirstOrDefaultAsync() ?? "the registered candidate",
             identityRequired = !isVerified,
             redirectUrl = Url.Action(nameof(Session), new { sessionAttemptId = active.SessionAttemptId }),
             status = result.Data.Status,
-            score = result.Data.MedianSimilarity,
-            threshold = result.Data.Threshold,
             observationOnly = true,
             blocked = criticalMismatch,
             logId = log.LogId
         });
     }
 
-    private async Task RecordIdentityUncertaintyAsync(ExamSessionAttempt active, string reason, string message)
+    private async Task RecordIdentityUncertaintyAsync(ExamSessionAttempt active, string reason, string message, DateTime capturedAt)
     {
         // A technical/quality problem must remain visible to the owning teacher,
         // but must never be processed as a strike or an identity mismatch.
-        var since = DateTime.Now.AddMinutes(-1);
-        if (await _context.ProctoringLogs.AnyAsync(x => x.SessionAttemptId == active.SessionAttemptId &&
-            x.ModelName == "Identity monitoring health" && x.CreatedDate >= since, HttpContext.RequestAborted)) return;
+        var latest = await _context.ProctoringLogs.Where(x => x.SessionAttemptId == active.SessionAttemptId &&
+            (x.AlertType == ProctoringAlertType.IdentityVerified || x.AlertType == ProctoringAlertType.IdentityMismatch || x.ModelName == "Identity monitoring health"))
+            .OrderByDescending(x => x.LogId).FirstOrDefaultAsync(HttpContext.RequestAborted);
+        if (latest?.ModelName == "Identity monitoring health" && latest.CreatedDate >= DateTime.Now.AddMinutes(-1)) return;
         var description = $"Identity verification needs review ({reason}). {message} No substitution has been confirmed; background retries continue.";
         _context.ProctoringLogs.Add(new ProctoringLog
         {
@@ -1411,6 +1528,7 @@ public partial class ExamController : Controller
             AlertType = ProctoringAlertType.ReviewRequested,
             Severity = ProctoringSeverity.Low,
             ModelName = "Identity monitoring health",
+            FrameCapturedAt = capturedAt,
             ModelVersion = _faceOptions.ModelVersion,
             Description = description.Length > 500 ? description[..500] : description,
             CountsAsViolation = false,
@@ -1423,6 +1541,14 @@ public partial class ExamController : Controller
 
     private async Task<bool> HasRecentIdentityAsync(int sessionAttemptId, string? entryNonce = null)
     {
+        var lastReturn = await _context.ProctoringLogs.AsNoTracking()
+            .Where(l => l.StudentId == StudentId && l.SessionAttemptId == sessionAttemptId &&
+                l.IncidentKey == "absence" && l.IncidentEndedAtUtc != null)
+            .MaxAsync(l => l.IncidentEndedAtUtc, HttpContext.RequestAborted);
+        if (lastReturn is DateTime returnedAt && !await _context.ProctoringLogs.AsNoTracking().AnyAsync(l =>
+            l.StudentId == StudentId && l.SessionAttemptId == sessionAttemptId &&
+            l.AlertType == ProctoringAlertType.IdentityVerified && l.FrameCapturedAt > returnedAt.ToLocalTime(),
+            HttpContext.RequestAborted)) return false;
         // Manual enforcement never lets an AI observation revoke an already admitted
         // candidate's answer access. Initial entry still requires a fresh protected ticket.
         if (entryNonce is null && await _context.ExamSessionAttempts.AsNoTracking().AnyAsync(s =>
@@ -1504,7 +1630,8 @@ public partial class ExamController : Controller
     public async Task<IActionResult> StartBehaviorSession([FromForm] BehaviorFrameRequest request)
     {
         if (StudentId is null) return Unauthorized();
-        var expectedFrames = _behaviorOptions.BaselineFrames + (request.ScreenCalibration ? 8 : 0);
+        if (request.ScreenPoints is not (4 or 6)) return BadRequest();
+        var expectedFrames = _behaviorOptions.BaselineFrames + (request.ScreenCalibration ? request.ScreenPoints * 2 : 0);
         if (expectedFrames > 20 || request.Frames.Count != expectedFrames)
             return BadRequest(new { ok = false, message = $"Exactly {expectedFrames} clear baseline frames are required." });
 
@@ -1519,7 +1646,7 @@ public partial class ExamController : Controller
         var result = await _behaviorAnalysis.StartSessionAsync(
             BuildBehaviorSessionKey(StudentId, request.AttemptId, request.SessionAttemptId),
             images,
-            HttpContext.RequestAborted, request.ScreenCalibration);
+            HttpContext.RequestAborted, request.ScreenCalibration, request.ScreenPoints);
         if (!result.Success || result.Data is null)
         {
             var statusCode = result.ServiceUnavailable
@@ -1560,10 +1687,24 @@ public partial class ExamController : Controller
             return BadRequest(new { ok = false, message = "The camera frame was invalid." });
 
         var image = images[0];
-        var result = await _behaviorAnalysis.AnalyzeAsync(
-            BuildBehaviorSessionKey(StudentId, request.AttemptId, request.SessionAttemptId),
-            image,
-            HttpContext.RequestAborted);
+        var feature = request.Feature;
+        string[] incidentKeys = feature switch
+        {
+            null => ["attention", "persons", "absence", "face_visibility", "mouth"],
+            "attention" => ["attention", "face_visibility", "mouth"],
+            "absence" => ["absence"],
+            "persons" => ["persons"],
+            _ => []
+        };
+        if (incidentKeys.Length == 0)
+            return BadRequest(new { ok = false, message = "Unknown behavior detector." });
+
+        var sessionKey = BuildBehaviorSessionKey(StudentId, request.AttemptId, request.SessionAttemptId);
+        var workerStarted = System.Diagnostics.Stopwatch.StartNew();
+        var result = feature is "absence" or "persons"
+            ? await _behaviorAnalysis.AnalyzeFeatureAsync(feature, sessionKey, image, HttpContext.RequestAborted)
+            : await _behaviorAnalysis.AnalyzeAsync(sessionKey, image, HttpContext.RequestAborted);
+        var workerMs = workerStarted.Elapsed.TotalMilliseconds;
         if (!result.Success || result.Data is null)
         {
             var statusCode = result.ServiceUnavailable
@@ -1575,32 +1716,184 @@ public partial class ExamController : Controller
                 new { ok = false, message = result.Message });
         }
 
-        if (result.Data.Signals is null)
-            return StatusCode(503, new { ok = false, message = "Restart Model 2: incident signal contract is unavailable." });
+        if (result.Data.Signals is null ||
+            (feature is not null && !result.Data.Signals.ContainsKey(feature)))
+            return StatusCode(503, new { ok = false, message = "The selected detector did not return its incident signal." });
         var metrics = result.Data.Metrics;
+        var presence = result.Data.PresenceStatus;
+        var people = result.Data.PeopleStatus;
+        // Never treat a failed person-detector inference as verified recovery.
+        // The live/gaze lanes remain independent of this detector.
+        if (people is null)
+            result.Data.Signals["persons"] = null;
+        // With no working ONNX body detector, stable distinct face regions may
+        // justify an *uncertain Teacher review* but NEVER a supported multiple-
+        // person cheating strike. PeopleContextSupported stays false without
+        // independent body/liveness support and BlockingPolicy fails closed.
+        else if (metrics?.PersonDetectorReady != true && people.ContextSupported)
+            result.Data.Signals["persons"] = null;
+        // Physical absence is a strike only after the independent person detector
+        // has supplied at least three seconds of fresh, usable zero-person frames.
+        var verifiedPhysicalAbsence = presence?.State == "VERIFIED_PHYSICAL_ABSENCE" &&
+            presence.ElapsedSeconds >= Math.Max(3, _proctoringOptions.FaceAbsencePersistenceSeconds) &&
+            result.Data.Capabilities?.PhysicalAbsence == true && metrics?.PersonDetectorReady == true &&
+            metrics.PresenceOk == true;
+        if (result.Data.Signals.GetValueOrDefault("absence") == true && !verifiedPhysicalAbsence)
+            result.Data.Signals["absence"] = null;
+        if (presence is null || metrics?.PersonDetectorReady != true)
+            result.Data.Signals["absence"] = null;
+        // A missing face is a review-only observation, not proof that the candidate
+        // physically left. Confirm physical absence separately with the person detector.
+        // Never turn an uncertain face-visibility observation into a cheating strike.
+        // Physical return ends the absence episode independently of biometric identity.
+        // Identity mismatch remains owned by the existing identity lane.
+        if (feature is (null or "absence") && result.Data.Signals.GetValueOrDefault("absence") == false &&
+            !AbsenceReturnPolicy.PhysicallyPresent(presence?.State, metrics?.PersonDetectorReady == true,
+                metrics?.PresenceOk == true))
+            result.Data.Signals["absence"] = null;
+        // The worker owns the pre-confirmation timer. Pending samples do not need
+        // the attempt write lock unless a confirmed episode still needs updating.
+        if (feature == "absence" && presence?.State == "POSSIBLE_ABSENCE" &&
+            (string.IsNullOrEmpty(active.ProctoringIncidentsJson) ||
+             !active.ProctoringIncidentsJson.Contains("\"absence\"", StringComparison.Ordinal)))
+            return Json(new { ok = true, observationOnly = true, metrics,
+                presenceStatus = presence, capabilities = result.Data.Capabilities });
+        var attention = result.Data.AttentionStatus.GetValueOrDefault();
+        var calibrated = attention.ValueKind == System.Text.Json.JsonValueKind.Object &&
+            attention.TryGetProperty("calibrated", out var calibratedValue) &&
+            calibratedValue.ValueKind == System.Text.Json.JsonValueKind.True;
+        bool? attentionSignal = calibrated ? result.Data.Signals.GetValueOrDefault("attention") : null;
+        var confirmedAttention = attentionSignal == true &&
+            attention.TryGetProperty("state", out var attentionState) &&
+            attentionState.ValueKind == System.Text.Json.JsonValueKind.String &&
+            attentionState.ValueEquals("CONFIRMED_LOOKING_AWAY");
+        double? ReadConfirmedDuration(string field) => confirmedAttention &&
+            attention.TryGetProperty(field, out var duration) &&
+            duration.ValueKind == System.Text.Json.JsonValueKind.Number && duration.TryGetDouble(out var seconds)
+            ? seconds : null;
+        var sustainedDuration = ReadConfirmedDuration("supported_duration_seconds");
+        var repeatedDuration = ReadConfirmedDuration("repeated_duration_seconds");
+        var repeatedLookingAway = repeatedDuration.HasValue && (!sustainedDuration.HasValue || repeatedDuration > sustainedDuration);
+        var attentionDuration = repeatedLookingAway ? repeatedDuration : sustainedDuration;
+        // Pending attention can neither confirm nor close an incident.
+        if (attentionSignal == true && (!confirmedAttention || attentionDuration is not double supported ||
+            !double.IsFinite(supported) || supported < Math.Max(2, _proctoringOptions.AttentionPersistenceSeconds)))
+            attentionSignal = null;
         var observations = new List<IncidentObservation>();
-        foreach (var key in new[] { "attention", "persons", "absence", "mouth" })
+        foreach (var key in incidentKeys)
         {
+            var directionCode = result.Data.SignalCodes.GetValueOrDefault("attention") ?? "";
+            var attentionIsHead = directionCode.StartsWith("HEAD_", StringComparison.Ordinal);
             var type = key == "persons" ? ProctoringAlertType.MultipleFaces : key == "absence"
-                ? ProctoringAlertType.FaceNotDetected : ProctoringAlertType.LookAway;
-            observations.Add(new(key, result.Data.Signals.GetValueOrDefault(key), new ProctoringLog
+                ? ProctoringAlertType.FaceNotDetected : key == "face_visibility"
+                ? ProctoringAlertType.FaceNotVisible : key == "attention"
+                ? attentionIsHead ? ProctoringAlertType.HeadAway : ProctoringAlertType.GazeAway
+                : ProctoringAlertType.LookAway;
+            observations.Add(new(key, key == "attention" ? attentionSignal : result.Data.Signals.GetValueOrDefault(key), new ProctoringLog
             {
                 AlertType = type,
-                Severity = key == "attention" ? ProctoringSeverity.Medium : ProctoringSeverity.High,
-                Description = $"[{result.Data.SignalCodes.GetValueOrDefault(key, "LOOK_AWAY")}] Model 2 calibrated {key}: faces={metrics?.FaceCount}; yaw={metrics?.Yaw:0.0}; pitch={metrics?.Pitch:0.0}; roll={metrics?.Roll:0.0}. Teacher review required.",
-                DetectedFaceCount = metrics?.FaceCount,
+                Severity = key == "face_visibility" ? ProctoringSeverity.Low : key == "attention" ? ProctoringSeverity.Medium : ProctoringSeverity.High,
+                Description = key == "attention" && repeatedLookingAway
+                    ? "Repeated looks away from the calibrated examination screen."
+                    : key == "attention" ? "Possible " + (attentionIsHead ? "head movement" : "eye/gaze deviation") +
+                    " relative to the calibrated screen (" + (directionCode.Length <= 24 ? directionCode : "unknown") + "). Review in context." :
+                    key == "persons" ? people?.ContextSupported == true
+                        ? $"More than one person detected during the test ({people.LiveCount} supported). Review original camera video."
+                        : $"Possible second person ({people?.ObservedCount ?? 0} face/body regions). Live-person support is incomplete; Teacher review only." :
+                    key == "absence" ? "The candidate was physically absent from the camera view. Review the camera evidence." :
+                    key == "face_visibility" ? "Candidate face not visible in usable camera frames. Physical absence or identity change is NOT confirmed; review the evidence." :
+                    "Supporting mouth movement observation.",
+                DetectedFaceCount = key == "persons" ? (people?.ObservedCount ?? metrics?.FaceCount) : metrics?.FaceCount,
+                // A provisional face count is NOT the supported simultaneous-person count.
+                MaxSimultaneousPeople = key == "persons" && people?.ContextSupported == true ? people.LiveCount : null,
+                MachineObservationsJson = key == "absence" ? System.Text.Json.JsonSerializer.Serialize(new
+                {
+                    source = "Model2Behavior",
+                    physicalPresenceState = presence?.State,
+                    personDetectorReady = metrics?.PersonDetectorReady,
+                    cameraPresenceUsable = metrics?.PresenceOk,
+                    modelElapsedSeconds = presence?.ElapsedSeconds,
+                    confirmationRequiredSeconds = Math.Max(3, _proctoringOptions.FaceAbsencePersistenceSeconds)
+                }) : key == "persons" && people is not null
+                    ? System.Text.Json.JsonSerializer.Serialize(new { status = people, detectorReady = metrics?.PersonDetectorReady, inferenceMs = metrics?.PersonInferenceMs })
+                    : key == "attention" && metrics is not null
+                    ? System.Text.Json.JsonSerializer.Serialize(new { signalCode = directionCode, calibrated, supportedDurationSeconds = attentionDuration, repeatedGlances = repeatedLookingAway, metrics.Yaw, metrics.Pitch, metrics.Roll, metrics.GazeLeft, metrics.GazeRight, metrics.GazeUp, metrics.GazeDown, metrics.QualityOk, metrics.HeadPoseOk, metrics.FrameProcessingMs })
+                    : null,
                 ModelName = _behaviorOptions.ModelName,
                 ModelVersion = result.Data.ModuleVersion ?? _behaviorOptions.ModelVersion
-            }));
+            }, key == "absence" && presence?.State is ("POSSIBLE_ABSENCE" or "VERIFIED_PHYSICAL_ABSENCE") ? presence.ElapsedSeconds
+               : key == "persons" && people?.ContextSupported == true ? people.SupportedDurationSeconds
+               : key == "attention" ? attentionDuration : null,
+               key == "persons" && people?.ContextSupported == true,
+               RepeatedAttention: key == "attention" && repeatedLookingAway,
+               SupportedAttention: key == "attention" && attentionSignal == true));
         }
         var logIds = await _states.ObserveAsync(active.AttemptId, active.SessionAttemptId, StudentId,
             observationStartedAt, observations, HttpContext.RequestAborted);
-        await AttachObservationImageAsync(logIds, image, active.Attempt.ExamId, active.AttemptId);
+        var evidenceLogIds = logIds.Count == 0 ? Array.Empty<int>() : await _context.ProctoringLogs.AsNoTracking()
+            .Where(l => logIds.Contains(l.LogId) && l.ParentIncidentId == null &&
+                (l.IncidentKey != "persons" || l.AlertType == ProctoringAlertType.MultipleFaces))
+            .Select(l => l.LogId).ToArrayAsync(HttpContext.RequestAborted);
+        // Attention screenshot and clip are handled by the browser evidence queue.
+        // Keep the existing server fallback for separate face-visibility records.
+        if (feature == "attention" && evidenceLogIds.Length > 0)
+        {
+            var faceVisibilityIds = await _context.ProctoringLogs.AsNoTracking()
+                .Where(l => evidenceLogIds.Contains(l.LogId) && l.IncidentKey == "face_visibility")
+                .Select(l => l.LogId).ToArrayAsync(HttpContext.RequestAborted);
+            await AttachObservationImageAsync(faceVisibilityIds, image, active.Attempt.ExamId, active.AttemptId);
+        }
+        else if (feature != "persons")
+            await AttachObservationImageAsync(evidenceLogIds, image, active.Attempt.ExamId, active.AttemptId);
+        var absenceIncident = feature is "attention" or "persons" ? null : await _context.ProctoringLogs.AsNoTracking().Where(l => l.AttemptId == active.AttemptId && l.SessionAttemptId == active.SessionAttemptId && l.IncidentKey == "absence")
+            .OrderByDescending(l => l.LogId).Select(l => new { id = l.LogId, duration = l.ObservedDurationSeconds, startedAt = l.IncidentStartedAtUtc, endedAt = l.IncidentEndedAtUtc, recoveryStatus = l.RecoveryStatus }).FirstOrDefaultAsync(HttpContext.RequestAborted);
+        if (feature == "absence")
+            HttpContext.RequestServices.GetService<ILogger<ExamController>>()?.LogInformation(
+                "Absence trace {RequestId} attempt {AttemptId} incident {IncidentId} state {PresenceState} verifiedSeconds {Seconds} signal {Signal} newLogs {LogIds} workerMs {WorkerMs} inferenceMs {InferenceMs} elapsedMs {ElapsedMs}",
+                HttpContext.TraceIdentifier, active.AttemptId, absenceIncident?.id, presence?.State,
+                presence?.ElapsedSeconds, result.Data.Signals.GetValueOrDefault("absence"),
+                string.Join(",", logIds), workerMs, metrics?.FrameProcessingMs, (DateTime.Now - observationStartedAt).TotalMilliseconds);
+        if (feature == "absence")
+            return Json(new
+            {
+                ok = true, observationOnly = true, metrics, presenceStatus = presence,
+                capabilities = result.Data.Capabilities, absenceIncident, evidenceLogIds, logIds,
+                state = logIds.Count > 0 ? await _states.GetAsync(active.AttemptId, HttpContext.RequestAborted) : null
+            });
+        var peopleIncident = feature != "persons" ? null : await _context.ProctoringLogs.AsNoTracking()
+            .Where(l => l.AttemptId == active.AttemptId && l.SessionAttemptId == active.SessionAttemptId && l.IncidentKey == "persons")
+            .OrderByDescending(l => l.LogId).Select(l => new { id = l.LogId, endedAt = l.IncidentEndedAtUtc,
+                confirmed = l.AlertType == ProctoringAlertType.MultipleFaces && l.CountsAsViolation })
+            .FirstOrDefaultAsync(HttpContext.RequestAborted);
+        var behaviorLogs = await _context.ProctoringLogs.AsNoTracking().Where(l => l.AttemptId == active.AttemptId &&
+            l.SessionAttemptId == active.SessionAttemptId && l.IncidentEndedAtUtc == null &&
+            l.IncidentKey != null && l.IncidentKey != "mouth" && incidentKeys.Contains(l.IncidentKey))
+            .OrderByDescending(l => l.LogId).Take(4).ToListAsync(HttpContext.RequestAborted);
+        var behaviorWarnings = behaviorLogs.Select(l => new {
+            id = l.LogId,
+            type = l.AlertType.ToString(),
+            title = TeacherAlertContract.Title(l.AlertType),
+            countsAsViolation = l.CountsAsViolation,
+            duration = l.ObservedDurationSeconds,
+            count = l.MaxSimultaneousPeople
+        }).ToArray();
         return Json(new
         {
             ok = true,
             observationOnly = true,
             metrics,
+            behaviorWarnings,
+            faceNotVisibleEvent = await _context.ProctoringLogs.AsNoTracking().AnyAsync(l => logIds.Contains(l.LogId) && l.AlertType == ProctoringAlertType.FaceNotVisible),
+            peopleIncident,
+            peopleSignal = feature == "persons" ? result.Data.Signals.GetValueOrDefault("persons") : null,
+            attentionStatus = result.Data.AttentionStatus,
+            capabilities = result.Data.Capabilities,
+            presenceStatus = presence,
+            absenceTrace = feature == "absence" ? new { requestId = HttpContext.TraceIdentifier,
+                attemptId = active.AttemptId, receivedAt = observationStartedAt.ToUniversalTime(),
+                completedAt = DateTime.UtcNow, elapsedSeconds = presence?.ElapsedSeconds } : null,
+            absenceIncident,
+            evidenceLogIds,
             events = result.Data.Events,
             logIds,
             state = logIds.Count > 0 ? await _states.GetAsync(active.AttemptId, HttpContext.RequestAborted) : null
@@ -1612,10 +1905,38 @@ public partial class ExamController : Controller
         if (logIds.Count == 0 || !_proctoringOptions.CaptureEvidence || StudentId is null) return;
         var prefix = image.ContentType.Equals("image/png", StringComparison.OrdinalIgnoreCase)
             ? "data:image/png;base64," : "data:image/jpeg;base64,";
-        var key = await _evidenceStore.SaveDataUrlAsync(StudentId, examId, attemptId,
-            prefix + Convert.ToBase64String(image.Bytes), HttpContext.RequestAborted);
+        var dataUrl = prefix + Convert.ToBase64String(image.Bytes);
+        string? sharedKey = null;
         var logs = await _context.ProctoringLogs.Where(x => logIds.Contains(x.LogId) && x.StudentId == StudentId).ToListAsync();
-        foreach (var log in logs) log.ScreenshotPath ??= key;
+        foreach (var log in logs)
+        {
+            if (log.IncidentKey == "absence")
+            {
+                log.ScreenshotPath ??= await _evidenceStore.SaveDataUrlAsync(StudentId, examId, attemptId,
+                    dataUrl, HttpContext.RequestAborted, absenceIncidentId: log.LogId);
+                continue;
+            }
+            var key = sharedKey ??= await _evidenceStore.SaveDataUrlAsync(StudentId, examId, attemptId,
+                dataUrl, HttpContext.RequestAborted);
+            if (log.IncidentKey == "persons" && log.ScreenshotPath is not null && key is not null)
+                _context.ProctoringLogs.Add(new ProctoringLog
+                {
+                    ParentIncidentId = log.LogId,
+                    StudentId = log.StudentId,
+                    ExamId = log.ExamId,
+                    AttemptId = log.AttemptId,
+                    SessionAttemptId = log.SessionAttemptId,
+                    AlertType = ProctoringAlertType.PersonEvidence,
+                    ScreenshotPath = key,
+                    CountsAsViolation = false,
+                    PolicyProcessed = true,
+                    ModelName = "maximum-count screenshot",
+                    FrameCapturedAt = DateTime.UtcNow,
+                    MaxSimultaneousPeople = log.MaxSimultaneousPeople,
+                    CreatedDate = DateTime.UtcNow
+                });
+            log.ScreenshotPath ??= key;
+        }
         await _context.SaveChangesAsync(HttpContext.RequestAborted);
     }
 
@@ -1648,36 +1969,103 @@ public partial class ExamController : Controller
                 new { ok = false, ready = false, message = result.Message });
         }
 
-        var detections = result.Data.Detections
-            .Where(x => x.AlertEligible && x.Confidence >= _objectOptions.ConfidenceThreshold)
-            .Where(x => ProctoringObjectPolicy.BannedLabels.Contains(x.Label))
-            .OrderByDescending(x => x.Confidence)
-            .ToList();
-        // Face presence is authoritative in Model 2. Do not count YOLO extra_person again as an object.
-        detections = detections.Where(x => x.Label != "extra_person").ToList();
-        var labels = string.Join(", ", detections.Select(x => x.Label).Distinct().OrderBy(x => x));
-        var log = new ProctoringLog
-        {
-            AlertType = ProctoringAlertType.ElectronicDeviceDetected,
-            Severity = ProctoringSeverity.Medium,
-            Description = $"[OBJECT_{detections.FirstOrDefault()?.Label.ToUpperInvariant()}] Model 3 objects: {labels}; confidence={detections.FirstOrDefault()?.Confidence:0.0000}.",
-            ConfidenceScore = detections.FirstOrDefault()?.Confidence,
-            ModelName = _objectOptions.ModelName,
-            ModelVersion = result.Data.ModuleVersion ?? _objectOptions.ModelVersion
-        };
-        var logIds = await _states.ObserveAsync(active.AttemptId, active.SessionAttemptId, StudentId,
-            observationStartedAt, new[] { new IncidentObservation("objects", detections.Count > 0, log) }, HttpContext.RequestAborted);
-        await AttachObservationImageAsync(logIds, image, active.Attempt.ExamId, active.AttemptId);
+        if (result.Data.Classes.Count == 0 || result.Data.FrameWidth <= 0 || result.Data.FrameHeight <= 0)
+            return StatusCode(503, new { ok = false, message = "Object monitoring capability metadata is unavailable. Restart the updated object service." });
+        var logIds = new List<int>(); var pendingPolicy = new List<int>(); var activeObjects = new List<int>();
+        string[] unsupportedClasses = [];
+        var objectExamId = active.Attempt.ExamId;
+        var objectSessionId = active.SessionAttemptId;
+        await _context.Database.CreateExecutionStrategy().ExecuteAsync(async () => {
+            _context.ChangeTracker.Clear(); logIds.Clear(); pendingPolicy.Clear(); activeObjects.Clear(); unsupportedClasses = [];
+            active = await _context.ExamSessionAttempts.Include(s => s.Attempt).SingleAsync(s => s.SessionAttemptId == objectSessionId, HttpContext.RequestAborted);
+            await using (var tx = await _context.Database.BeginTransactionAsync(HttpContext.RequestAborted))
+            {
+                await ProctoringStateService.LockAttemptAsync(_context, active.AttemptId, HttpContext.RequestAborted);
+                await _context.Entry(active).ReloadAsync(HttpContext.RequestAborted);
+                await _context.Entry(active.Attempt!).ReloadAsync(HttpContext.RequestAborted);
+                var now = observationStartedAt.ToUniversalTime();
+                if (active.Status != AttemptStatus.InProgress || active.Attempt!.Status != AttemptStatus.InProgress ||
+                    active.Attempt.TeacherResumedAtUtc >= now)
+                    return;
+
+                var exam = await _context.Exams.AsNoTracking().SingleAsync(e => e.ExamId == objectExamId);
+                var policy = ProctoringObjectPolicy.Read(exam.ObjectPolicyJson);
+                unsupportedClasses = policy.Prohibited
+                    .Where(label => !result.Data.Classes.Contains(label, StringComparer.OrdinalIgnoreCase))
+                    .ToArray();
+                ObjectSceneState tracking;
+                try { tracking = System.Text.Json.JsonSerializer.Deserialize<ObjectSceneState>(active.ObjectTrackingJson ?? "{}") ?? new(); } catch (System.Text.Json.JsonException) { tracking = new(); }
+                if (tracking.LastFrame >= now) return;
+                var changed = ContextObjectTracker.Update(tracking, result.Data, policy, now);
+                foreach (var track in tracking.Tracks)
+                {
+                    ProctoringLog? log = track.LogId is int id ? await _context.ProctoringLogs.SingleOrDefaultAsync(l => l.LogId == id && l.AttemptId == active.AttemptId) : null;
+                    if (log is null && ContextObjectTracker.Ready(track, policy))
+                    {
+                        log = new ProctoringLog
+                        {
+                            StudentId = StudentId,
+                            ExamId = objectExamId,
+                            AttemptId = active.AttemptId,
+                            SessionAttemptId = active.SessionAttemptId,
+                            AlertType = track.ReviewOnly ? ProctoringAlertType.ObjectObservation : ProctoringAlertType.ElectronicDeviceDetected,
+                            IncidentKey = "object:" + track.Id[..24], // database column is nvarchar(32)
+                            ClientEventId = "object:" + active.SessionAttemptId + ":" + track.Id,
+                            ModelName = ProctoringObjectPolicy.Title(track.Label),
+                            ModelVersion = result.Data.ModuleVersion,
+                            ConfidenceScore = track.MaxConfidence,
+                            Severity = track.ReviewOnly ? ProctoringSeverity.Medium : ProctoringSeverity.High,
+                            Description = track.ReviewOnly
+                                ? $"{ProctoringObjectPolicy.Title(track.Label)} across multiple camera frames. Its role in the examination is uncertain."
+                                : $"[OBJECT_{track.Label.ToUpperInvariant()}] {ProctoringObjectPolicy.Title(track.Label)} across multiple camera frames. This item is prohibited for this examination.",
+                            CountsAsViolation = false,
+                            PolicyPending = !track.ReviewOnly,
+                            PolicyProcessed = track.ReviewOnly,
+                            FrameCapturedAt = observationStartedAt,
+                            CreatedDate = DateTime.Now,
+                            IncidentStartedAtUtc = track.First,
+                            RecoveryStatus = "Visible"
+                        };
+                        _context.ProctoringLogs.Add(log); await _context.SaveChangesAsync(); track.LogId = log.LogId; logIds.Add(log.LogId);
+                    }
+                    if (log is not null)
+                    {
+                        log.ConfidenceScore = Math.Max(log.ConfidenceScore ?? 0m, track.MaxConfidence);
+                        log.ObservedDurationSeconds = Math.Max(log.ObservedDurationSeconds ?? 0, (track.Last - (log.IncidentStartedAtUtc ?? track.First)).TotalSeconds);
+                        log.RecoveryStatus = track.Closed ? "NoLongerObserved" : track.Uncertain ? "TrackingUncertain" :
+                            changed ? "SceneChanged" : track.MissingSince.HasValue ? "TemporarilyUnobserved" : "Visible";
+                        if (track.Closed) log.IncidentEndedAtUtc = track.Last;
+                        if (log.MachineObservationsJson is null) log.MachineObservationsJson = System.Text.Json.JsonSerializer.Serialize(new { label = track.Label, trackId = track.Id, physicalStatus = "unverified", interaction = "unavailable", context = track.Context, maximumConfidence = track.MaxConfidence, detectionSamples = track.Samples, sceneRevision = tracking.Revision, policyVersion = policy.Version, modelHash = result.Data.ModelSha256 });
+                        if (!track.ReviewOnly && !track.Closed && !track.Dismissed && !track.Uncertain && !track.MissingSince.HasValue &&
+                            tracking.LastUsableFrame == now) activeObjects.Add(log.LogId);
+                        if (log.PolicyPending && !log.PolicyProcessed) pendingPolicy.Add(log.LogId);
+                    }
+                }
+                active.ObjectTrackingJson = System.Text.Json.JsonSerializer.Serialize(tracking);
+                await _context.SaveChangesAsync(); await tx.CommitAsync();
+            }
+        });
+        foreach (var id in pendingPolicy) await _states.ApplyLogAsync(id, HttpContext.RequestAborted);
+        if (!request.QueueEvidence)
+            await AttachObservationImageAsync(logIds, image, objectExamId, active.AttemptId);
+        foreach (var id in logIds.Except(pendingPolicy))
+            await _states.NotifyObservationAsync(id, HttpContext.RequestAborted);
+        var visibleObjectIds = logIds.Concat(activeObjects).Distinct().ToArray();
+        var objectWarnings = await _context.ProctoringLogs.AsNoTracking().Where(l => visibleObjectIds.Contains(l.LogId) && l.StudentId == StudentId)
+            .Select(l => new { id = l.LogId, name = l.ModelName, reviewOnly = !l.CountsAsViolation })
+            .ToListAsync(HttpContext.RequestAborted);
         return Json(new
         {
             ok = true,
             ready = true,
-            clear = detections.Count == 0,
-            duplicate = detections.Count > 0 && logIds.Count == 0,
-            observationOnly = true,
-            detections,
-            observations = result.Data.Detections.Where(x => !x.AlertEligible),
+            observationOnly = logIds.Count == 0,
+            objectWarnings,
+            detections = result.Data.Detections,
+            unsupportedClasses,
+            cameraUncertain = result.Data.FrameUsable == false,
             logIds,
+            activeObjectIncidentIds = activeObjects,
+            physicalVerificationAvailable = false,
             state = await _states.GetAsync(active.AttemptId, HttpContext.RequestAborted)
         });
     }
@@ -1699,6 +2087,7 @@ public partial class ExamController : Controller
     {
         if (StudentId is null) return Unauthorized();
         var observationStartedAt = receivedAt ?? DateTime.Now;
+        if (request.AudioMonotonicStart is double start && (!double.IsFinite(start) || start < 0) || request.AudioMonotonicEnd is double end && (!double.IsFinite(end) || end < 0) || request.AudioMonotonicStart > request.AudioMonotonicEnd) return BadRequest(new { message = "Invalid audio timing." });
         if (request.Audio is null || request.Audio.Length <= 0)
             return BadRequest(new { ok = false, message = "A fresh microphone clip is required." });
 
@@ -1737,26 +2126,41 @@ public partial class ExamController : Controller
             .OrderByDescending(x => x.ModelName != "Speech screening").ThenByDescending(x => x.LogId).FirstOrDefaultAsync();
         if (!detectionOnly && request.DetectionLogId is int detectionId)
         {
-            var recent = DateTime.Now.AddSeconds(-30);
+            var recent = DateTime.Now.AddHours(-24);
             detectedLog = await _context.ProctoringLogs.FirstOrDefaultAsync(x => x.LogId == detectionId &&
                 x.StudentId == StudentId && x.SessionAttemptId == active.SessionAttemptId && x.AttemptId == active.AttemptId &&
-                (x.IncidentKey == "speech" || x.ModelName == "Speech screening") && x.CreatedDate >= recent);
+                x.ParentIncidentId == null && x.ModelName == "Speech screening" && x.CreatedDate >= recent);
         }
         var spokenQuestions = new List<Question>();
-        // Delayed ASR must use the question captured by the trusted VAD screening,
-        // never the question visible when transcription eventually finishes.
-        var contextIds = !detectionOnly && detectedLog?.QuestionIdAtCapture is int capturedQuestion
-            ? new[] { capturedQuestion }
-            : request.QuestionIds.Append(request.QuestionId ?? 0).Where(id => id > 0).Distinct().ToArray();
-        if (contextIds.Length == 0 && active.LastQuestionId.HasValue)
-            contextIds = new[] { active.LastQuestionId.Value };
+        // Delayed transcription must NEVER silently use the currently displayed
+        // question. A missing/or mismatched screening anchor means context UNKNOWN.
+        var firstSpeechUtc = detectedLog?.IncidentStartedAtUtc ?? detectedLog?.FrameCapturedAt?.ToUniversalTime();
+        var lastSpeechUtc = detectedLog?.IncidentEndedAtUtc ?? firstSpeechUtc;
+        var capturedUtc = request.AudioCapturedAtUtc?.UtcDateTime;
+        var captureTimeAligned = detectedLog is not null && capturedUtc.HasValue &&
+            (firstSpeechUtc.HasValue && lastSpeechUtc.HasValue && capturedUtc >= firstSpeechUtc.Value.AddSeconds(-5) &&
+                capturedUtc <= lastSpeechUtc.Value.AddSeconds(5));
+        // The original mouth observation only supports audio near the episode's
+        // first screening sample. Later windows may contain a different speaker.
+        var windowSpeakerSupported = detectedLog?.SpeakerAttribution == "mouth_correlated" &&
+            capturedUtc is DateTime speechCapture && firstSpeechUtc is DateTime firstSpeech &&
+            Math.Abs((speechCapture - firstSpeech).TotalSeconds) <= 2;
+        var capturedId = request.QuestionId ?? detectedLog?.QuestionIdAtCapture;
+        var captureQuestionAligned = capturedId.HasValue && request.QuestionIds.All(id => id == capturedId);
+        var captureContextReliable = !detectionOnly && captureTimeAligned && captureQuestionAligned;
+        var contextIds = detectionOnly
+            ? request.QuestionIds.Append(request.QuestionId ?? 0).Where(id => id > 0).Distinct().ToArray()
+            : captureContextReliable ? new[] { capturedId!.Value } : Array.Empty<int>();
         if (contextIds.Length > 8) return BadRequest(new { ok = false, message = "Too many question contexts." });
         foreach (var questionId in contextIds)
         {
-            var ownedQuestion = await GetSessionQuestionAsync(active, questionId);
-            if (ownedQuestion is null) return BadRequest(new { ok = false, message = "Invalid question context." });
+            var ownedQuestion = detectionOnly ? await GetSessionQuestionAsync(active, questionId) : await CapturedSpeechQuestion(detectedLog, questionId);
+            if (ownedQuestion is null) { if (detectionOnly) return BadRequest(new { ok = false, message = "Invalid question context." }); captureContextReliable = false; continue; }
             spokenQuestions.Add(ownedQuestion);
         }
+        var analysisKey = detectedLog is not null ? $"asr:{detectedLog.LogId}:{capturedId ?? 0}:{clipKey}" : null;
+        if (analysisKey is not null && await _context.ProctoringLogs.AnyAsync(l => l.ClientEventId == analysisKey, HttpContext.RequestAborted))
+            return Json(new { ok = true, duplicate = true, detectionLogId = detectedLog!.LogId });
         var audio = new SpeechAudio(bytes, mediaType, request.Audio.FileName)
         {
             DetectionOnly = detectionOnly,
@@ -1764,29 +2168,126 @@ public partial class ExamController : Controller
                 new[] { q.OptionA, q.OptionB, q.OptionC, q.OptionD, q.OptionE ?? "" })).ToArray()
         };
         var result = streamedResult ?? await _speechRecognition.TranscribeAsync(audio, HttpContext.RequestAborted);
-        if (!result.Success || result.Data is null)
-        {
-            return StatusCode(
-                result.ServiceUnavailable ? StatusCodes.Status503ServiceUnavailable : StatusCodes.Status422UnprocessableEntity,
+        var speechUnavailable = !result.Success || result.Data is null;
+        IActionResult Unavailable() =>
+            StatusCode(result.ServiceUnavailable ? StatusCodes.Status503ServiceUnavailable : StatusCodes.Status422UnprocessableEntity,
                 new { ok = false, ready = false, message = result.Message });
-        }
+        if (speechUnavailable && detectedLog is null)
+            return Unavailable();
 
-        var transcript = string.Join(' ', result.Data.Transcript.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries));
-        var vadSpeech = result.Data.VadSpeechSeconds >= .3;
-        if (!result.Data.SpeechDetected || (!vadSpeech && (string.IsNullOrWhiteSpace(transcript) ||
-            result.Data.Confidence < _speechOptions.MinimumTranscriptConfidence)))
+        var observationNotifications = new HashSet<int>();
+        var contextNotifications = new HashSet<int>();
+        var speechPolicyIds = new HashSet<int>();
+        return await _context.Database.CreateExecutionStrategy().ExecuteAsync(async () =>
         {
+            var anchorId = detectedLog?.LogId;
+            speechPolicyIds.Clear();
+            observationNotifications.Clear();
+            contextNotifications.Clear();
+            _context.ChangeTracker.Clear();
+            await using var transaction = await _context.Database.BeginTransactionAsync(HttpContext.RequestAborted);
+            await ProctoringStateService.LockAttemptAsync(_context, request.AttemptId, HttpContext.RequestAborted);
+            active = (await FindActiveSessionAsync(request.AttemptId, request.SessionAttemptId))!;
+            if (active?.Attempt is null) return (IActionResult)BadRequest(new { message = "Session is no longer active." });
+            detectedLog = anchorId.HasValue ? await _context.ProctoringLogs.SingleAsync(l => l.LogId == anchorId.Value) : null;
+            if (analysisKey is not null && await _context.ProctoringLogs.AnyAsync(l => l.ClientEventId == analysisKey, HttpContext.RequestAborted))
+                return Json(new { ok = true, duplicate = true, detectionLogId = anchorId });
+            if (speechUnavailable && detectedLog is { SpeechTranscript: null })
+                detectedLog.MachineObservationsJson = EnrichSpeechMetadata(detectedLog.MachineObservationsJson,
+                    System.Text.Json.JsonSerializer.Serialize(new { transcriptionStatus = "unavailable", speaker = detectedLog.SpeakerAttribution, source = "microphone" }));
+            var response = speechUnavailable ? Unavailable() : await PersistSpeechAsync(result.Data!);
+            await _context.SaveChangesAsync(HttpContext.RequestAborted);
+            await transaction.CommitAsync(HttpContext.RequestAborted);
+            // Publish only committed incidents; release the transaction before state reads.
+            await transaction.DisposeAsync();
+            foreach (var id in speechPolicyIds) await _states.ApplyLogAsync(id, HttpContext.RequestAborted);
+            foreach (var id in observationNotifications) await _states.NotifyObservationAsync(id, HttpContext.RequestAborted);
+            foreach (var id in contextNotifications) await _states.NotifySpeechContextAsync(id, HttpContext.RequestAborted);
+            return response;
+        });
+
+        async Task<IActionResult> PersistSpeechAsync(SpeechRecognitionResponse speechData)
+        {
+        var transcript = string.Join(' ', speechData.Transcript.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries));
+        var vadSpeech = double.IsFinite(speechData.VadSpeechSeconds) && speechData.VadSpeechSeconds >= .3;
+        if (detectionOnly && !vadSpeech)
+            speechData.SpeechDetected = false;
+        if (!speechData.SpeechDetected || (!vadSpeech && (string.IsNullOrWhiteSpace(transcript) ||
+            speechData.Confidence < _speechOptions.MinimumTranscriptConfidence)))
+        {
+            if (!detectionOnly && detectedLog is { SpeechTranscript: null })
+            {
+                detectedLog.MachineObservationsJson = EnrichSpeechMetadata(detectedLog.MachineObservationsJson, System.Text.Json.JsonSerializer.Serialize(new { transcriptionStatus = "no_intelligible_speech", speaker = "unknown", language = speechData.Language }));
+                await _context.SaveChangesAsync(HttpContext.RequestAborted);
+            }
+            var elevatedNoise = false;
+            var newNoiseEpisode = false;
+            int? noiseLogId = null;
             if (detectionOnly)
-                await _states.ObserveAsync(active.AttemptId, active.SessionAttemptId, StudentId, observationStartedAt,
-                    new[] { new IncidentObservation("speech", false, new ProctoringLog()) }, HttpContext.RequestAborted);
+            {
+                var last = await _context.ProctoringLogs.Where(l => l.SessionAttemptId == active.SessionAttemptId && l.ModelName == "Speech screening")
+                    .OrderByDescending(l => l.LogId).FirstOrDefaultAsync();
+                if (last is not null && (observationStartedAt.ToUniversalTime() - (last.IncidentEndedAtUtc ?? last.CreatedDate.ToUniversalTime())).TotalSeconds >= 3)
+                    last.RecoveryStatus = "Ended";
+                // Energy is used only for a non-counting environmental sound advisory.
+                var rms = SpeechNoisePolicy.Pcm16WavRms(bytes);
+                if (SpeechNoisePolicy.ElevatedUnknownNoise(rms, speechData.SpeechDetected))
+                {
+                    var previousNoise = await _context.ProctoringLogs.Where(x =>
+                        x.AttemptId == active.AttemptId && x.SessionAttemptId == active.SessionAttemptId &&
+                        x.ModelName == "Ambient audio screening").OrderByDescending(x => x.LogId).FirstOrDefaultAsync(HttpContext.RequestAborted);
+                    elevatedNoise = true;
+                    if (previousNoise?.IncidentEndedAtUtc is DateTime lastNoise &&
+                        observationStartedAt.ToUniversalTime() - lastNoise < TimeSpan.FromSeconds(3))
+                    {
+                        previousNoise.IncidentEndedAtUtc = observationStartedAt.ToUniversalTime();
+                        previousNoise.ObservedDurationSeconds = Math.Max(0, (observationStartedAt.ToUniversalTime() - previousNoise.IncidentStartedAtUtc!.Value).TotalSeconds);
+                        noiseLogId = previousNoise.LogId;
+                    }
+                    else
+                    {
+                        var environmental = new ProctoringLog
+                        {
+                            StudentId = StudentId,
+                            ExamId = active.Attempt.ExamId,
+                            AttemptId = active.AttemptId,
+                            SessionAttemptId = active.SessionAttemptId,
+                            AlertType = ProctoringAlertType.AudioDetected,
+                            ModelName = "Ambient audio screening",
+                            IncidentKey = "ambient",
+                            IncidentStartedAtUtc = observationStartedAt.ToUniversalTime(),
+                            IncidentEndedAtUtc = observationStartedAt.ToUniversalTime(),
+                            RecoveryStatus = "Observed",
+                            Description = "Elevated environmental sound; its source is unknown. Teacher review requested. No cheating strike.",
+                            CountsAsViolation = false,
+                            PolicyPending = false,
+                            PolicyProcessed = true,
+                            FrameCapturedAt = observationStartedAt,
+                            CreatedDate = DateTime.Now,
+                            ClientEventId = Guid.NewGuid().ToString("N"),
+                            IsReviewed = false,
+                            MachineObservationsJson = System.Text.Json.JsonSerializer.Serialize(new { audioRms = rms, vadSpeechDetected = false, classification = "environmental_sound_uncertain" })
+                        };
+                        _context.ProctoringLogs.Add(environmental);
+                        await _context.SaveChangesAsync(HttpContext.RequestAborted);
+                        observationNotifications.Add(environmental.LogId);
+                        noiseLogId = environmental.LogId;
+                        newNoiseEpisode = true;
+                        elevatedNoise = true;
+                    }
+                }
+            }
             return Json(new
             {
                 ok = true,
                 ready = true,
                 speechDetected = false,
+                speechKind = elevatedNoise ? "environmental_noise_uncertain" : "none",
+                notifyStudent = newNoiseEpisode,
+                detectionLogId = noiseLogId,
                 observationOnly = true,
-                language = result.Data.Language,
-                confidence = result.Data.Confidence,
+                language = speechData.Language,
+                confidence = speechData.Confidence,
                 logIds = Array.Empty<int>()
             });
         }
@@ -1798,185 +2299,201 @@ public partial class ExamController : Controller
                 ? new Dictionary<string, IncidentEpisode>()
                 : System.Text.Json.JsonSerializer.Deserialize<Dictionary<string, IncidentEpisode>>(active.ProctoringIncidentsJson) ?? new();
             var mouthSupported = SpeechAttributionPolicy.MouthSupports(incidentState.GetValueOrDefault("mouth"), observationStartedAt.ToUniversalTime());
-            var previousScreening = await _context.ProctoringLogs.AsNoTracking()
+            var previousScreening = await _context.ProctoringLogs
                 .Where(x => x.SessionAttemptId == active.SessionAttemptId && x.ModelName == "Speech screening")
                 .OrderByDescending(x => x.LogId).FirstOrDefaultAsync();
-            var conversation = previousScreening is not null && observationStartedAt - previousScreening.CreatedDate < TimeSpan.FromSeconds(10)
-                ? previousScreening.ModelVersion : Guid.NewGuid().ToString("N");
+            var recoveredSpeech = incidentState.GetValueOrDefault("speech");
+            var previousLastSpeech = previousScreening?.IncidentEndedAtUtc ?? previousScreening?.FrameCapturedAt?.ToUniversalTime() ?? previousScreening?.CreatedDate.ToUniversalTime();
+            var continuousConversation = previousScreening is not null && previousScreening.RecoveryStatus != "Ended" && previousLastSpeech.HasValue &&
+                observationStartedAt.ToUniversalTime() >= previousScreening.IncidentStartedAtUtc &&
+                observationStartedAt.ToUniversalTime() - previousLastSpeech.Value < TimeSpan.FromSeconds(3) &&
+                !(recoveredSpeech?.ClearSinceUtc is DateTime clear && !recoveredSpeech.Emitted && clear >= previousLastSpeech.Value);
+            var conversation = continuousConversation ? previousScreening!.ModelVersion : Guid.NewGuid().ToString("N");
+            // One durable observation per continuous conversation, not one per
+            // 500ms VAD packet. Reusing its ID prevents repeated teacher alerts.
+            if (continuousConversation && previousScreening is not null)
+            {
+                await CaptureSpeechQuestions(previousScreening, spokenQuestions);
+                // Only refresh the durable episode heartbeat every ~2s, not on
+                // every 500ms packet. Long conversations remain one observation.
+                if (!previousLastSpeech.HasValue || (observationStartedAt.ToUniversalTime() - previousLastSpeech.Value).TotalSeconds >= 2)
+                {
+                    previousScreening.IncidentEndedAtUtc = observationStartedAt.ToUniversalTime();
+                    previousScreening.ObservedDurationSeconds = Math.Max(0, (observationStartedAt.ToUniversalTime() -
+                        (previousScreening.IncidentStartedAtUtc ?? previousScreening.CreatedDate.ToUniversalTime())).TotalSeconds);
+                    await _context.SaveChangesAsync(HttpContext.RequestAborted);
+                }
+                return Json(new
+                {
+                    ok = true,
+                    speechDetected = true,
+                    needsContext = true,
+                    speechKind = mouthSupported ? "candidate_speech_supported" : "speech_speaker_unknown",
+                    notifyStudent = false,
+                    detectionLogId = previousScreening.LogId,
+                    logIds = Array.Empty<int>()
+                });
+            }
             var screening = new ProctoringLog
             {
                 StudentId = StudentId,
                 ExamId = active.Attempt.ExamId,
                 AttemptId = active.AttemptId,
                 SessionAttemptId = active.SessionAttemptId,
-                AlertType = ProctoringAlertType.Other,
+                AlertType = ProctoringAlertType.AudioDetected,
                 ModelName = "Speech screening",
+                IncidentKey = "speech",
+                IncidentStartedAtUtc = observationStartedAt.ToUniversalTime(),
+                RecoveryStatus = "Active",
                 ModelVersion = conversation,
-                Description = "Speech present; speaker attribution is uncertain until correlated with video. Awaiting question context.",
-                QuestionIdAtCapture = request.QuestionId ?? active.LastQuestionId,
+                Description = "Speech was heard near the microphone. Review the audio and available camera context.",
+                // Do not substitute a later/current question when the audio packet omitted it.
+                QuestionIdAtCapture = request.QuestionId,
                 SpeakerAttribution = mouthSupported ? "mouth_correlated" : "unknown",
                 DetectedFaceCount = null,
                 CountsAsViolation = false,
                 PolicyProcessed = true,
                 FrameCapturedAt = observationStartedAt,
+                IncidentEndedAtUtc = observationStartedAt.ToUniversalTime(),
                 ClientEventId = clipKey + Guid.NewGuid().ToString("N"),
                 CreatedDate = DateTime.Now
             };
             _context.ProctoringLogs.Add(screening);
             await _context.SaveChangesAsync(HttpContext.RequestAborted);
-            IReadOnlyList<int> immediateIds = Array.Empty<int>();
-            if (vadSpeech && mouthSupported)
-            {
-                // Temporal mouth correlation supports attribution; VAD alone never does.
-                var immediate = new ProctoringLog
-                {
-                    AlertType = ProctoringAlertType.TalkingDetected,
-                    Severity = ProctoringSeverity.Medium,
-                    QuestionIdAtCapture = request.QuestionId ?? active.LastQuestionId,
-                    SpeakerAttribution = "mouth_correlated",
-                    Description = $"[CANDIDATE_SPEECH] conversation={conversation}; Speech coincides with candidate mouth movement; transcript analysis is pending.",
-                    ModelName = _speechOptions.ModelName,
-                    ModelVersion = result.Data.ModuleVersion,
-                    ClientEventId = clipKey + Guid.NewGuid().ToString("N"),
-                    DurationSeconds = (int)Math.Ceiling(result.Data.VadSpeechSeconds)
-                };
-                immediateIds = await _states.ObserveAsync(active.AttemptId, active.SessionAttemptId, StudentId, observationStartedAt,
-                    new[] { new IncidentObservation("speech", true, immediate) }, HttpContext.RequestAborted);
-            }
-            if (_proctoringOptions.CaptureEvidence && immediateIds.Count > 0)
-            {
-                var evidenceKey = await _evidenceStore.SaveUploadAsync(StudentId, active.Attempt.ExamId, active.AttemptId, request.Audio, HttpContext.RequestAborted);
-                var speechEvidence = await _context.ProctoringLogs.SingleAsync(x => x.LogId == immediateIds[0]);
-                speechEvidence.RecordingPath = evidenceKey; speechEvidence.RecordingIncludesAudio = evidenceKey is not null;
-                await _context.SaveChangesAsync(HttpContext.RequestAborted);
-            }
-            var latestSpeech = await _context.ProctoringLogs.AsNoTracking().Where(x => x.AttemptId == active.AttemptId && x.SessionAttemptId == active.SessionAttemptId && x.IncidentKey == "speech")
-                .OrderByDescending(x => x.LogId).FirstOrDefaultAsync();
+            screening.MachineObservationsJson = System.Text.Json.JsonSerializer.Serialize(new { transcriptionStatus = "pending", speaker = screening.SpeakerAttribution, source = "microphone", enhanced = false });
+            await CaptureSpeechQuestions(screening, spokenQuestions);
+            await _context.SaveChangesAsync(HttpContext.RequestAborted);
+            // SignalR + Teacher roster use this same durable log. It is review-only:
+            // no strike is issued until an independently qualifying incident exists.
+            observationNotifications.Add(screening.LogId);
             return Json(new
             {
                 ok = true,
                 speechDetected = true,
                 needsContext = true,
-                logIds = immediateIds,
-                detectionLogId = immediateIds.Count > 0 ? latestSpeech?.LogId : screening.LogId,
-                softReminderId = immediateIds.Count > 0 && latestSpeech?.ModelName == "Speech soft reminder" ? latestSpeech.LogId : (int?)null,
-                state = await _states.GetAsync(active.AttemptId, HttpContext.RequestAborted)
+                speechKind = mouthSupported ? "candidate_speech_supported" : "speech_speaker_unknown",
+                notifyStudent = true,
+                logIds = Array.Empty<int>(),
+                detectionLogId = screening.LogId,
+                reviewOnly = true
             });
         }
 
-        var semantic = result.Data.ContextAnalysis;
+        var semantic = speechData.ContextAnalysis;
+        var reliableSpeech = SpeechEvidencePolicy.Intelligible(speechData, _speechOptions.MinimumTranscriptConfidence);
         var spokenQuestion = spokenQuestions.FirstOrDefault(q => q.QuestionId == semantic?.QuestionId);
-        var contextMatch = new SpeechContextMatch(SpeechContextAnalyzer.IsHighSeverity(semantic) && semantic?.QuestionId is int semanticQuestionId && spokenQuestions.Any(q => q.QuestionId == semanticQuestionId), semantic?.Reason ?? "Semantic comparison unavailable; retain observation for review.");
-        var highSeveritySpeech = SpeechContextAnalyzer.IsHighSeverity(semantic) && semantic?.QuestionId is int matchedId && spokenQuestions.Any(q => q.QuestionId == matchedId);
-        if (highSeveritySpeech)
-            contextMatch = new SpeechContextMatch(true, "Semantic similarity exceeded 0.60; teacher review required.");
-        var speechAlert = (contextMatch.Related || highSeveritySpeech) ? ProctoringAlertType.AnswerPromptSpeech : ProctoringAlertType.TalkingDetected;
-        // The same audio already received its warning in the fast VAD lane.
-        // Enrich its teacher evidence without issuing another strike.
-        if (detectedLog is not null && detectedLog.ModelName != "Speech screening")
+        var localMatches = spokenQuestions.Select(q => new { Question = q, Match = SpeechContextAnalyzer.Analyze(
+            transcript, q.QuestionText, new[] { q.OptionA, q.OptionB, q.OptionC, q.OptionD, q.OptionE }) }).ToList();
+        var selectedLocal = localMatches.FirstOrDefault(m => m.Match.Related) ??
+            localMatches.FirstOrDefault(m => m.Match.Ambiguous);
+        var localMatch = selectedLocal?.Match ?? SpeechContextAnalyzer.Analyze(transcript, "", Array.Empty<string>());
+        var semanticMatchedCaptured = captureContextReliable &&
+            spokenQuestion?.QuestionId == capturedId &&
+            SpeechContextAnalyzer.IsHighSeverity(semantic);
+        var contextReview = captureContextReliable && reliableSpeech &&
+            (localMatch.Related || semanticMatchedCaptured && !localMatch.Ambiguous);
+        var highSeveritySpeech = contextReview && !localMatch.Ambiguous &&
+            (localMatch.Related || semanticMatchedCaptured);
+        var candidateSpeech = reliableSpeech && _speechOptions.TalkingProhibited && windowSpeakerSupported;
+        // Require independent phrase and semantic matches to the same captured question.
+        var questionSpeechConfirmed = windowSpeakerSupported && highSeveritySpeech && localMatch.Related && semanticMatchedCaptured;
+        var contextMatch = new SpeechContextMatch(contextReview,
+            localMatch.Related || localMatch.Ambiguous ? localMatch.Reason :
+            "Semantic comparison suggests question relevance; teacher review required.",
+            localMatch.MatchedPhrases ?? semantic?.MatchedPhrases, localMatch.MatchKind, localMatch.Ambiguous);
+        var matchedQuestionId = contextReview ?
+            (selectedLocal?.Question.QuestionId ?? spokenQuestion?.QuestionId ?? detectedLog?.QuestionIdAtCapture) : null;
+        if (detectedLog?.ModelName == "Speech screening" && analysisKey is not null)
         {
-            var detail = $"[{(contextMatch.Related ? "QUESTION_RELATED_SPEECH" : "SPEECH_DETECTED")}] Speech context (review required): similarity={semantic?.Score:0.000}; highSeverity={highSeveritySpeech}; related={contextMatch.Related}; {contextMatch.Reason}; {transcript}";
-            if (contextMatch.Related)
+            // Enrich the SAME durable VAD episode rather than creating a separate
+            // unlinked notification. Voice alone cannot prove speaker identity.
+            var previousContext = detectedLog.AlertType == ProctoringAlertType.AnswerPromptSpeech;
+            var rootMetadata = SpeechMetadata(detectedLog.MachineObservationsJson);
+            var previousObservations = rootMetadata["sourceObservations"] is System.Text.Json.Nodes.JsonValue source &&
+                source.TryGetValue<string>(out var sourceJson) ? SpeechMetadata(sourceJson) : rootMetadata;
+            var previousConfirmed = previousObservations["questionSpeechConfirmed"] is System.Text.Json.Nodes.JsonValue confirmed &&
+                confirmed.TryGetValue<bool>(out var confirmedValue) && confirmedValue;
+            var updateContext = contextMatch.Related && (!previousContext || questionSpeechConfirmed && !previousConfirmed);
+            if (updateContext)
             {
-                if (highSeveritySpeech) detectedLog.Severity = ProctoringSeverity.High;
                 detectedLog.AlertType = ProctoringAlertType.AnswerPromptSpeech;
+                detectedLog.Severity = highSeveritySpeech ? ProctoringSeverity.High : ProctoringSeverity.Medium;
+                detectedLog.Description = $"Possible discussion of exam question #{matchedQuestionId}. Teacher review required; speaker is not confirmed.";
+                detectedLog.SemanticSimilarity = semantic is not null && semantic.QuestionId == matchedQuestionId &&
+                    semantic.Score is double contextScore && double.IsFinite(contextScore) && contextScore is >= -1 and <= 1
+                    ? (decimal)contextScore : null;
+                detectedLog.MatchedQuestionId = matchedQuestionId;
             }
-            detectedLog.Description = detail.Length <= 500 ? detail : detail[..500];
-            detectedLog.SpeechTranscript = transcript[..Math.Min(transcript.Length, 4000)];
-            detectedLog.SemanticSimilarity = semantic?.Score is double matchedScore && double.IsFinite(matchedScore) && matchedScore is >= -1 and <= 1 ? (decimal)matchedScore : null;
-            detectedLog.MatchedQuestionId = spokenQuestion?.QuestionId;
-            detectedLog.SpeakerAttribution ??= "mouth_correlated";
-            // Keep the clip that actually produced this transcript as private evidence.
-            if (_proctoringOptions.CaptureEvidence && (detectedLog.RecordingPath is null || Path.GetExtension(detectedLog.RecordingPath).Equals(".wav", StringComparison.OrdinalIgnoreCase)))
+            else if (candidateSpeech && detectedLog.AlertType != ProctoringAlertType.AnswerPromptSpeech)
             {
-                detectedLog.RecordingPath = await _evidenceStore.SaveUploadAsync(StudentId, active.Attempt.ExamId, active.AttemptId, request.Audio, HttpContext.RequestAborted);
-                detectedLog.RecordingIncludesAudio = detectedLog.RecordingPath is not null;
+                detectedLog.AlertType = ProctoringAlertType.TalkingDetected;
+                detectedLog.Description = "Speech detected with synchronized candidate mouth activity; teacher review required.";
             }
-            if (_proctoringOptions.CaptureEvidence && !string.IsNullOrWhiteSpace(request.QuestionScreenshotDataUrl))
-                detectedLog.ScreenshotPath = await _evidenceStore.SaveDataUrlAsync(StudentId, active.Attempt.ExamId, active.AttemptId, request.QuestionScreenshotDataUrl, HttpContext.RequestAborted) ?? detectedLog.ScreenshotPath;
-            await _context.SaveChangesAsync(HttpContext.RequestAborted);
-            if (highSeveritySpeech) await _states.ApplyLogAsync(detectedLog.LogId, HttpContext.RequestAborted);
-            if (contextMatch.Related) await _states.NotifySpeechContextAsync(detectedLog.LogId, HttpContext.RequestAborted);
-            return Json(new
+            var windowTranscript = transcript[..Math.Min(transcript.Length, 4000)];
+            var windowMetadata = EnrichSpeechMetadata(detectedLog.MachineObservationsJson, System.Text.Json.JsonSerializer.Serialize(new {
+                transcriptionStatus = string.IsNullOrWhiteSpace(transcript) ? "unavailable" : reliableSpeech ? "available" : "uncertain",
+                language = speechData.Language, speaker = windowSpeakerSupported ? "mouth_correlated" : "unknown", model = speechData.ModuleVersion,
+                clipSeconds = speechData.DurationSeconds, capturedAt = request.AudioCapturedAtUtc,
+                monotonicStart = request.AudioMonotonicStart, monotonicEnd = request.AudioMonotonicEnd,
+                timingSource = "client_capture_clock_untrusted", serverReceivedAt = observationStartedAt.ToUniversalTime(),
+                originalQuestionId = capturedId, matchedQuestionId,
+                capturedQuestions = spokenQuestions.Select(q => new { q.QuestionId, q.QuestionText, q.OptionA, q.OptionB, q.OptionC, q.OptionD, q.OptionE }),
+                captureContextReliable, matchKind = localMatch.MatchKind, matchAmbiguous = localMatch.Ambiguous,
+                contextStatus = !captureContextReliable ? "missing_capture_context" : !reliableSpeech ? "unintelligible" :
+                    contextMatch.Related ? semantic?.Ready == true ? "possible_match" : "phrase_match_semantics_unavailable" :
+                    contextMatch.Ambiguous ? "generic_cue" : semantic?.Ready == true ? "no_supported_match" : "semantic_unavailable",
+                candidateSpeechConfirmed = candidateSpeech, questionSpeechConfirmed,
+                matchedPhrases = contextMatch.MatchedPhrases ?? Array.Empty<string>(),
+                semanticScore = semantic?.Score, semanticMargin = semantic?.RelevanceMargin,
+                segments = speechData.Segments.Select(s => new { s.Start, s.End }), source = "microphone", enhanced = false
+            }));
+            var awaitingPolicy = detectedLog.PolicyPending && !detectedLog.PolicyProcessed;
+            if (detectedLog.SpeechTranscript is null || questionSpeechConfirmed && updateContext ||
+                !awaitingPolicy && (updateContext || candidateSpeech && detectedLog.AlertType == ProctoringAlertType.TalkingDetected))
             {
-                ok = true,
-                speechDetected = true,
-                duplicate = true,
-                questionRelated = contextMatch.Related,
-                semanticReady = semantic?.Ready == true,
-                transcript,
-                language = result.Data.Language,
-                logIds = Array.Empty<int>()
+                detectedLog.SpeechTranscript = windowTranscript;
+                if (rootMetadata.ContainsKey("sourceObservations"))
+                {
+                    rootMetadata["sourceObservations"] = windowMetadata;
+                    detectedLog.MachineObservationsJson = rootMetadata.ToJsonString();
+                }
+                else
+                    detectedLog.MachineObservationsJson = windowMetadata;
+            }
+            if (!_speechOptions.ObservationOnly && detectedLog.PolicyAppliedAt is null && !detectedLog.PolicyPending &&
+                BlockingPolicy.ConfirmedSpeech(active.Attempt.Exam!, detectedLog))
+            {
+                detectedLog.PolicyPending = true;
+                detectedLog.PolicyProcessed = false;
+                speechPolicyIds.Add(detectedLog.LogId);
+            }
+            _context.ProctoringLogs.Add(new ProctoringLog {
+                ParentIncidentId = detectedLog.LogId, StudentId = StudentId, ExamId = active.Attempt.ExamId,
+                AttemptId = active.AttemptId, SessionAttemptId = active.SessionAttemptId,
+                ClientEventId = analysisKey, AlertType = ProctoringAlertType.Other, ModelName = "Speech analysis",
+                SpeechTranscript = windowTranscript, MachineObservationsJson = windowMetadata,
+                QuestionIdAtCapture = captureContextReliable ? capturedId : null, MatchedQuestionId = matchedQuestionId,
+                SpeakerAttribution = windowSpeakerSupported ? "mouth_correlated" : "unknown",
+                FrameCapturedAt = capturedUtc,
+                CountsAsViolation = false, PolicyProcessed = true,
+                Description = "Transcript and capture-time analysis for this speech window.",
+                CreatedDate = DateTime.UtcNow
             });
+            await _context.SaveChangesAsync(HttpContext.RequestAborted);
+            if (updateContext && !previousContext && !speechPolicyIds.Contains(detectedLog.LogId))
+                contextNotifications.Add(detectedLog.LogId);
         }
-        // Only server-screened speech may enter the semantic evidence path.
-        if (detectedLog is null)
-            return Json(new { ok = true, speechDetected = true, backgroundSpeech = true, duplicate = true, logIds = Array.Empty<int>() });
-        if (!highSeveritySpeech) return Json(new { ok = true, speechDetected = true, questionRelated = false, semanticReady = semantic?.Ready == true, contextReason = semantic?.Reason, transcript, logIds = Array.Empty<int>() });
-        if (await _context.ProctoringLogs.AnyAsync(x => x.SessionAttemptId == active.SessionAttemptId &&
-            x.IncidentKey == "speech" && x.Description != null && x.Description.Contains("conversation=" + detectedLog.ModelVersion)))
-            return Json(new { ok = true, speechDetected = true, duplicate = true, logIds = Array.Empty<int>() });
-        observationStartedAt = DateTime.Now; // confirmation time; source clip timestamp remains in screening log
-
-
-        var safeTranscript = transcript.Length > 250 ? transcript[..250] + "…" : transcript;
-        // Keep the audio that produced the transcript, not a later clip captured
-        // after inference has finished.
-        var speechDescription = $"[{(contextMatch.Related ? "QUESTION_RELATED_SPEECH" : "SPEECH_DETECTED")}] conversation={detectedLog.ModelVersion}; Speech + Model 5, question {spokenQuestion?.QuestionId}; similarity={semantic?.Score:0.000}, ready={semantic?.Ready == true}, uncertain={semantic?.Uncertain == true}. {contextMatch.Reason} ({result.Data.Language}): {safeTranscript}";
-        var log = new ProctoringLog
-        {
-            StudentId = StudentId,
-            ExamId = active.Attempt.ExamId,
-            AttemptId = active.AttemptId,
-            SessionAttemptId = active.SessionAttemptId,
-            AlertType = speechAlert,
-            SpeechTranscript = transcript[..Math.Min(transcript.Length, 4000)],
-            SemanticSimilarity = semantic?.Score is double speechScore && double.IsFinite(speechScore) && speechScore is >= -1 and <= 1 ? (decimal)speechScore : null,
-            MatchedQuestionId = spokenQuestion?.QuestionId,
-            QuestionIdAtCapture = detectedLog.QuestionIdAtCapture,
-            SpeakerAttribution = "unknown",
-            Severity = highSeveritySpeech ? ProctoringSeverity.High : ProctoringSeverity.Medium,
-            Description = speechDescription.Length <= 500 ? speechDescription : speechDescription[..499] + "…",
-            ConfidenceScore = result.Data.Confidence,
-            DurationSeconds = (int)Math.Ceiling(result.Data.DurationSeconds),
-            ModelName = _speechOptions.ModelName,
-            ModelVersion = result.Data.ModuleVersion ?? _speechOptions.ModelVersion,
-            ClientEventId = "speech-context:" + detectedLog.ModelVersion,
-            FrameCapturedAt = observationStartedAt,
-            CountsAsViolation = false,
-            PolicyPending = true,
-            IsReviewed = false,
-            CreatedDate = DateTime.Now
-        };
-        var acceptedIds = await _states.ObserveAsync(active.AttemptId, active.SessionAttemptId, StudentId, observationStartedAt,
-            new[] { new IncidentObservation("speech", true, log) }, HttpContext.RequestAborted);
-        if (acceptedIds.Count == 0)
-            return Json(new { ok = true, speechDetected = true, duplicate = true, logIds = Array.Empty<int>() });
-        var speechRecording = _proctoringOptions.CaptureEvidence
-            ? await _evidenceStore.SaveUploadAsync(StudentId, active.Attempt.ExamId,
-                active.AttemptId, request.Audio, HttpContext.RequestAborted) : null;
-        var persisted = await _context.ProctoringLogs.SingleAsync(x => x.LogId == acceptedIds[0]);
-        if (_proctoringOptions.CaptureEvidence && !string.IsNullOrWhiteSpace(request.QuestionScreenshotDataUrl))
-            persisted.ScreenshotPath = await _evidenceStore.SaveDataUrlAsync(StudentId, active.Attempt.ExamId, active.AttemptId, request.QuestionScreenshotDataUrl, HttpContext.RequestAborted);
-        persisted.RecordingPath = speechRecording;
-        persisted.RecordingIncludesAudio = speechRecording is not null;
-        await _context.SaveChangesAsync(HttpContext.RequestAborted);
-
         return Json(new
         {
-            ok = true,
-            ready = true,
-            speechDetected = true,
-            questionRelated = contextMatch.Related,
-            contextReason = contextMatch.Reason,
-            semanticReady = semantic?.Ready == true,
-            semanticScore = semantic?.Score,
-            observationOnly = true,
-            transcript,
-            language = result.Data.Language,
-            confidence = result.Data.Confidence,
-            logIds = acceptedIds
+            ok = true, ready = true, speechDetected = true,
+            questionRelated = contextMatch.Related, questionId = matchedQuestionId,
+            contextAlert = contextNotifications.Count > 0 || contextMatch.Related && speechPolicyIds.Count > 0,
+            reviewOnly = speechPolicyIds.Count == 0, observationOnly = true,
+            speechEvidenceId = candidateSpeech || questionSpeechConfirmed ? detectedLog?.LogId : null,
+            semanticReady = semantic?.Ready == true, language = speechData.Language,
+            detectionLogId = detectedLog?.LogId, logIds = Array.Empty<int>()
         });
+        }
     }
 
     [HttpPost, ValidateAntiForgeryToken]
@@ -2002,55 +2519,78 @@ public partial class ExamController : Controller
     [HttpPost, ValidateAntiForgeryToken]
     [RequestSizeLimit(10_000_000)]
     public async Task<IActionResult> UploadRecordingSegment(int attemptId, int sessionAttemptId,
-        string eventId, IFormFile? recording, bool includesAudio)
+        string eventId, IFormFile? recording, bool includesAudio, string? metadata = null)
     {
         if (StudentId is null) return Unauthorized();
-        if (!_proctoringOptions.CaptureEvidence || !Guid.TryParseExact(eventId, "N", out _) || recording is null)
+        var segment = SessionRecordingMetadata.Read(metadata);
+        if (!_proctoringOptions.CaptureEvidence || !Guid.TryParseExact(eventId, "N", out _) ||
+            metadata is not null && segment is null ||
+            (segment?.HasMedia ?? true) != (recording is not null))
             return BadRequest(new { ok = false });
-        var active = await FindActiveSessionAsync(attemptId, sessionAttemptId);
+        // Captured media may arrive after a technical hold; ownership still applies.
+        var active = await _context.ExamSessionAttempts.Include(s => s.Attempt)
+            .SingleOrDefaultAsync(s => s.SessionAttemptId == sessionAttemptId && s.AttemptId == attemptId && s.Attempt!.StudentId == StudentId);
+        if (active is not null && active.StartedAt < DateTime.Now.AddDays(-1)) return StatusCode(410, new { ok = false });
         if (active?.Attempt is null) return BadRequest(new { ok = false });
-        if (await _context.ProctoringLogs.AsNoTracking().AnyAsync(x => x.ClientEventId == eventId && x.StudentId == StudentId))
-            return Json(new { ok = true, duplicate = true });
-        var cutoff = DateTime.Now.AddMinutes(-1);
-        var recent = await _context.ProctoringLogs.CountAsync(x => x.SessionAttemptId == sessionAttemptId &&
-            x.AlertType == ProctoringAlertType.SessionRecording && x.CreatedDate >= cutoff);
-        if (recent >= 12) return StatusCode(429, new { ok = false, message = "Recording uploads are arriving too quickly." });
-        var path = await _evidenceStore.SaveUploadAsync(StudentId, active.Attempt.ExamId,
-            attemptId, recording, HttpContext.RequestAborted);
-        if (path is null) return BadRequest(new { ok = false, message = "Recording clip was invalid or too large." });
-        _context.ProctoringLogs.Add(new ProctoringLog
-        {
-            StudentId = StudentId,
-            ExamId = active.Attempt.ExamId,
-            AttemptId = attemptId,
-            SessionAttemptId = sessionAttemptId,
-            AlertType = ProctoringAlertType.SessionRecording,
-            Severity = ProctoringSeverity.Low,
-            RecordingPath = path,
-            RecordingIncludesAudio = includesAudio,
-            Description = "Routine camera/microphone session segment. This is not a misconduct alert.",
-            ModelName = "Session recorder",
-            ModelVersion = "1",
-            ClientEventId = eventId,
-            CountsAsViolation = false,
-            IsReviewed = true,
-            CreatedDate = DateTime.Now
+        if (segment is not null && (DateTimeOffset.FromUnixTimeMilliseconds(segment.StartedAt).UtcDateTime <
+            active.Attempt.StartedAt.ToUniversalTime().AddMinutes(-2) ||
+            active.CompletedAt is DateTime ended &&
+            DateTimeOffset.FromUnixTimeMilliseconds(segment.EndedAt).UtcDateTime > ended.ToUniversalTime().AddMinutes(2)))
+            return BadRequest(new { ok = false });
+        var key = segment is null ? eventId : $"rec:{sessionAttemptId}:{segment.TimelineId:N}:{segment.Source}:{segment.Sequence}";
+        string? path = null;
+        return await _context.Database.CreateExecutionStrategy().ExecuteAsync<IActionResult>(async () => {
+            _context.ChangeTracker.Clear();
+            await using var transaction = await _context.Database.BeginTransactionAsync(HttpContext.RequestAborted);
+            await ProctoringStateService.LockEvidenceUploadsAsync(_context, attemptId, HttpContext.RequestAborted);
+            var previous = await _context.ProctoringLogs.AsNoTracking().SingleOrDefaultAsync(x => x.ClientEventId == key);
+            if (previous is not null)
+                return previous.StudentId == StudentId && previous.AttemptId == attemptId && previous.SessionAttemptId == sessionAttemptId &&
+                    (segment is null || previous.MachineObservationsJson == segment.Serialize())
+                    ? Json(new { ok = true, acknowledged = true, duplicate = true }) : Conflict();
+            var cutoff = DateTime.Now.AddMinutes(-1);
+            var recent = await _context.ProctoringLogs.CountAsync(x => x.SessionAttemptId == sessionAttemptId &&
+                x.AlertType == ProctoringAlertType.SessionRecording && x.CreatedDate >= cutoff);
+            if (recent >= (segment is null ? 12 : 30)) return StatusCode(429, new { ok = false, message = "Recording uploads are arriving too quickly." });
+            if (recording is not null)
+            {
+                path ??= await _evidenceStore.SaveUploadAsync(StudentId, active.Attempt.ExamId,
+                    attemptId, recording, HttpContext.RequestAborted);
+                if (path is null) return BadRequest(new { ok = false, message = "Recording clip was invalid or could not be stored." });
+            }
+            _context.ProctoringLogs.Add(new ProctoringLog
+            {
+                StudentId = StudentId,
+                ExamId = active.Attempt.ExamId,
+                AttemptId = attemptId,
+                SessionAttemptId = sessionAttemptId,
+                AlertType = ProctoringAlertType.SessionRecording,
+                Severity = ProctoringSeverity.Low,
+                RecordingPath = path,
+                RecordingIncludesAudio = path is not null && (segment?.IncludesMicrophone ?? includesAudio),
+                Description = segment is null ? "Routine camera/microphone session segment." : $"{segment.Source} timeline segment ({segment.Status}).",
+                ModelName = segment is null ? "Session recorder" : SessionRecordingMetadata.ModelName,
+                ModelVersion = segment is null ? "1" : "2",
+                ClientEventId = key,
+                FrameCapturedAt = segment is null ? null : DateTimeOffset.FromUnixTimeMilliseconds(segment.StartedAt).UtcDateTime,
+                MachineObservationsJson = segment?.Serialize(),
+                PolicyProcessed = true,
+                CountsAsViolation = false,
+                IsReviewed = true,
+                CreatedDate = DateTime.Now
+            });
+            await _context.SaveChangesAsync(HttpContext.RequestAborted);
+            await transaction.CommitAsync(HttpContext.RequestAborted);
+            return Json(new { ok = true, acknowledged = true });
         });
-        try { await _context.SaveChangesAsync(HttpContext.RequestAborted); }
-        catch
-        {
-            await _evidenceStore.DeleteAsync(path, CancellationToken.None);
-            throw;
-        }
-        return Json(new { ok = true });
     }
 
     [HttpPost, ValidateAntiForgeryToken]
-    [RequestSizeLimit(10_000_000)]
+    [RequestSizeLimit(22_000_000)]
     [Route("/Student/Exam/AttachProctoringEvidence")]
     public async Task<IActionResult> AttachProctoringEvidence(
         [FromForm] ProctoringEvidenceUploadRequest request,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken, int? attemptId = null, int? sessionAttemptId = null)
     {
         if (StudentId is null)
             return Unauthorized();
@@ -2067,8 +2607,11 @@ public partial class ExamController : Controller
         {
             ProctoringAlertType.IdentityMismatch,
             ProctoringAlertType.FaceNotDetected,
+            ProctoringAlertType.FaceNotVisible,
             ProctoringAlertType.MultipleFaces,
-            ProctoringAlertType.LookAway,
+            ProctoringAlertType.AdditionalPersonObservation,
+            ProctoringAlertType.ObjectObservation,
+            ProctoringAlertType.LookAway, ProctoringAlertType.LookingAwaySpeaking,
             ProctoringAlertType.AudioDetected,
             ProctoringAlertType.TalkingDetected,
             ProctoringAlertType.AnswerPromptSpeech,
@@ -2095,23 +2638,30 @@ public partial class ExamController : Controller
                 x.StudentId == StudentId &&
                 x.AttemptId != null &&
                 x.SessionAttemptId != null &&
-                x.CreatedDate >= recentCutoff,
+                ((attemptId != null && sessionAttemptId != null && x.AttemptId == attemptId && x.SessionAttemptId == sessionAttemptId) || (attemptId == null && sessionAttemptId == null && x.CreatedDate >= recentCutoff)),
                 cancellationToken);
 
         if (log is null || !allowedEvidenceTypes.Contains(log.AlertType))
             return NotFound();
+        if (log.IncidentKey == "absence:escalation")
+            return BadRequest(new { ok = false, message = "Attach the absence clip to the original incident." });
 
         // Client retries are idempotent: keep the first valid event clip rather
         // than replacing it with a later retry segment.
         if (!string.IsNullOrWhiteSpace(log.VideoEvidencePath))
-            return Json(new { ok = true, duplicate = true, logId = log.LogId });
+            return Json(new { acknowledged = true, ok = true, duplicate = true, logId = log.LogId });
 
+        string? captureMetadata = log.MachineObservationsJson;
+        if (log.IncidentKey is "absence" or "persons" || ProctoringStateService.IsCritical(log)) {
+            try { captureMetadata = AbsenceEvidenceMetadata.Merge(captureMetadata, request.Metadata); }
+            catch (ArgumentException) { return BadRequest(new { ok = false, message = "Invalid evidence capture metadata." }); }
+        }
         var evidenceKey = await _evidenceStore.SaveUploadAsync(
             log.Student?.CandidateNumber ?? log.StudentId,
             log.ExamId ?? 0,
             log.AttemptId!.Value,
             request.EvidenceFile,
-            cancellationToken);
+            cancellationToken, absenceIncidentId: log.IncidentKey == "absence" ? log.LogId : null);
         if (string.IsNullOrWhiteSpace(evidenceKey))
         {
             return BadRequest(new
@@ -2122,10 +2672,32 @@ public partial class ExamController : Controller
         }
 
         if (log.ScreenshotPath is null && !string.IsNullOrWhiteSpace(request.ScreenshotDataUrl))
-            log.ScreenshotPath ??= await _evidenceStore.SaveDataUrlAsync(log.Student?.CandidateNumber ?? log.StudentId, log.ExamId ?? 0, log.AttemptId.Value, request.ScreenshotDataUrl, cancellationToken);
+            log.ScreenshotPath ??= await _evidenceStore.SaveDataUrlAsync(log.Student?.CandidateNumber ?? log.StudentId, log.ExamId ?? 0, log.AttemptId.Value, request.ScreenshotDataUrl, cancellationToken, absenceIncidentId: log.IncidentKey == "absence" ? log.LogId : null);
+        if (_context.Database.IsRelational())
+        {
+            // Claim the incident's original exactly once across tabs and retries.
+            await _context.ProctoringLogs
+                .Where(x => x.LogId == log.LogId && x.StudentId == StudentId &&
+                    (x.VideoEvidencePath == null || x.VideoEvidencePath.Trim() == ""))
+                .ExecuteUpdateAsync(setters => setters
+                    .SetProperty(x => x.VideoEvidencePath, evidenceKey)
+                    .SetProperty(x => x.RecordingIncludesAudio, request.IncludesAudio)
+                    .SetProperty(x => x.MachineObservationsJson, captureMetadata)
+                    .SetProperty(x => x.ScreenshotPath, x => x.ScreenshotPath ?? log.ScreenshotPath), cancellationToken);
+            // A retry after an ambiguous commit may find its own key already saved.
+            var persisted = await _context.ProctoringLogs.AsNoTracking()
+                .Where(x => x.LogId == log.LogId && x.StudentId == StudentId)
+                .Select(x => new { x.VideoEvidencePath, x.ScreenshotPath }).SingleAsync(cancellationToken);
+            if (persisted.VideoEvidencePath != evidenceKey)
+                await _evidenceStore.DeleteAsync(evidenceKey, cancellationToken);
+            if (log.ScreenshotPath != null && persisted.ScreenshotPath != log.ScreenshotPath)
+                await _evidenceStore.DeleteAsync(log.ScreenshotPath, cancellationToken);
+            return Json(new { acknowledged = true, ok = true, logId = log.LogId });
+        }
         var oldEvidenceKey = log.VideoEvidencePath;
         log.VideoEvidencePath = evidenceKey;
         log.RecordingIncludesAudio = request.IncludesAudio;
+        log.MachineObservationsJson = captureMetadata;
         try
         {
             await _context.SaveChangesAsync(cancellationToken);
@@ -2139,7 +2711,7 @@ public partial class ExamController : Controller
         if (!string.Equals(oldEvidenceKey, evidenceKey, StringComparison.Ordinal))
             await _evidenceStore.DeleteAsync(oldEvidenceKey, cancellationToken);
 
-        return Json(new { ok = true, logId = log.LogId });
+        return Json(new { acknowledged = true, ok = true, logId = log.LogId });
     }
 
     [HttpGet]
@@ -2169,6 +2741,11 @@ public partial class ExamController : Controller
                 x.StudentId == StudentId);
         if (attempt?.Exam is null)
             return NotFound();
+
+        // A reviewed block may remain ProctoringBlocked for audit integrity,
+        // but its released academic marks must still be visible to this student.
+        if (attempt.ResultReleasedAtUtc.HasValue)
+            return RedirectToAction(nameof(AttemptResult), new { attemptId });
 
         if (attempt.Status != AttemptStatus.ProctoringBlocked)
         {
@@ -2296,9 +2873,9 @@ public partial class ExamController : Controller
         if (previous?.Session is null)
             return RedirectToAction(nameof(Continue), new { attemptId });
 
-        // Generated examinations use 10 minutes between sessions. Clamp any
+        // Use the configured session rest. Clamp any
         // administrative value to the supported real-world maximum.
-        const int maximumRestMinutes = 10;
+        var maximumRestMinutes = Math.Clamp(previous.Session.RestAfterMinutes, 0, 10);
 
         var restEndsAt = previous.CompletedAt!.Value
             .AddMinutes(maximumRestMinutes);
@@ -2433,7 +3010,7 @@ public partial class ExamController : Controller
 
         if (previous?.Session is not null)
         {
-            const int restMinutes = 10;
+            var restMinutes = Math.Clamp(previous.Session.RestAfterMinutes, 0, 10);
             var restEndsAt = previous.CompletedAt!.Value.AddMinutes(restMinutes);
             if (restMinutes > 0 && DateTime.Now < restEndsAt)
             {
@@ -2463,12 +3040,26 @@ public partial class ExamController : Controller
     public async Task<IActionResult> AttemptResult(int attemptId)
     {
         if (StudentId is null) return Challenge();
-        var result = await _context.ExamResults.AsNoTracking().Where(r => r.Attempt!.ResultReleasedAtUtc != null || (!r.Attempt.SubmittedForViolations && r.Attempt.Status != AttemptStatus.ProctoringBlocked && !_context.ProctoringLogs.Any(l => l.AttemptId == r.AttemptId && l.CountsAsViolation))).Include(x => x.Attempt).ThenInclude(x => x!.Exam)
-            .FirstOrDefaultAsync(x => x.AttemptId == attemptId && x.Attempt!.StudentId == StudentId);
+        var studentId = StudentId;
+        var result = await AiExamProctoring.Services.Results.StudentResultAccess
+            .ReleasedFor(_context, studentId)
+            .Include(x => x.Attempt).ThenInclude(x => x!.Exam)
+            .FirstOrDefaultAsync(x => x.AttemptId == attemptId && x.Attempt!.StudentId == studentId);
         if (result?.Attempt == null)
         {
-            if (await _context.ExamAttempts.AnyAsync(a => a.AttemptId == attemptId && a.StudentId == StudentId && a.Status == AttemptStatus.Completed)) return View("ResultPending");
-            return NotFound();
+            var pending = await _context.ExamAttempts.AsNoTracking()
+                .Where(a => a.AttemptId == attemptId && a.StudentId == studentId &&
+                    (a.Status == AttemptStatus.Completed || a.Status == AttemptStatus.AutoSubmitted ||
+                     a.Status == AttemptStatus.ProctoringBlocked || a.Status == AttemptStatus.Disqualified))
+                .Select(a => new { a.Status, a.SubmittedForViolations, a.IsDisqualified,
+                    ExamTitle = a.Exam!.ExamTitle }).FirstOrDefaultAsync();
+            if (pending is null) return NotFound();
+            ViewBag.WaitingForTeacherReview = pending.Status == AttemptStatus.ProctoringBlocked ||
+                pending.SubmittedForViolations || pending.IsDisqualified ||
+                await Services.Results.ExamResultFinalizationService.PendingIntegrity(_context, attemptId).AnyAsync() ||
+                await _context.ExamResults.AnyAsync(r => r.AttemptId == attemptId);
+            ViewBag.PendingExamName = pending.ExamTitle;
+            return View("ResultPending");
         }
         ViewBag.ExamRollNumber = await _context.ExamAssignments.AsNoTracking()
             .Where(x => x.ExamId == result.Attempt.ExamId && x.StudentId == StudentId && x.IsActive)
@@ -2509,16 +3100,18 @@ public partial class ExamController : Controller
             .OrderBy(x => x.DisplayOrder)
             .ToListAsync();
 
-        // Every candidate receives a stable, candidate-specific permutation.
-        // The order survives refresh/resume, but a classmate's attempt uses a
-        // different seed. The same question paper and marks are preserved.
-        var seedMaterial = $"candidate-order-v2|{sa.AttemptId}|{sa.SessionId}|{sa.SessionAttemptId}";
-        var seedBytes = SHA256.HashData(Encoding.UTF8.GetBytes(seedMaterial));
-        var rng = new Random(BitConverter.ToInt32(seedBytes, 0));
-        for (var index = rows.Count - 1; index > 0; index--)
+        // Only randomize the paper when the Teacher enabled ShuffleQuestions.
+        // The seed makes one candidate's order stable across reload and resume.
+        if (sa.Attempt?.Exam?.ShuffleQuestions == true)
         {
-            var swapIndex = rng.Next(index + 1);
-            (rows[index], rows[swapIndex]) = (rows[swapIndex], rows[index]);
+            var seedMaterial = $"candidate-order-v2|{sa.AttemptId}|{sa.SessionId}|{sa.SessionAttemptId}";
+            var seedBytes = SHA256.HashData(Encoding.UTF8.GetBytes(seedMaterial));
+            var rng = new Random(BitConverter.ToInt32(seedBytes, 0));
+            for (var index = rows.Count - 1; index > 0; index--)
+            {
+                var swapIndex = rng.Next(index + 1);
+                (rows[index], rows[swapIndex]) = (rows[swapIndex], rows[index]);
+            }
         }
 
         var result = new List<Question>();
@@ -2734,18 +3327,17 @@ public partial class ExamController : Controller
         await _context.SaveChangesAsync();
     }
 
-    private async Task FinalizeAttempt(ExamAttempt attempt)
+    private async Task FinalizeAttempt(ExamAttempt attempt, bool callerHoldsAttemptLock = false)
     {
-        if (attempt.Status != AttemptStatus.InProgress) return;
-        var sessions = await _context.ExamSessionAttempts.Where(x => x.AttemptId == attempt.AttemptId).ToListAsync();
-        var obtained = sessions.Sum(x => x.MarksObtained); var total = attempt.Exam?.TotalMarks ?? sessions.Sum(x => x.TotalMarks);
-        attempt.TotalMarksObtained = obtained; attempt.TotalMarks = total; attempt.Percentage = total <= 0 ? 0 : Math.Round(obtained / total * 100m, 2);
-        attempt.IsPassed = attempt.Percentage >= (attempt.Exam?.PassingPercentage ?? 40m);
-        attempt.Status = attempt.IsDisqualified ? AttemptStatus.Disqualified : AttemptStatus.Completed; attempt.CompletedAt = DateTime.Now;
-        var result = await _context.ExamResults.FirstOrDefaultAsync(x => x.AttemptId == attempt.AttemptId);
-        var correct = sessions.Sum(x => x.CorrectAnswers); var wrong = sessions.Sum(x => x.WrongAnswers); var skipped = sessions.Sum(x => x.SkippedAnswers);
-        if (result is null) _context.ExamResults.Add(new ExamResult { AttemptId = attempt.AttemptId, TotalMarksObtained = obtained, TotalMarks = total, Percentage = attempt.Percentage, IsPassed = attempt.IsPassed, CorrectAnswers = correct, WrongAnswers = wrong, SkippedAnswers = skipped, CertificateNumber = $"AIE-{DateTime.Now:yyyyMMdd}-{attempt.AttemptId:000000}", GeneratedDate = DateTime.Now });
-        else { result.TotalMarksObtained = obtained; result.TotalMarks = total; result.Percentage = attempt.Percentage; result.IsPassed = attempt.IsPassed; result.CorrectAnswers = correct; result.WrongAnswers = wrong; result.SkippedAnswers = skipped; result.CertificateNumber ??= $"AIE-{DateTime.Now:yyyyMMdd}-{attempt.AttemptId:000000}"; }
-        await _context.SaveChangesAsync();
+        // Only SubmitSessionCore holds its own lock and transaction. Continue,
+        // Break and StartNextSession must use the transactional entry point.
+        if (callerHoldsAttemptLock)
+            await AiExamProctoring.Services.Results.ExamResultFinalizationService
+                .FinalizeCompletedInTransactionAsync(_context, attempt.AttemptId,
+                    DateTime.Now, HttpContext.RequestAborted);
+        else
+            await AiExamProctoring.Services.Results.ExamResultFinalizationService
+                .FinalizeCompletedAsync(_context, attempt.AttemptId,
+                    DateTime.Now, HttpContext.RequestAborted);
     }
 }

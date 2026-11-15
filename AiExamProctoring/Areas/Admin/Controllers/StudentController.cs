@@ -272,32 +272,15 @@ namespace AiExamProctoring.Areas.Admin.Controllers
                     }
                 }
 
+                // Only fields rendered by this form may change; account controls use separate actions.
                 student.FullName = model.FullName?.Trim() ?? string.Empty;
                 student.PhoneNumber = model.PhoneNumber?.Trim();
                 student.RollNumber = model.RollNumber?.Trim();
-                student.RegistrationNumber = model.RegistrationNumber?.Trim();
-                student.CNIC = model.CNIC?.Trim();
-                student.FatherName = model.FatherName?.Trim();
-                student.Gender = model.Gender;
-                student.DateOfBirth = model.DateOfBirth;
                 student.Department = model.Department?.Trim();
                 student.Batch = model.Batch?.Trim();
                 student.Semester = model.Semester?.Trim();
-                student.Session = model.Session?.Trim();
-                student.University = model.University?.Trim();
-                student.Address = model.Address?.Trim();
-                student.City = model.City?.Trim();
-                student.Country = model.Country?.Trim();
-                student.ProfileImage = model.ProfileImage?.Trim();
-                student.HighestQualification = model.HighestQualification?.Trim();
-                student.CurrentStatus = model.CurrentStatus;
-                student.OrganizationName = model.OrganizationName?.Trim();
-                student.IsApproved = model.IsApproved;
-                student.IsBlocked = model.IsBlocked;
 
                 var result = await _userManager.UpdateAsync(student);
-                if (result.Succeeded && model.IsBlocked)
-                    result = await _userManager.UpdateSecurityStampAsync(student);
                 if (!result.Succeeded)
                 {
                     AddIdentityErrors(result);

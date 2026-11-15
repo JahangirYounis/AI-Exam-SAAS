@@ -1,0 +1,41 @@
+@model IReadOnlyList<AiExamProctoring.Models.EvidenceGrant>
+@{
+    ViewData["Title"] = "Evidence shared with me";
+}
+<div class="container py-4" style="max-width:1050px">
+    <div class="mb-4">
+        <span class="text-secondary small text-uppercase fw-bold">Private, recipient-bound access</span>
+        <h1 class="h3 fw-bold mt-2">Evidence shared with me</h1>
+        <p class="text-secondary">Only selected evidence explicitly shared by the examination owner appears here. This does not unlock other incidents or candidate folders.</p>
+    </div>
+    @if (Model.Count == 0)
+    {
+        <div class="card border-0 shadow-sm rounded-4 p-4 text-center">
+            <i class="bi bi-shield-lock fs-1 text-secondary"></i>
+            <strong class="mt-2">No active evidence shares</strong>
+            <p class="text-secondary mb-0">Expired or revoked shares are no longer available.</p>
+        </div>
+    }
+    else
+    {
+        <div class="row g-3">
+            @foreach (var g in Model)
+            {
+                <div class="col-12 col-lg-6"><article class="card h-100 rounded-4 border p-3">
+                    <div class="d-flex justify-content-between align-items-start gap-3">
+                        <div><span class="badge text-bg-info">@g.Kind</span>
+                            <h2 class="h6 fw-bold mt-2">@(g.Log?.Exam?.ExamTitle ?? "Examination")</h2></div>
+                        <i class="bi bi-file-earmark-lock fs-4 text-secondary"></i>
+                    </div>
+                    <p class="small text-secondary">Incident #@g.LogId · Shared @g.CreatedAtUtc.ToString("dd MMM yyyy HH:mm") UTC</p>
+                    <p class="small">Reason for sharing: @g.Reason</p>
+                    <p class="small text-secondary">Expires @g.ExpiresAtUtc.ToString("dd MMM yyyy HH:mm") UTC</p>
+                    <div class="d-flex gap-2 flex-wrap">
+                        <a asp-action="Media" asp-route-id="@g.Id" class="btn btn-outline-primary btn-sm" rel="noreferrer">View selected evidence</a>
+                        <a asp-action="Media" asp-route-id="@g.Id" asp-route-download="true" class="btn btn-outline-secondary btn-sm" rel="noreferrer">Download</a>
+                    </div>
+                </article></div>
+            }
+        </div>
+    }
+</div>

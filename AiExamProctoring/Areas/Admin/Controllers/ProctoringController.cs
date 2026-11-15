@@ -243,6 +243,7 @@ public sealed class ProctoringController : Controller
             LatestEventAt = allSummary?.LatestEventAt
         };
 
+        foreach (var log in logs) EvidenceSharing.Redact(log);
         return View(new ProctoringExamFolderPageViewModel
         {
             BlockedAttemptIds = await _db.ExamAttempts.AsNoTracking().Where(a => a.ExamId == examId && a.StudentId == studentId && a.Status == AttemptStatus.ProctoringBlocked).OrderBy(a => a.AttemptId).Select(a => a.AttemptId).ToListAsync(cancellationToken),
@@ -263,26 +264,16 @@ public sealed class ProctoringController : Controller
             .Include(x => x.Attempt)
             .Include(x => x.SessionAttempt).ThenInclude(x => x!.Session)
             .FirstOrDefaultAsync(x => x.LogId == id, cancellationToken);
+        if (log != null) EvidenceSharing.Redact(log);
         return log is null ? NotFound() : View(log);
     }
 
     [HttpGet]
     public async Task<IActionResult> Evidence(int id, string? kind, CancellationToken cancellationToken)
     {
-        var paths = await _db.ProctoringLogs.AsNoTracking()
-            .Where(x => x.LogId == id)
-            .Select(x => new { x.ScreenshotPath, x.RecordingPath })
-            .FirstOrDefaultAsync(cancellationToken);
-        var storageKey = string.Equals(kind, "recording", StringComparison.OrdinalIgnoreCase)
-            ? paths?.RecordingPath ?? (paths?.ScreenshotPath?.EndsWith(".webm", StringComparison.OrdinalIgnoreCase) == true ? paths.ScreenshotPath : null)
-            : paths?.ScreenshotPath;
-        var file = await _evidence.OpenReadAsync(storageKey, cancellationToken);
-        if (file is null) return NotFound();
-
-        Response.Headers.CacheControl = "private,no-store,max-age=0";
-        Response.Headers.Pragma = "no-cache";
-        Response.Headers["X-Content-Type-Options"] = "nosniff";
-        return File(file.Stream, file.ContentType, enableRangeProcessing: true);
+        await Task.CompletedTask;
+        // Admin role alone does not grant raw evidence access. Use named shares.
+        return NotFound();
     }
 
     [HttpPost, ValidateAntiForgeryToken]
@@ -290,7 +281,7 @@ public sealed class ProctoringController : Controller
     {
         var actorId = User.FindFirstValue(ClaimTypes.NameIdentifier);
         if (actorId is null) return Challenge();
-        if (string.IsNullOrWhiteSpace(reason) || reason.Trim().Length is < 10 or > 300) return BadRequest("Provide a review reason in 10â€“300 characters.");
+        if (string.IsNullOrWhiteSpace(reason) || reason.Trim().Length is < 10 or > 300) return BadRequest("Provide a review reason in 10–300 characters.");
         if (!await _db.ExamAttempts.AnyAsync(a => a.AttemptId == attemptId && a.StudentId == studentId && a.ExamId == examId, cancellationToken)) return NotFound();
         var state = await _states.ControlAsync(attemptId, actorId, true, reason.Trim(), cancellationToken);
         if (state is null) return Conflict("Attempt unavailable or not blocked.");

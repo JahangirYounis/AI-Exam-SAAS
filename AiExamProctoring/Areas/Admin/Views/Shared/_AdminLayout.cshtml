@@ -37,6 +37,16 @@
                     <a class="btn btn-light btn-sm d-none d-md-inline-flex align-items-center gap-2" asp-area="" asp-controller="Home" asp-action="Index">
                         <i class="bi bi-house"></i> Home page
                     </a>
+                    <a asp-controller="Classes" asp-action="Index" class="btn btn-light btn-sm">Classes</a><details id="admin-notifications" class="position-relative">
+                        <summary class="btn btn-light btn-sm"><i class="bi bi-bell" aria-hidden="true"></i> Notifications <span data-count></span></summary>
+                        <div class="position-absolute end-0 bg-white border shadow p-3" style="width:min(420px,90vw);max-height:70vh;overflow:auto;z-index:1080">
+                            @Html.AntiForgeryToken()
+                            <button type="button" data-read class="btn btn-sm btn-link">Mark all as read</button>
+                            <button type="button" data-history class="btn btn-sm btn-link">All history</button>
+                            <div data-list></div><p data-status role="status"></p>
+                            <button type="button" data-older class="btn btn-sm btn-link">Older history</button>
+                        </div>
+                    </details>
                     <div class="dropdown">
                         <button class="btn user-menu dropdown-toggle" data-bs-toggle="dropdown" aria-expanded="false">
                             <span class="avatar"><i class="bi bi-person"></i></span>
@@ -101,5 +111,8 @@
     <script src="~/lib/bootstrap/dist/js/bootstrap.bundle.min.js"></script>
     <script src="~/js/site.js" asp-append-version="true"></script>
     @await RenderSectionAsync("Scripts", required: false)
+<script src="~/js/admin-notifications.js" asp-append-version="true"></script>
 </body>
 </html>
+
+

@@ -3,6 +3,9 @@
     const connection = new window.signalR.HubConnectionBuilder().withUrl('/hubs/teachers').withAutomaticReconnect().build();
     window.teacherCollaboration = connection;
     function receive(event) {
+        window.dispatchEvent?.(new CustomEvent('teacher-collaboration-changed', { detail: event }));
+        const modernChat = document.getElementById('teacher-chat');
+        if (event.reactionChanged || (modernChat && modernChat.dataset.kind === event.kind && modernChat.dataset.room === String(event.roomId))) return;
         const chat = document.getElementById('live-chat');
         if (chat && chat.dataset.kind === event.kind && chat.dataset.room === String(event.roomId)) {
             if ([...chat.children].some(item => item.dataset.messageId === String(event.entryId))) return;
@@ -35,6 +38,7 @@
     let recovering = false;
     let recoveredThrough = Math.max(0, ...[...(document.getElementById("live-chat")?.children || [])].map(item => Number(item.dataset.messageId) || 0));
     async function recover() {
+        window.dispatchEvent?.(new CustomEvent('teacher-collaboration-changed', { detail: {} }));
         const chat = document.getElementById('live-chat');
         if (!chat || recovering) return;
         recovering = true;

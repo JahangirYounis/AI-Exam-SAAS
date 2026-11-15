@@ -61,10 +61,13 @@ public static class RequestProtection
             {
                 var headers = context.Response.Headers;
                 headers["X-Content-Type-Options"] = "nosniff";
-                headers["X-Frame-Options"] = "DENY";
+                var examCaptureFrame = context.Items.ContainsKey("ExamCaptureFrame");
+                headers["X-Frame-Options"] = examCaptureFrame ? "SAMEORIGIN" : "DENY";
                 headers["Referrer-Policy"] = "strict-origin-when-cross-origin";
-                headers["Content-Security-Policy"] = "frame-ancestors 'none'; object-src 'none'; base-uri 'self'";
-                headers["Permissions-Policy"] = "camera=(self), microphone=(self), geolocation=(), payment=(), usb=()";
+                headers["Content-Security-Policy"] = examCaptureFrame
+                    ? "frame-ancestors 'self'; object-src 'none'; base-uri 'self'"
+                    : "frame-ancestors 'none'; object-src 'none'; base-uri 'self'";
+                headers["Permissions-Policy"] = "camera=(self), microphone=(self), display-capture=(self), geolocation=(), payment=(), usb=()";
                 if (context.User.Identity?.IsAuthenticated == true ||
                     context.Request.Path.StartsWithSegments("/Identity"))
                 {

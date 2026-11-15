@@ -2,6 +2,7 @@ using AiExamProctoring.Hubs;
 using Microsoft.AspNetCore.SignalR;
 using AiExamProctoring.Data;
 using AiExamProctoring.Models;
+using AiExamProctoring.ViewModels;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.Rendering;
@@ -40,26 +41,153 @@ public class ExamController : Controller
         return code;
     }
 
-    public async Task<IActionResult> Index(bool past = false)
+    // Keep the legacy ?past=true link working, while adding explicit list tabs.
+    [HttpGet]
+    public async Task<IActionResult> Index(
+        bool past = false,
+        string? tab = null,
+        string? search = null,
+        string? sort = null,
+        int page = 1,
+        CancellationToken cancellationToken = default)
     {
-        ViewBag.Past = past;
-        var query = _db.Exams.AsNoTracking().Include(x => x.Department).Include(x => x.Post)
-            .Where(x => x.CreatedBy == TeacherId);
-        query = past ? query.Where(x => x.Status == ExamStatus.Completed || x.Status == ExamStatus.Cancelled)
-            : query.Where(x => x.Status != ExamStatus.Completed && x.Status != ExamStatus.Cancelled);
-        return View(await query.OrderByDescending(x => x.CreatedDate).ToListAsync());
+        var teacherId = TeacherId;
+        if (string.IsNullOrWhiteSpace(teacherId)) return Challenge();
+
+        var activeTab = (tab ?? (past ? "past" : "all")).Trim().ToLowerInvariant();
+        if (activeTab is not ("all" or "current" or "scheduled" or "drafts" or "past"))
+            activeTab = "all";
+
+        var selectedSort = (sort ?? "recommended").Trim().ToLowerInvariant();
+        if (selectedSort is not ("recommended" or "recent" or "oldest" or "name" or "start"))
+            selectedSort = "recommended";
+
+        var queryText = (search ?? string.Empty).Trim();
+        if (queryText.Length > 100) queryText = queryText[..100];
+        var now = DateTime.Now;
+
+        // Scope the SQL query to the authenticated owner BEFORE evaluating display-only
+        // calendar properties, which are [NotMapped] and depend on Exam.Sessions.
+        // Do not pull proctoring logs, user accounts or other teachers' examinations.
+        var ownedExams = await _db.Exams.AsNoTracking()
+            .Where(e => e.CreatedBy == teacherId)
+            .Include(e => e.Sessions)
+            .AsSplitQuery()
+            .ToListAsync(cancellationToken);
+
+        // Existing edit endpoints prohibit modifications once any attempt exists.
+        // Use one set-based query so the list never advertises a forbidden Edit action.
+        var ownedExamIds = ownedExams.Select(e => e.ExamId).ToList();
+        var examIdsWithAttempts = (await _db.ExamAttempts.AsNoTracking()
+            .Where(a => ownedExamIds.Contains(a.ExamId))
+            .Select(a => a.ExamId)
+            .Distinct()
+            .ToListAsync(cancellationToken)).ToHashSet();
+
+        var items = ownedExams.Select(exam =>
+        {
+            var group = GetExamListGroup(exam, now);
+            var (label, badge) = GetExamListStatus(exam, group, now);
+            var editable = group == "drafts" && !exam.IsLocked && !examIdsWithAttempts.Contains(exam.ExamId);
+            return new TeacherExamListItem
+            {
+                Exam = exam,
+                Group = group,
+                StatusLabel = label,
+                BadgeClass = badge,
+                CanEdit = editable,
+                CanManageCandidates = editable && exam.Audience == ExamAudience.Private && !exam.AcademicClassId.HasValue,
+                CanMonitor = exam.IsPublished && group == "current",
+                CanViewResults = exam.IsPublished && (group is "current" or "past")
+            };
+        }).ToList();
+
+        IEnumerable<TeacherExamListItem> matching = items;
+        if (activeTab != "all") matching = matching.Where(x => x.Group == activeTab);
+        if (!string.IsNullOrWhiteSpace(queryText))
+        {
+            matching = matching.Where(x =>
+                x.Exam.ExamTitle.Contains(queryText, StringComparison.OrdinalIgnoreCase) ||
+                (x.Exam.ClassName?.Contains(queryText, StringComparison.OrdinalIgnoreCase) ?? false) ||
+                (x.Exam.RecruitmentPost?.Contains(queryText, StringComparison.OrdinalIgnoreCase) ?? false) ||
+                x.Exam.StartDate.ToString("yyyy-MM-dd").Contains(queryText, StringComparison.OrdinalIgnoreCase) ||
+                x.Exam.StartDate.ToString("dd MMM yyyy").Contains(queryText, StringComparison.OrdinalIgnoreCase) ||
+                x.StatusLabel.Contains(queryText, StringComparison.OrdinalIgnoreCase));
+        }
+
+        matching = selectedSort switch
+        {
+            "recent" => matching.OrderByDescending(x => x.Exam.CreatedDate).ThenByDescending(x => x.Exam.ExamId),
+            "oldest" => matching.OrderBy(x => x.Exam.CreatedDate).ThenBy(x => x.Exam.ExamId),
+            "name" => matching.OrderBy(x => x.Exam.ExamTitle, StringComparer.OrdinalIgnoreCase).ThenByDescending(x => x.Exam.CreatedDate),
+            "start" => matching.OrderBy(x => x.Exam.StartDate).ThenBy(x => x.Exam.ExamId),
+            _ when activeTab == "scheduled" => matching.OrderBy(x => x.Exam.StartDate).ThenBy(x => x.Exam.ExamId),
+            _ => matching.OrderByDescending(x => x.Exam.CreatedDate).ThenByDescending(x => x.Exam.ExamId)
+        };
+
+        const int pageSize = 8;
+        var matchedCount = matching.Count();
+        var lastPage = Math.Max(1, (matchedCount + pageSize - 1) / pageSize);
+        var safePage = Math.Clamp(page, 1, lastPage);
+        var pageItems = matching.Skip((safePage - 1) * pageSize).Take(pageSize).ToList();
+
+        return View(new TeacherExamIndexViewModel
+        {
+            ActiveTab = activeTab,
+            Search = queryText,
+            Sort = selectedSort,
+            AllCount = items.Count,
+            CurrentCount = items.Count(x => x.Group == "current"),
+            ScheduledCount = items.Count(x => x.Group == "scheduled"),
+            DraftCount = items.Count(x => x.Group == "drafts"),
+            PastCount = items.Count(x => x.Group == "past"),
+            MatchedCount = matchedCount,
+            Page = safePage,
+            PageSize = pageSize,
+            Exams = pageItems
+        });
+    }
+
+    private static string GetExamListGroup(Exam exam, DateTime now)
+    {
+        if (exam.Status is ExamStatus.Cancelled or ExamStatus.Completed ||
+            (exam.IsPublished && !exam.IsReusable && now >= exam.EndDate))
+            return "past";
+
+        if (!exam.IsPublished) return "drafts";
+        if (!exam.IsReusable && now < exam.StartDate) return "scheduled";
+        return "current";
+    }
+
+    private static (string label, string badge) GetExamListStatus(Exam exam, string group, DateTime now)
+    {
+        if (exam.Status == ExamStatus.Cancelled) return ("Cancelled", "cancelled");
+        if (exam.Status == ExamStatus.Completed) return ("Completed", "ended");
+        if (group == "past") return ("Ended", "ended");
+        if (group == "drafts")
+            return exam.Status == ExamStatus.Ready ? ("Ready to publish", "ready") :
+                   exam.Status == ExamStatus.Building ? ("Building paper", "draft") :
+                   ("Draft", "draft");
+        if (group == "scheduled") return ("Scheduled", "scheduled");
+        if (exam.IsReusable) return ("Open practice", "current");
+        if (now <= exam.LatestStartDate) return ("Entry open", "current");
+        return ("In progress · Entry closed", "closing");
     }
 
     [HttpGet]
     public async Task<IActionResult> Create(ExamPurpose? purpose = null, ExamAudience? audience = null)
     {
         await Load();
+        var suggestedStart = DateTime.Now.AddHours(2);
         return View(new Exam
         {
             QuestionLimit = 10,
-            ExamDate = DateTime.Today.AddDays(1),
-            StartTime = new TimeSpan(10, 0, 0),
+            ExamDate = suggestedStart.Date,
+            StartTime = new TimeSpan(suggestedStart.Hour, suggestedStart.Minute, 0),
+
             NumberOfSessions = 1,
+            BlockingMode = ExamBlockingMode.AUTO_ONLY,
+            AllowedWarnings = 3,
             DurationMinutes = 60,
             TotalMarks = 100m,
             PassingPercentage = 40m,
@@ -72,9 +200,19 @@ public class ExamController : Controller
     }
 
     [HttpPost, ValidateAntiForgeryToken]
-    public async Task<IActionResult> Create([Bind("ExamId,ExamTitle,QuestionLimit,RecruitmentDepartment,RecruitmentPost,RecruitmentGrade,DepartmentId,PostId,AcademicClassId,Audience,Purpose,ClassName,AcademicLevel,IsReusable,TotalMarks,NegativeMarksPerWrongAnswer,PassingPercentage,DurationMinutes,NumberOfSessions,ExamDate,StartTime,EntryWindowMinutes,ShuffleOptions,BlockingMode")] Exam m, string? invigilatorEmails = null, bool inviteQuestions = false, bool inviteMonitoring = false)
+    public async Task<IActionResult> Create([Bind("ExamId,ExamTitle,QuestionLimit,RecruitmentDepartment,RecruitmentPost,RecruitmentGrade,DepartmentId,PostId,AcademicClassId,Audience,Purpose,ClassName,AcademicLevel,IsReusable,TotalMarks,NegativeMarksPerWrongAnswer,PassingPercentage,DurationMinutes,NumberOfSessions,ExamDate,StartTime,EntryWindowMinutes,ShuffleOptions,BlockingMode,AllowedWarnings,ResetWarningsOnResume,QualifyingAlertsJson")] Exam m, string? invigilatorEmails = null, bool inviteQuestions = false, bool inviteMonitoring = false, List<string>? qualifyingEvents = null, bool configureQualifyingEvents = false, int restAfterMinutes = 10, int? sessionDurationMinutes = null)
     {
         if (string.IsNullOrWhiteSpace(TeacherId)) return Challenge();
+        // New drafts do not configure/create sessions. Timing and breaks are
+        // selected after the teacher has chosen MCQs on the review page.
+        m.NumberOfSessions = 1;
+        m.DurationMinutes = 60;
+        ModelState.Remove(nameof(m.NumberOfSessions));
+        ModelState.Remove(nameof(m.DurationMinutes));
+        if (configureQualifyingEvents && m.BlockingMode != ExamBlockingMode.MANUAL_ONLY && (qualifyingEvents is null || qualifyingEvents.Count == 0))
+            ModelState.AddModelError(nameof(m.QualifyingAlertsJson), "Select at least one confirmed incident category for automatic warnings.");
+        if (configureQualifyingEvents)
+            m.QualifyingAlertsJson = System.Text.Json.JsonSerializer.Serialize(qualifyingEvents ?? new());
         await ValidateAsync(m);
         var emails = (invigilatorEmails ?? "").Split(new[] { ',', ';', '\n' }, StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).Select(e => e.ToUpperInvariant()).Distinct().ToArray();
         var teacherRoles = _db.Roles.Where(r => r.Name == "Teacher").Select(r => r.Id);
@@ -103,9 +241,44 @@ public class ExamController : Controller
 
         try
         {
+            m.BlockingPolicyVersion = Guid.NewGuid().ToString("N");
             _db.Exams.Add(m);
-            foreach (var teacher in invitees) _db.ExamInvigilators.Add(new ExamInvigilator { Exam = m, TeacherId = teacher.Id, IsActive = false, CanEditQuestions = inviteQuestions, CanMonitor = inviteMonitoring });
+            // Sessions intentionally remain empty until MCQ selection and
+            // explicit session setup. Publish-time distribution is unchanged.
+            var initialInvitations = new List<ExamInvigilator>();
+            foreach (var teacher in invitees)
+            {
+                var invitation = new ExamInvigilator
+                {
+                    Exam = m, TeacherId = teacher.Id, IsActive = false,
+                    CanEditQuestions = inviteQuestions, CanMonitor = inviteMonitoring
+                };
+                _db.ExamInvigilators.Add(invitation);
+                initialInvitations.Add(invitation);
+            }
             await _db.SaveChangesAsync();
+            // Preserve history for invitations created directly in the Create Exam workflow.
+            // Invitations themselves are already persisted; a history logging error must not
+            // accidentally cause the entire creation process to be repeated.
+            if (initialInvitations.Count > 0)
+            {
+                try
+                {
+                    _db.ExamCollaborationEvents.AddRange(initialInvitations.Select(i => new ExamCollaborationEvent
+                    {
+                        InvitationId = i.Id, ExamId = i.ExamId, TeacherId = i.TeacherId,
+                        ActorId = TeacherId!, EventType = "Invited",
+                        CanEditQuestions = i.CanEditQuestions, CanMonitor = i.CanMonitor,
+                        OccurredAtUtc = DateTime.UtcNow
+                    }));
+                    await _db.SaveChangesAsync();
+                }
+                catch (DbUpdateException ex)
+                {
+                    _logger.LogError(ex, "Exam {ExamId} was created but initial collaboration history could not be saved.", m.ExamId);
+                    TempData["Error"] = "Test created, but invitation audit logging failed. Ask the administrator to check migrations.";
+                }
+            }
             foreach (var teacher in invitees)
             {
                 try
@@ -137,11 +310,14 @@ public class ExamController : Controller
     }
 
     [HttpPost, ValidateAntiForgeryToken]
-    public async Task<IActionResult> Edit(int id, [Bind("ExamId,ExamTitle,QuestionLimit,RecruitmentDepartment,RecruitmentPost,RecruitmentGrade,DepartmentId,PostId,AcademicClassId,Audience,Purpose,ClassName,AcademicLevel,IsReusable,TotalMarks,NegativeMarksPerWrongAnswer,PassingPercentage,DurationMinutes,NumberOfSessions,ExamDate,StartTime,EntryWindowMinutes,ShuffleOptions,BlockingMode")] Exam m)
+    public async Task<IActionResult> Edit(int id, [Bind("ExamId,ExamTitle,QuestionLimit,RecruitmentDepartment,RecruitmentPost,RecruitmentGrade,DepartmentId,PostId,AcademicClassId,Audience,Purpose,ClassName,AcademicLevel,IsReusable,TotalMarks,NegativeMarksPerWrongAnswer,PassingPercentage,DurationMinutes,NumberOfSessions,ExamDate,StartTime,EntryWindowMinutes,ShuffleOptions,BlockingMode,AllowedWarnings,ResetWarningsOnResume,QualifyingAlertsJson")] Exam m, List<string>? qualifyingEvents = null, bool configureQualifyingEvents = false)
     {
         if (id != m.ExamId) return NotFound(); var db = await _db.Exams.Include(x => x.ExamQuestions).Include(x => x.Sessions).FirstOrDefaultAsync(x => x.ExamId == id && x.CreatedBy == TeacherId); if (db == null) return NotFound();
         if (db.IsLocked || db.IsPublished || await _db.ExamAttempts.AnyAsync(x => x.ExamId == id)) { TempData["Error"] = "Published/locked exams cannot be edited."; return RedirectToAction(nameof(Details), new { id }); }
         if (string.IsNullOrWhiteSpace(TeacherId)) return Challenge();
+        if (configureQualifyingEvents && m.BlockingMode != ExamBlockingMode.MANUAL_ONLY && (qualifyingEvents is null || qualifyingEvents.Count == 0))
+            ModelState.AddModelError(nameof(m.QualifyingAlertsJson), "Select at least one confirmed incident category for automatic warnings.");
+        if (configureQualifyingEvents) m.QualifyingAlertsJson = System.Text.Json.JsonSerializer.Serialize(qualifyingEvents ?? new());
         await ValidateAsync(m);
         var activeQuestionCount = db.ExamQuestions.Count(x => x.IsActive);
         if (activeQuestionCount > 0 && m.TotalMarks < activeQuestionCount * 0.01m)
@@ -159,7 +335,8 @@ public class ExamController : Controller
                 db.ClassCode = await GenerateClassCodeAsync();
             if (db.Audience == ExamAudience.Public) db.ClassCode = null;
             db.TotalMarks = m.TotalMarks; db.NegativeMarksPerWrongAnswer = m.NegativeMarksPerWrongAnswer; db.PassingPercentage = m.PassingPercentage; db.DurationMinutes = m.DurationMinutes; db.NumberOfSessions = m.NumberOfSessions; db.ExamDate = m.ExamDate; db.StartTime = m.StartTime; db.EntryWindowMinutes = m.EntryWindowMinutes;
-            db.ShuffleQuestions = m.ShuffleQuestions; db.ShuffleOptions = m.ShuffleOptions; db.AutoSubmitOnTimeEnd = m.AutoSubmitOnTimeEnd; db.BlockingMode = m.BlockingMode; db.RequireFullscreen = m.RequireFullscreen; db.RequireCamera = m.RequireCamera; db.RequireMicrophone = m.RequireMicrophone;
+            db.ShuffleQuestions = m.ShuffleQuestions; db.ShuffleOptions = m.ShuffleOptions; db.AutoSubmitOnTimeEnd = m.AutoSubmitOnTimeEnd; db.BlockingMode = m.BlockingMode; db.AllowedWarnings = m.AllowedWarnings; db.ResetWarningsOnResume = m.ResetWarningsOnResume; db.IdentityProtectiveHold = true; db.QualifyingAlertsJson = m.QualifyingAlertsJson; db.BlockingPolicyVersion = Guid.NewGuid().ToString("N");
+            _db.ProctoringLogs.Add(new() { ExamId = db.ExamId, StudentId = TeacherId!, AlertType = ProctoringAlertType.SystemAudit, ModelName = "Blocking policy audit", CountsAsViolation = false, PolicyProcessed = true, ActionByUserId = TeacherId, Description = "Draft blocking policy updated.", MachineObservationsJson = System.Text.Json.JsonSerializer.Serialize(new { db.BlockingMode, db.AllowedWarnings, db.BlockingPolicyVersion, db.QualifyingAlertsJson, db.ResetWarningsOnResume, db.IdentityProtectiveHold }), CreatedDate = DateTime.Now }); db.RequireFullscreen = m.RequireFullscreen; db.RequireCamera = m.RequireCamera; db.RequireMicrophone = m.RequireMicrophone;
             if (markingChanged && db.ExamQuestions.Any(x => x.IsActive))
             {
                 foreach (var q in db.ExamQuestions) q.SessionId = null;
@@ -426,6 +603,12 @@ public class ExamController : Controller
         if (exam.NumberOfSessions < 1 || exam.NumberOfSessions > 20)
         {
             TempData["Error"] = "Number of Sessions must be between 1 and 20.";
+            return RedirectToAction(nameof(Details), new { id });
+        }
+
+        if (!exam.Sessions.Any(x => x.IsActive))
+        {
+            TempData["Error"] = "Configure sessions and total exam time after selecting questions, before assigning candidates.";
             return RedirectToAction(nameof(Details), new { id });
         }
 
@@ -699,6 +882,9 @@ public class ExamController : Controller
 
         await _db.SaveChangesAsync();
 
+        var chosenBreakMinutes = exam.Sessions.Where(x => x.SessionNumber < exam.NumberOfSessions)
+            .Select(x => x.RestAfterMinutes).DefaultIfEmpty(10).First();
+        chosenBreakMinutes = Math.Clamp(chosenBreakMinutes, 0, 10);
         if (exam.Sessions.Count > 0)
         {
             _db.ExamSessions.RemoveRange(exam.Sessions);
@@ -726,7 +912,7 @@ public class ExamController : Controller
                 SessionTitle = $"Session {i + 1}",
                 Instructions = "Answer all questions carefully. Your progress is saved automatically.",
                 DurationMinutes = duration,
-                RestAfterMinutes = i < sessionCount - 1 ? 10 : 0,
+                RestAfterMinutes = i < sessionCount - 1 ? chosenBreakMinutes : 0,
                 DisplayOrder = i + 1,
                 IsActive = true,
                 IsLocked = false,
@@ -809,13 +995,16 @@ public class ExamController : Controller
                     .OrderBy(q => q.DisplayOrder).ThenBy(q => q.ExamQuestionId).ToList();
                 if (questions.Count == 0) return Invalid("Add at least one question before publishing.");
                 if (e.QuestionLimit.HasValue && questions.Count != e.QuestionLimit.Value) return Invalid($"Select exactly {e.QuestionLimit.Value} questions before publishing.");
-                var authors = await _db.ExamInvigilators.Where(i => i.ExamId == id && i.IsActive && i.AcceptedAtUtc != null).Select(i => i.TeacherId).ToListAsync(ct);
+                var authors = await _db.ExamInvigilators.Where(i => i.ExamId == id && i.IsActive && i.AcceptedAtUtc != null && i.RevokedAtUtc == null && i.CanEditQuestions).Select(i => i.TeacherId).ToListAsync(ct);
                 if (questions.Any(q => q.Question is null || !q.Question.IsActive ||
                     (q.Question.CreatedBy != teacherId && !authors.Contains(q.Question.CreatedBy!) && !q.Question.IsVerified)))
                     return Invalid("Some selected questions are unavailable. Review the paper before publishing.");
                 if (e.NumberOfSessions < 1 || e.NumberOfSessions > 20 ||
                     e.NumberOfSessions > questions.Count || e.DurationMinutes < e.NumberOfSessions)
                     return Invalid("Each section needs at least one question and one minute. Update the section count or add questions.");
+                if (e.Sessions.Count(x => x.IsActive) != e.NumberOfSessions ||
+                    e.Sessions.Where(x => x.IsActive).Sum(x => x.DurationMinutes) != e.DurationMinutes)
+                    return Invalid("Configure sessions and total exam time after selecting questions before publishing.");
                 if (e.TotalMarks < questions.Count * .01m || e.DurationMinutes < 1 || e.DurationMinutes > 600)
                     return Invalid("Check the total marks and duration before publishing.");
 
@@ -845,8 +1034,15 @@ public class ExamController : Controller
                     {
                         var assignment = e.Assignments.FirstOrDefault(a => a.StudentId == studentId);
                         if (assignment is not null) { assignment.IsActive = true; continue; }
-                        e.Assignments.Add(new ExamAssignment { ExamId = id, StudentId = studentId, AssignedBy = teacherId,
-                            AssignedAt = DateTime.Now, IsActive = true, RollNumber = $"EG-{id:000000}-{sequence++:00000}" });
+                        e.Assignments.Add(new ExamAssignment
+                        {
+                            ExamId = id,
+                            StudentId = studentId,
+                            AssignedBy = teacherId,
+                            AssignedAt = DateTime.Now,
+                            IsActive = true,
+                            RollNumber = $"EG-{id:000000}-{sequence++:00000}"
+                        });
                     }
                 }
                 RedistributeExamMarks(questions, e.TotalMarks, e.NegativeMarksPerWrongAnswer);
@@ -899,18 +1095,89 @@ public class ExamController : Controller
     }
 
     [HttpPost, ValidateAntiForgeryToken]
-    public async Task<IActionResult> ConfigureSections(int id, int count, CancellationToken cancellationToken)
+    public async Task<IActionResult> ConfigureSections(int id, int count, int? durationMinutes = null, int? restAfterMinutes = null, CancellationToken cancellationToken = default)
     {
-        var exam = await _db.Exams.SingleOrDefaultAsync(e => e.ExamId == id && e.CreatedBy == TeacherId, cancellationToken);
+        var json = Request.Headers.Accept.ToString().Contains("application/json", StringComparison.OrdinalIgnoreCase);
+        IActionResult InvalidSections(int status, string message)
+        {
+            if (json) return StatusCode(status, new { ok = false, message });
+            TempData["Error"] = message;
+            return RedirectToAction(nameof(Details), new { id });
+        }
+        var exam = await _db.Exams.Include(e => e.Sessions)
+            .SingleOrDefaultAsync(e => e.ExamId == id && e.CreatedBy == TeacherId, cancellationToken);
         if (exam is null) return NotFound();
-        if (exam.IsPublished || exam.IsLocked || await _db.ExamAttempts.AnyAsync(a => a.ExamId == id, cancellationToken)) return Conflict("Sections cannot change after publication or an attempt.");
-        if (count < 1 || count > 20 || count > exam.DurationMinutes || count > exam.QuestionLimit) return BadRequest("Choose 1–20 sections, no more than the question count or duration in minutes.");
-        exam.NumberOfSessions = count;
-        await _db.SaveChangesAsync(cancellationToken);
-        TempData["Success"] = "Section count saved. Review the paper before Publish and Lock.";
+        if (exam.IsPublished || exam.IsLocked || await _db.ExamAttempts.AnyAsync(a => a.ExamId == id, cancellationToken))
+            return InvalidSections(409, "Sessions cannot change after publication or an attempt.");
+        var questions = await _db.ExamQuestions.CountAsync(q => q.ExamId == id && q.IsActive, cancellationToken);
+        if (questions == 0) return InvalidSections(400, "Choose MCQs before configuring exam sessions.");
+        var configuredDuration = durationMinutes ?? exam.DurationMinutes;
+        var configuredRest = restAfterMinutes ?? exam.Sessions
+            .Where(x => x.SessionNumber < exam.NumberOfSessions)
+            .OrderBy(x => x.SessionNumber).Select(x => (int?)x.RestAfterMinutes).FirstOrDefault() ?? 10;
+        if (count < 1 || count > 20 || count > configuredDuration || count > questions || configuredDuration < 1 || configuredDuration > 600)
+            return InvalidSections(400, "Choose 1–20 sessions and 1–600 total minutes. Each session needs a question and a minute.");
+        if (configuredRest is < 0 or > 10)
+            return InvalidSections(400, "The optional break may be 0–10 minutes.");
+
+        // Session setup is deliberately deferred until *after* question selection.
+        // This is a draft-only operation; keep existing exam answers/attempts safe.
+        // The paper's final question-to-session distribution remains generated at Publish.
+        var strategy = _db.Database.CreateExecutionStrategy();
+        try
+        {
+            await strategy.ExecuteAsync(async () =>
+            {
+                _db.ChangeTracker.Clear();
+                await using var transaction = await _db.Database.BeginTransactionAsync(System.Data.IsolationLevel.Serializable, cancellationToken);
+                var working = await _db.Exams.Include(e => e.Sessions)
+                    .SingleAsync(e => e.ExamId == id && e.CreatedBy == TeacherId, cancellationToken);
+                if (working.IsPublished || working.IsLocked || await _db.ExamAttempts.AnyAsync(a => a.ExamId == id, cancellationToken))
+                    throw new InvalidOperationException("The paper is no longer editable.");
+                var linked = await _db.ExamQuestions.Where(q => q.ExamId == id && q.SessionId != null)
+                    .ToListAsync(cancellationToken);
+                foreach (var q in linked) q.SessionId = null;
+                if (linked.Count > 0) await _db.SaveChangesAsync(cancellationToken);
+                if (working.Sessions.Count > 0)
+                {
+                    _db.ExamSessions.RemoveRange(working.Sessions);
+                    await _db.SaveChangesAsync(cancellationToken);
+                }
+                working.NumberOfSessions = count;
+                working.DurationMinutes = configuredDuration;
+                var minutesEach = configuredDuration / count;
+                var extra = configuredDuration % count;
+                for (var i = 0; i < count; i++)
+                    _db.ExamSessions.Add(new ExamSession
+                    {
+                        ExamId = id, SessionNumber = i + 1, DisplayOrder = i + 1,
+                        SessionTitle = $"Session {i + 1}",
+                        DurationMinutes = minutesEach + (i < extra ? 1 : 0),
+                        RestAfterMinutes = i < count - 1 ? configuredRest : 0,
+                        IsActive = true, CreatedDate = DateTime.Now
+                    });
+                working.UpdatedDate = DateTime.Now;
+                working.UpdatedBy = TeacherId;
+                await _db.SaveChangesAsync(cancellationToken);
+                await transaction.CommitAsync(cancellationToken);
+            });
+        }
+        catch (Exception ex) when (ex is InvalidOperationException or DbUpdateException)
+        {
+            _logger.LogWarning(ex, "Concurrent session setup failed for exam {ExamId}", id);
+            return InvalidSections(409, "Session settings changed concurrently. Reload the exam and try again.");
+        }
+        if (json)
+        {
+            var audienceReady = exam.Audience == ExamAudience.Public || exam.AcademicClassId.HasValue ||
+                await _db.ExamAssignments.AnyAsync(a => a.ExamId == id && a.IsActive, cancellationToken);
+            var canPublish = audienceReady && (exam.IsReusable || DateTime.Now <= exam.LatestStartDate) &&
+                (!exam.QuestionLimit.HasValue || questions == exam.QuestionLimit.Value);
+            return Json(new { ok = true, count, durationMinutes = configuredDuration, restAfterMinutes = configuredRest, canPublish, message = "Session timing saved. Review and publish when ready." });
+        }
+        TempData["Success"] = "Session timing saved. Review the paper before publishing.";
         return RedirectToAction(nameof(Details), new { id });
     }
-
     private async Task ValidateAsync(Exam e)
     {
         // Required delivery rules are server-owned, not hidden-form choices.
@@ -947,6 +1214,12 @@ public class ExamController : Controller
 
         if (e.EntryWindowMinutes < 0 || e.EntryWindowMinutes > 1440)
             ModelState.AddModelError(nameof(e.EntryWindowMinutes), "Entry window must be between 0 and 1440 minutes.");
+        if (e.AllowedWarnings is < 1 or > 10) ModelState.AddModelError(nameof(e.AllowedWarnings), "Allowed warnings must be between 1 and 10.");
+        if (!string.IsNullOrWhiteSpace(e.QualifyingAlertsJson))
+        {
+            try { var classes = System.Text.Json.JsonSerializer.Deserialize<List<string>>(e.QualifyingAlertsJson); if (classes is null || classes.Any(x => !Enum.TryParse<ProctoringAlertType>(x, out var t) || !AiExamProctoring.Services.Proctoring.ProctoringStateService.IsStandard(t))) ModelState.AddModelError(nameof(e.QualifyingAlertsJson), "Select recognized qualifying incident classes."); }
+            catch (System.Text.Json.JsonException) { ModelState.AddModelError(nameof(e.QualifyingAlertsJson), "Invalid qualifying event configuration."); }
+        }
         if (!Enum.IsDefined(e.BlockingMode)) ModelState.AddModelError(nameof(e.BlockingMode), "Choose a valid blocking mode.");
         if (!Enum.IsDefined(e.Audience)) ModelState.AddModelError(nameof(e.Audience), "Choose a valid exam access type.");
         if (!Enum.IsDefined(e.Purpose))

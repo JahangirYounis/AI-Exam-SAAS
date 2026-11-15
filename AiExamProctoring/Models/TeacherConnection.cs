@@ -10,6 +10,8 @@ public sealed class TeacherConnection
     [MaxLength(450)] public string RecipientId { get; set; } = "";
     public DateTime CreatedAtUtc { get; set; } = DateTime.UtcNow;
     public DateTime? AcceptedAtUtc { get; set; }
+    public DateTime? DeclinedAtUtc { get; set; }
+    public DateTime? ClosedAtUtc { get; set; }
 }
 [Index(nameof(ConnectionId), nameof(Id))]
 public sealed class TeacherPrivateMessage

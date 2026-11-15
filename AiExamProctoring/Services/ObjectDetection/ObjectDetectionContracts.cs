@@ -4,6 +4,13 @@ namespace AiExamProctoring.Services.ObjectDetection;
 
 public sealed class ObjectDetectionResponse
 {
+    [JsonPropertyName("classes")] public List<string> Classes {get;set;} = new();
+    [JsonPropertyName("scene_signature")] public List<double> SceneSignature {get;set;} = new();
+    [JsonPropertyName("frame_usable")] public bool? FrameUsable { get; set; }
+    [JsonPropertyName("frame_fingerprint")] public string? FrameFingerprint { get; set; }
+    [JsonPropertyName("frame_width")] public int FrameWidth {get;set;}
+    [JsonPropertyName("frame_height")] public int FrameHeight {get;set;}
+    [JsonPropertyName("model_sha256")] public string? ModelSha256 {get;set;}
     [JsonPropertyName("ok")] public bool Ok { get; set; }
     [JsonPropertyName("ready")] public bool Ready { get; set; }
     [JsonPropertyName("status")] public string Status { get; set; } = string.Empty;
@@ -36,6 +43,7 @@ public sealed record ObjectDetectionCallResult(
 
 public sealed class ObjectDetectionFrameRequest
 {
+    public bool QueueEvidence { get; set; }
     public int AttemptId { get; set; }
     public int SessionAttemptId { get; set; }
     public IFormFile? Frame { get; set; }

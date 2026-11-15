@@ -88,6 +88,7 @@ else
             <div>
                 <section class="student-card precheck-start" aria-labelledby="startTitle">
                     <h2 id="startTitle" class="h5 fw-bold">2. Start your exam</h2>
+                    <p>Live screen monitoring is required. When you select Start exam, choose Entire Screen in your browser’s sharing prompt. Your authorized teacher can view that display and your webcam during the session.</p>
                     @if (Model.IsReusable)
                     {
                         <p class="small soft-muted">This exam has no scheduled entry window.@(Model.AllowsRepeatAttempts ? " You may repeat it after completing your current attempt." : "")</p>
@@ -113,7 +114,7 @@ else
                 </section>
                 <section class="student-card precheck-privacy mt-3" aria-labelledby="monitoringTitle">
                     <h2 id="monitoringTitle" class="h6 fw-bold">Monitoring during your exam</h2>
-                    <p class="small mb-2">Your camera@(Model.RequireMicrophone ? " and microphone" : "") must remain connected. Monitoring can capture images and short audio/video clips for teacher review. Speech may be transcribed and checked against exam content when speech monitoring is enabled.</p>
+                    <p class="small mb-2">Your camera@(Model.RequireMicrophone ? " and microphone" : "") must remain connected. Monitoring can capture images and short audio/video clips for teacher review. Speech may be transcribed and checked against exam content when speech monitoring is enabled. Authorized teachers can review recordings and transcripts. Evidence is retained under the institution’s configured retention policy; ask your institution for the applicable retention period.</p>
                     <p class="small mb-0">This check sends camera images for identity verification. A fresh identity check also runs before your paper opens. Follow your teacher's rules about permitted materials and breaks.</p>
                 </section>
             </div>
@@ -121,5 +122,8 @@ else
     </main>
 }
 @section Scripts {
+    <script src="~/js/media-capabilities.js" asp-append-version="true"></script>
+    <script src="~/js/exam-display-capture.js" asp-append-version="true"></script>
+    <script src="~/js/preflight-sound.js" asp-append-version="true" defer></script>
     <script src="~/js/exam-precheck.js" asp-append-version="true" defer></script>
 }

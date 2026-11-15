@@ -25,7 +25,7 @@ public sealed class ProctoringStateController(ApplicationDbContext db, IProctori
     {
         var userId = User.FindFirstValue(ClaimTypes.NameIdentifier);
         if (!await db.ExamAttempts.AnyAsync(a => a.AttemptId == attemptId &&
-            (a.StudentId == userId || User.IsInRole("Teacher") && (a.Exam!.CreatedBy == userId || db.ExamInvigilators.Any(i=>i.ExamId==a.ExamId&&i.TeacherId==userId&&i.IsActive&&i.CanMonitor&&i.AcceptedAtUtc!=null))), ct)) return NotFound();
+            (a.StudentId == userId || User.IsInRole("Teacher") && (a.Exam!.CreatedBy == userId || db.ExamInvigilators.Any(i=>i.ExamId==a.ExamId&&i.TeacherId==userId&&i.IsActive&&i.CanMonitor&&i.AcceptedAtUtc!=null && i.RevokedAtUtc == null))), ct)) return NotFound();
         return Json(await states.GetAsync(attemptId, ct));
     }
 

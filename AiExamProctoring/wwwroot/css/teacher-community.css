@@ -1,0 +1,74 @@
+/* Teacher Task 15: limited to the community, directory and professional profiles. */
+.teacher-community{--tcom-ink:#152a43;--tcom-muted:#637892;--tcom-line:#e1e9f3;--tcom-blue:#146df5;color:var(--tcom-ink);max-width:1460px;margin-inline:auto}
+.teacher-community .tcom-hero,.teacher-chat-page .tcom-hero{background:linear-gradient(115deg,#183652,#205b8d);border-radius:19px;padding:clamp(22px,3vw,36px);color:#fff;display:flex;align-items:center;justify-content:space-between;gap:20px;margin-bottom:25px}
+.teacher-community .tcom-hero h1,.teacher-chat-page .tcom-hero h1{font-size:clamp(1.6rem,3vw,2.25rem);font-weight:800;margin:8px 0;line-height:1.2;color:#fff}
+.teacher-community .tcom-hero p,.teacher-chat-page .tcom-hero p{color:#d6e6f7;margin:0;font-size:.96rem}
+.teacher-community .tcom-hero .btn,.teacher-chat-page .tcom-hero .btn{white-space:nowrap;border-radius:11px;padding:10px 16px;font-weight:700}
+.tcom-eyebrow{font-weight:800;letter-spacing:.08em;text-transform:uppercase;font-size:.78rem;color:#bddcff;display:inline-flex;align-items:center;gap:9px}
+.teacher-community .tcom-grid{display:grid;grid-template-columns:minmax(0,1fr) 270px;gap:20px;align-items:start}
+.teacher-community .tcom-stream,.teacher-community .tcom-aside{min-width:0}
+.teacher-community .tcom-panel,.teacher-community .tcom-post{background:#fff;border:1px solid var(--tcom-line);border-radius:17px;box-shadow:0 4px 18px #1637540b;padding:20px;margin-bottom:18px}
+.teacher-community .tcom-compose textarea,.teacher-community .tcom-comment-form textarea{border:1px solid #cddbea;border-radius:11px;resize:vertical;min-height:98px}
+.teacher-community .tcom-compose-actions{display:flex;justify-content:flex-end;align-items:center;flex-wrap:wrap;gap:11px;margin-top:12px}
+.teacher-community .tcom-compose-actions label{font-size:.82rem;color:var(--tcom-muted)}
+.teacher-community .tcom-compose-actions select{max-width:212px;border-radius:10px}
+.teacher-community .tcom-tabs{display:flex;align-items:center;gap:7px;flex-wrap:wrap;margin:10px 0 18px;overflow:auto}
+.teacher-community .tcom-tabs a{text-decoration:none;color:#47627f;border-radius:10px;padding:11px 14px;font-weight:750;white-space:nowrap}
+.teacher-community .tcom-tabs a.active{background:var(--tcom-blue);color:#fff}
+.teacher-community .tcom-tabs a:not(.active):hover{background:#edf4ff;color:#1456a9}
+.teacher-community .tcom-tabs a span{background:#eff3f8;color:#385d86;border-radius:99px;padding:2px 7px;font-size:.73rem;margin-left:3px}
+.teacher-community .tcom-tabs a.active span{background:#ffffff44;color:#fff}
+.teacher-community .tcom-post-head{display:flex;align-items:center;gap:12px}
+.teacher-community .tcom-avatar{width:48px;height:48px;object-fit:cover;border-radius:50%;flex:0 0 48px;background:#eaf1f9}
+.teacher-community .tcom-grow{flex:1;min-width:0}
+.teacher-community .tcom-person-name{color:#193654;font-size:1rem;font-weight:800;text-decoration:none;overflow-wrap:anywhere}
+.teacher-community .tcom-person-name:hover{text-decoration:underline;color:#125fcd}
+.teacher-community .tcom-muted{color:var(--tcom-muted);font-size:.82rem;line-height:1.55}
+.teacher-community .tcom-post-body{white-space:pre-wrap;overflow-wrap:anywhere;line-height:1.65;margin:17px 0 16px;font-size:.95rem}
+.teacher-community .tcom-post-footer{display:flex;flex-wrap:wrap;align-items:center;gap:10px;padding-top:12px;border-top:1px solid var(--tcom-line)}
+.teacher-community .tcom-number{display:flex;justify-content:space-between;align-items:center;padding:13px 0;border-bottom:1px solid var(--tcom-line)}
+.teacher-community .tcom-number strong{font-size:1.5rem}
+.teacher-community .tcom-number span{font-size:.84rem;color:var(--tcom-muted)}
+.teacher-community .tcom-number:last-of-type{margin-bottom:16px}
+.teacher-community .tcom-empty{padding:38px 20px;text-align:center;display:flex;flex-direction:column;align-items:center;gap:8px;color:var(--tcom-muted)}
+.teacher-community .tcom-empty i{font-size:2.3rem;color:#a2b7d0}
+.teacher-community .tcom-empty strong{font-size:1.05rem;color:var(--tcom-ink)}
+.teacher-community .tcom-empty p{margin:0}
+.teacher-community .tcom-pagination{display:flex;gap:12px;align-items:center;justify-content:center;padding:8px 0 24px}
+.teacher-community .tcom-search{display:flex;gap:10px;padding-bottom:17px;border-bottom:1px solid var(--tcom-line)}
+.teacher-community .tcom-search input{flex:1;min-width:120px;border-radius:11px}
+.teacher-community .tcom-directory{margin-top:5px}
+.teacher-community .tcom-person{display:flex;align-items:center;gap:13px;padding:17px 0;border-bottom:1px solid var(--tcom-line)}
+.teacher-community .tcom-person:last-child{border:0}
+.teacher-community .tcom-person-info{flex:1;min-width:0}
+.teacher-community .tcom-person-info p{color:var(--tcom-muted);margin:4px 0 0;font-size:.84rem}
+.teacher-community .tcom-actions{display:flex;align-items:center;gap:7px;flex-wrap:wrap}
+.teacher-community .tcom-actions form{margin:0}
+.teacher-community .tcom-status{font-size:.78rem;background:#f0f4f9;color:#4a5e74;padding:6px 10px;border-radius:8px}
+.teacher-community .tcom-profile-banner{background:linear-gradient(115deg,#183652,#205b8d);border-radius:18px;padding:clamp(20px,3vw,38px);margin-bottom:24px}
+.teacher-community .tcom-profile-top{display:flex;gap:22px;align-items:center;flex-wrap:wrap;color:#fff}
+.teacher-community .tcom-profile-photo{width:106px;height:106px;object-fit:cover;border:4px solid white;border-radius:50%;background:white}
+.teacher-community .tcom-profile-banner h1{font-size:clamp(1.5rem,2.8vw,2.15rem);font-weight:800;margin:6px 0}
+.teacher-community .tcom-profile-banner p{margin:0;color:#d5e5f4}
+.teacher-community .tcom-profile-banner .tcom-muted{color:#c2d5e9;margin-top:8px}
+.teacher-community .tcom-profile-stream{max-width:860px;margin-inline:auto}
+.teacher-community .tcom-comment{padding:14px 0;border-bottom:1px solid var(--tcom-line)}
+.teacher-community .tcom-comment-top{display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap;font-size:.8rem;color:var(--tcom-muted)}
+.teacher-community .tcom-comment-top a{color:#234e79;font-weight:800;text-decoration:none}
+.teacher-community .tcom-comment p{white-space:pre-wrap;overflow-wrap:anywhere;margin:8px 0}
+.teacher-community .tcom-comment-form{padding-top:22px}
+.teacher-community.tcom-narrow{max-width:860px}
+.teacher-chat-page .tcom-hero{max-width:1200px;margin-inline:auto}
+.teacher-community a:focus-visible,.teacher-community button:focus-visible{outline:3px solid #6cb1ff;outline-offset:3px}
+@media(max-width:1000px){.teacher-community .tcom-grid{grid-template-columns:1fr}.teacher-community .tcom-aside{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}.teacher-community .tcom-aside .tcom-panel{margin:0}}
+@media(max-width:650px){.teacher-community .tcom-hero,.teacher-chat-page .tcom-hero{flex-direction:column;align-items:stretch}.teacher-community .tcom-panel,.teacher-community .tcom-post{padding:15px}.teacher-community .tcom-person{flex-wrap:wrap}.teacher-community .tcom-person-info{min-width:140px}.teacher-community .tcom-actions{width:100%;padding-left:60px}.teacher-community .tcom-search{flex-wrap:wrap}.teacher-community .tcom-search input{width:100%;flex:auto}.teacher-community .tcom-aside{grid-template-columns:1fr}.teacher-community .tcom-profile-top{align-items:flex-start}.teacher-community .tcom-profile-top .tcom-actions{padding:0}}
+@media(prefers-reduced-motion:reduce){.teacher-community *{scroll-behavior:auto!important}}
+/* Keep private messaging aligned with the navy/blue Teacher design without changing team-chat styles. */
+.teacher-chat-page .tc-shell{border-color:#d9e5f2;box-shadow:0 9px 28px #183a5c19;background:#f5f8fc}
+.teacher-chat-page .tc-header{background:#fff;border-bottom-color:#dfebf6}
+.teacher-chat-page .tc-avatar{background:#e2efff;color:#1762b5}
+.teacher-chat-page .tc-history{background:linear-gradient(140deg,#eff5fc,#f8fbff)}
+.teacher-chat-page .tc-mine .tc-bubble{background:#dceaff}
+.teacher-chat-page .tc-quote{border-left-color:#2e82e9}
+.teacher-chat-page .tc-composer textarea{outline-color:#146df5}
+.teacher-chat-page .tc-reacted{border-color:#146df5;background:#eaf3ff}

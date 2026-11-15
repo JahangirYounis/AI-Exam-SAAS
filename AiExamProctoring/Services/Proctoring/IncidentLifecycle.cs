@@ -9,6 +9,14 @@ public sealed class IncidentEpisode
     public DateTime? LastEmittedUtc { get; set; }
     public bool Emitted { get; set; }
     public int Samples { get; set; }
+    public bool? LastActive { get; set; }
+    public DateTime? PotentialReturnUtc { get; set; }
+    public int? LogId { get; set; }
+    public DateTime? PeopleVerifiedSinceUtc { get; set; }
+    public bool PeopleMinuteWarningSent { get; set; }
+    public int LastAbsenceMilestoneSeconds { get; set; }
+    public bool UsesVerifiedAbsenceClock { get; set; }
+    public double? LastVerifiedAbsenceSeconds { get; set; }
 }
 
 public static class IncidentLifecycle
@@ -49,4 +57,4 @@ public static class IncidentLifecycle
     }
 }
 
-public sealed record IncidentObservation(string Key, bool? Active, Models.ProctoringLog Log);
+public sealed record IncidentObservation(string Key, bool? Active, Models.ProctoringLog Log, double? MonotonicDurationSeconds = null, bool PeopleContextSupported = false, bool RepeatedAttention = false, bool SupportedAttention = false);

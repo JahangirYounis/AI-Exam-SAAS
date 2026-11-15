@@ -1,96 +1,108 @@
+
+using System.Net;
+using System.Net.Http.Headers;
+using System.Net.Http.Json;
 using AiExamProctoring.Services.FaceIdentity;
 using Microsoft.Extensions.Options;
-using System.Net.Http.Headers;
-using System.Text.Json;
 
 namespace AiExamProctoring.Services.BehaviorAnalysis;
 
 public interface IBehaviorAnalysisClient
 {
-    Task<BehaviorCallResult> HealthAsync(CancellationToken cancellationToken = default);
-    Task<BehaviorCallResult> PreCheckAsync(IReadOnlyCollection<FaceIdentityImage> images, CancellationToken cancellationToken = default);
-    Task<BehaviorCallResult> StartSessionAsync(string sessionKey, IReadOnlyCollection<FaceIdentityImage> images, CancellationToken cancellationToken = default, bool screenCalibration = false);
-    Task<BehaviorCallResult> AnalyzeAsync(string sessionKey, FaceIdentityImage image, CancellationToken cancellationToken = default);
-    Task<BehaviorCallResult> EndSessionAsync(string sessionKey, CancellationToken cancellationToken = default);
+    Task<BehaviorCallResult> StartSessionAsync(string key, IReadOnlyList<FaceIdentityImage> frames,
+        CancellationToken ct, bool screenCalibration = false, int screenPoints = 4);
+    Task<BehaviorCallResult> AnalyzeAsync(string key, FaceIdentityImage frame, CancellationToken ct);
+    Task<BehaviorCallResult> AnalyzeFeatureAsync(string feature, string key, FaceIdentityImage frame, CancellationToken ct = default);
+    Task<BehaviorCallResult> HealthAsync(CancellationToken ct = default);
+    Task<BehaviorCallResult> EndSessionAsync(string key, CancellationToken ct);
 }
 
-public sealed class BehaviorAnalysisClient : IBehaviorAnalysisClient
+public sealed class BehaviorAnalysisClient(HttpClient client, IOptions<BehaviorAnalysisOptions> options,
+    ILogger<BehaviorAnalysisClient> logger)
+    : IBehaviorAnalysisClient
 {
-    private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
-    private readonly HttpClient _http;
-    private readonly BehaviorAnalysisOptions _options;
-    private readonly ILogger<BehaviorAnalysisClient> _logger;
+    private readonly BehaviorAnalysisOptions _settings = options.Value;
 
-    public BehaviorAnalysisClient(HttpClient http, IOptions<BehaviorAnalysisOptions> options, ILogger<BehaviorAnalysisClient> logger)
-    {
-        _http = http;
-        _options = options.Value;
-        _logger = logger;
-    }
-
-    public Task<BehaviorCallResult> HealthAsync(CancellationToken cancellationToken = default) =>
-        SendAsync(HttpMethod.Get, "api/model2/health", null, cancellationToken);
-
-    public Task<BehaviorCallResult> PreCheckAsync(IReadOnlyCollection<FaceIdentityImage> images, CancellationToken cancellationToken = default) =>
-        SendImagesAsync("api/model2/precheck", null, images, cancellationToken);
-
-    public Task<BehaviorCallResult> StartSessionAsync(string sessionKey, IReadOnlyCollection<FaceIdentityImage> images, CancellationToken cancellationToken = default, bool screenCalibration = false) =>
-        SendImagesAsync("api/model2/sessions/start", sessionKey, images, cancellationToken, screenCalibration);
-
-    public Task<BehaviorCallResult> AnalyzeAsync(string sessionKey, FaceIdentityImage image, CancellationToken cancellationToken = default)
-    {
-        var form = new MultipartFormDataContent();
-        form.Add(new StringContent(sessionKey), "session_key");
-        var content = new ByteArrayContent(image.Bytes);
-        content.Headers.ContentType = MediaTypeHeaderValue.Parse(string.IsNullOrWhiteSpace(image.ContentType) ? "image/jpeg" : image.ContentType);
-        form.Add(content, "file", string.IsNullOrWhiteSpace(image.FileName) ? "frame.jpg" : image.FileName);
-        return SendAsync(HttpMethod.Post, "api/model2/analyze", form, cancellationToken);
-    }
-
-    public Task<BehaviorCallResult> EndSessionAsync(string sessionKey, CancellationToken cancellationToken = default)
-    {
-        var form = new FormUrlEncodedContent(new Dictionary<string, string> { ["session_key"] = sessionKey });
-        return SendAsync(HttpMethod.Post, "api/model2/sessions/end", form, cancellationToken);
-    }
-
-    private Task<BehaviorCallResult> SendImagesAsync(string path, string? sessionKey, IReadOnlyCollection<FaceIdentityImage> images, CancellationToken cancellationToken, bool screenCalibration = false)
-    {
-        var form = new MultipartFormDataContent();
-        if (!string.IsNullOrWhiteSpace(sessionKey)) form.Add(new StringContent(sessionKey), "session_key");
-        if (screenCalibration) form.Add(new StringContent("true"), "screen_calibration");
-        foreach (var image in images)
+    public Task<BehaviorCallResult> StartSessionAsync(string key, IReadOnlyList<FaceIdentityImage> frames,
+        CancellationToken ct, bool screenCalibration = false, int screenPoints = 4) =>
+        SendAsync(_settings.BaseUrl, "sessions/start", key, ct, form =>
         {
-            var content = new ByteArrayContent(image.Bytes);
-            content.Headers.ContentType = MediaTypeHeaderValue.Parse(string.IsNullOrWhiteSpace(image.ContentType) ? "image/jpeg" : image.ContentType);
-            form.Add(content, "files", string.IsNullOrWhiteSpace(image.FileName) ? "frame.jpg" : image.FileName);
-        }
-        return SendAsync(HttpMethod.Post, path, form, cancellationToken);
+            form.Add(new StringContent(screenCalibration ? "true" : "false"), "screen_calibration");
+            form.Add(new StringContent(screenPoints.ToString(System.Globalization.CultureInfo.InvariantCulture)), "screen_points");
+            foreach (var frame in frames)
+                AddFrame(form, "files", frame);
+        }, timeoutMilliseconds: 18000);
+
+    public Task<BehaviorCallResult> AnalyzeAsync(string key, FaceIdentityImage frame, CancellationToken ct) =>
+        AnalyzeFeatureAsync("attention", key, frame, ct);
+
+    public Task<BehaviorCallResult> AnalyzeFeatureAsync(string feature, string key, FaceIdentityImage frame, CancellationToken ct = default)
+    {
+        var (address, timeout) = feature switch
+        {
+            "absence" => (_settings.AbsenceBaseUrl, _settings.AbsenceTimeoutMilliseconds),
+            "persons" => (_settings.MultiplePeopleBaseUrl, _settings.MultiplePeopleTimeoutMilliseconds),
+            _ => (_settings.BaseUrl, _settings.AttentionTimeoutMilliseconds)
+        };
+        return SendAsync(address, "analyze", key, ct, form => AddFrame(form, "file", frame), timeout);
     }
 
-    private async Task<BehaviorCallResult> SendAsync(HttpMethod method, string path, HttpContent? content, CancellationToken cancellationToken)
+    public Task<BehaviorCallResult> EndSessionAsync(string key, CancellationToken ct) =>
+        SendAsync(_settings.BaseUrl, "sessions/end", key, ct, timeoutMilliseconds: _settings.AttentionTimeoutMilliseconds);
+
+    public Task<BehaviorCallResult> HealthAsync(CancellationToken ct = default) =>
+        SendAsync(_settings.BaseUrl, "health", null, ct, timeoutMilliseconds: _settings.AttentionTimeoutMilliseconds);
+
+    private static void AddFrame(MultipartFormDataContent form, string field, FaceIdentityImage frame)
     {
-        if (!_options.Enabled)
+        var image = new ByteArrayContent(frame.Bytes);
+        image.Headers.ContentType = new MediaTypeHeaderValue(frame.ContentType);
+        form.Add(image, field, frame.FileName);
+    }
+
+    private async Task<BehaviorCallResult> SendAsync(string address, string endpoint, string? key, CancellationToken ct,
+        Action<MultipartFormDataContent>? fill = null, int? timeoutMilliseconds = null)
+    {
+        if (!_settings.Enabled || !Uri.TryCreate(address.TrimEnd('/') + "/", UriKind.Absolute, out var root)
+            || root.Scheme is not ("http" or "https"))
+            return new(false, null, "Monitoring service is unavailable.", true);
+
+        using var request = new HttpRequestMessage(key is null ? HttpMethod.Get : HttpMethod.Post,
+            new Uri(root, "api/model2/" + endpoint));
+        if (key is not null)
         {
-            content?.Dispose();
-            return new(false, null, "Behavior Analysis is disabled.", true);
+            var form = new MultipartFormDataContent();
+            request.Content = form;
+            form.Add(new StringContent(key), "session_key");
+            fill?.Invoke(form);
         }
-        using var request = new HttpRequestMessage(method, path) { Content = content };
-        if (!string.IsNullOrWhiteSpace(_options.ApiKey)) request.Headers.Add("X-Behavior-Api-Key", _options.ApiKey);
+        if (!string.IsNullOrWhiteSpace(_settings.ApiKey))
+            request.Headers.Add("X-Behavior-Api-Key", _settings.ApiKey);
+        using var timeout = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        if (timeoutMilliseconds is int ms)
+            timeout.CancelAfter(TimeSpan.FromMilliseconds(Math.Clamp(ms, 200, 45_000)));
         try
         {
-            using var response = await _http.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, cancellationToken);
-            var json = await response.Content.ReadAsStringAsync(cancellationToken);
-            BehaviorResponse? data = null;
-            try { data = JsonSerializer.Deserialize<BehaviorResponse>(json, JsonOptions); } catch { }
-            if (response.IsSuccessStatusCode && data?.Ok == true)
-                return new(true, data, data.Message ?? "Behavior request completed.");
-            var detail = data?.Detail?.ToString();
-            return new(false, data, data?.Message ?? detail ?? $"Behavior service returned HTTP {(int)response.StatusCode}.", response.StatusCode == System.Net.HttpStatusCode.ServiceUnavailable);
+            using var response = await client.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, timeout.Token);
+            if (response.StatusCode is HttpStatusCode.ServiceUnavailable or HttpStatusCode.TooManyRequests
+                || (int)response.StatusCode >= 500)
+                return new(false, null, "Monitoring service is temporarily unavailable. Retrying.", true);
+            var data = await response.Content.ReadFromJsonAsync<BehaviorResponse>(cancellationToken: timeout.Token);
+            var success = response.IsSuccessStatusCode && data?.Ok == true;
+            return new(success, data, success ? "" : data?.Message ?? "The monitoring service could not accept this frame.");
         }
-        catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException)
+        catch (OperationCanceledException) when (!ct.IsCancellationRequested)
         {
-            _logger.LogWarning(ex, "Model 2 service request failed: {Path}", path);
-            return new(false, null, "Behavior service is not running. Start AIProctoringService Model 2 on port 8002.", true);
+            return new(false, null, "The monitoring service took too long to respond. Retrying.", true);
+        }
+        catch (HttpRequestException error)
+        {
+            logger.LogDebug(error, "Behavior worker request failed for {Endpoint}", endpoint);
+            return new(false, null, "Monitoring service is unavailable.", true);
+        }
+        catch (System.Text.Json.JsonException)
+        {
+            return new(false, null, "The monitoring service returned an unreadable response.", true);
         }
     }
 }

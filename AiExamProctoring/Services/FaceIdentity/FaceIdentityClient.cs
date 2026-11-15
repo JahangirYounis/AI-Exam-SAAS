@@ -13,6 +13,7 @@ public interface IFaceIdentityClient
     Task<FaceIdentityCallResult> TemplateStatusAsync(string studentId, CancellationToken cancellationToken = default);
     Task<FaceIdentityCallResult> EnrollAsync(string studentId, IReadOnlyCollection<FaceIdentityImage> images, CancellationToken cancellationToken = default);
     Task<FaceIdentityCallResult> VerifyAsync(string studentId, IReadOnlyCollection<FaceIdentityImage> images, CancellationToken cancellationToken = default);
+    Task<FaceIdentityCallResult> VerifyActiveAsync(string studentId, IReadOnlyCollection<FaceIdentityImage> images, CancellationToken cancellationToken = default);
     Task<FaceIdentityCallResult> DeleteTemplateAsync(string studentId, CancellationToken cancellationToken = default);
 }
 
@@ -50,6 +51,15 @@ public sealed class FaceIdentityClient : IFaceIdentityClient
 
     public Task<FaceIdentityCallResult> VerifyAsync(string studentId, IReadOnlyCollection<FaceIdentityImage> images, CancellationToken cancellationToken = default) =>
         SendImagesAsync("api/model1/verify", studentId, images, cancellationToken);
+
+    public Task<FaceIdentityCallResult> VerifyActiveAsync(string studentId, IReadOnlyCollection<FaceIdentityImage> images, CancellationToken cancellationToken = default)
+    {
+        if (!Uri.TryCreate(_options.MonitoringBaseUrl.TrimEnd('/') + "/", UriKind.Absolute, out var serviceUri) ||
+            serviceUri.Scheme is not ("http" or "https"))
+            return Task.FromResult(new FaceIdentityCallResult(false, null, "Active identity monitoring has an invalid service URL.", true));
+        var endpoint = new Uri(serviceUri, "api/student-change/verify");
+        return SendImagesAsync(endpoint.AbsoluteUri, studentId, images, cancellationToken);
+    }
 
     public async Task<FaceIdentityImage?> EnrollmentPhotoAsync(string studentId, int index, CancellationToken cancellationToken = default)
     {
@@ -109,7 +119,7 @@ public sealed class FaceIdentityClient : IFaceIdentityClient
         catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException)
         {
             _logger.LogWarning(ex, "Face Identity service request failed: {Path}", path);
-            return new(false, null, "Face Identity service is not running. Start AIProctoringService on port 8001.", true);
+            return new(false, null, "The selected identity service is unavailable.", true);
         }
     }
 }

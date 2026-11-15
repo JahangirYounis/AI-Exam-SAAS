@@ -27,7 +27,7 @@ public class ExamQuestionController : Controller
         page = Math.Max(1, page);
 
         var exam = await _db.Exams.AsNoTracking()
-            .FirstOrDefaultAsync(x => x.ExamId == examId && (x.CreatedBy == TeacherId || _db.ExamInvigilators.Any(i => i.ExamId == examId && i.TeacherId == TeacherId && i.IsActive && i.CanEditQuestions && i.AcceptedAtUtc != null)));
+            .FirstOrDefaultAsync(x => x.ExamId == examId && (x.CreatedBy == TeacherId || _db.ExamInvigilators.Any(i => i.ExamId == examId && i.TeacherId == TeacherId && i.IsActive && i.CanEditQuestions && i.AcceptedAtUtc != null && i.RevokedAtUtc == null)));
         if (exam is null) return NotFound();
 
         var subjects = await _db.Subjects.AsNoTracking()
@@ -36,7 +36,7 @@ public class ExamQuestionController : Controller
             .ToListAsync();
 
         var subjectCounts = await _db.Questions.AsNoTracking()
-            .Where(x => x.IsActive && (x.CreatedBy == TeacherId || x.CreatedBy == exam.CreatedBy || x.IsVerified || _db.ExamInvigilators.Any(i => i.ExamId == examId && i.TeacherId == x.CreatedBy && i.IsActive && i.CanEditQuestions && i.AcceptedAtUtc != null)) &&
+            .Where(x => x.IsActive && x.Subject != null && x.Subject.IsActive && (x.CreatedBy == TeacherId || x.CreatedBy == exam.CreatedBy || x.IsVerified || _db.ExamInvigilators.Any(i => i.ExamId == examId && i.TeacherId == x.CreatedBy && i.IsActive && i.CanEditQuestions && i.AcceptedAtUtc != null && i.RevokedAtUtc == null)) &&
                         !x.ExamQuestions.Any(eq => eq.ExamId == examId && eq.IsActive))
             .GroupBy(x => x.SubjectId)
             .Select(g => new { SubjectId = g.Key, Count = g.Count() })
@@ -47,7 +47,7 @@ public class ExamQuestionController : Controller
 
         var query = _db.Questions.AsNoTracking()
             .Include(x => x.Subject)
-            .Where(x => x.IsActive && (x.CreatedBy == TeacherId || x.CreatedBy == exam.CreatedBy || x.IsVerified || _db.ExamInvigilators.Any(i => i.ExamId == examId && i.TeacherId == x.CreatedBy && i.IsActive && i.CanEditQuestions && i.AcceptedAtUtc != null)) &&
+            .Where(x => x.IsActive && x.Subject != null && x.Subject.IsActive && (x.CreatedBy == TeacherId || x.CreatedBy == exam.CreatedBy || x.IsVerified || _db.ExamInvigilators.Any(i => i.ExamId == examId && i.TeacherId == x.CreatedBy && i.IsActive && i.CanEditQuestions && i.AcceptedAtUtc != null && i.RevokedAtUtc == null)) &&
                         !x.ExamQuestions.Any(eq => eq.ExamId == examId && eq.IsActive));
 
         if (subjectId.HasValue)
@@ -90,7 +90,7 @@ public class ExamQuestionController : Controller
     public async Task<IActionResult> Selected(int examId)
     {
         if (examId <= 0) return NotFound();
-        var exam = await _db.Exams.AsNoTracking().FirstOrDefaultAsync(x => x.ExamId == examId && (x.CreatedBy == TeacherId || _db.ExamInvigilators.Any(i => i.ExamId == examId && i.TeacherId == TeacherId && i.IsActive && i.CanEditQuestions && i.AcceptedAtUtc != null)));
+        var exam = await _db.Exams.AsNoTracking().FirstOrDefaultAsync(x => x.ExamId == examId && (x.CreatedBy == TeacherId || _db.ExamInvigilators.Any(i => i.ExamId == examId && i.TeacherId == TeacherId && i.IsActive && i.CanEditQuestions && i.AcceptedAtUtc != null && i.RevokedAtUtc == null)));
         if (exam is null) return NotFound();
 
         var selected = await _db.ExamQuestions.AsNoTracking()
@@ -125,7 +125,7 @@ public class ExamQuestionController : Controller
                     ? await _db.Database.BeginTransactionAsync(System.Data.IsolationLevel.Serializable, ct) : null;
                 var exam = await _db.Exams.AsSplitQuery()
                     .Include(x => x.ExamQuestions).Include(x => x.SubjectParts).Include(x => x.Sessions)
-                    .FirstOrDefaultAsync(x => x.ExamId == examId && (x.CreatedBy == teacherId || _db.ExamInvigilators.Any(i => i.ExamId == examId && i.TeacherId == teacherId && i.IsActive && i.CanEditQuestions && i.AcceptedAtUtc != null)), ct);
+                    .FirstOrDefaultAsync(x => x.ExamId == examId && (x.CreatedBy == teacherId || _db.ExamInvigilators.Any(i => i.ExamId == examId && i.TeacherId == teacherId && i.IsActive && i.CanEditQuestions && i.AcceptedAtUtc != null && i.RevokedAtUtc == null)), ct);
                 if (exam is null) return (IActionResult)NotFound();
                 await _db.Entry(exam).ReloadAsync(ct);
                 if (exam.IsLocked || exam.IsPublished || exam.Status == ExamStatus.Cancelled || exam.Status == ExamStatus.Completed ||
@@ -137,7 +137,7 @@ public class ExamQuestionController : Controller
                     if (selected is null)
                     {
                         var question = await _db.Questions.AsNoTracking().FirstOrDefaultAsync(x => x.QuestionId == questionId &&
-                            x.IsActive && (x.CreatedBy == teacherId || x.CreatedBy == exam.CreatedBy || x.IsVerified || _db.ExamInvigilators.Any(i => i.ExamId == examId && i.TeacherId == x.CreatedBy && i.IsActive && i.CanEditQuestions && i.AcceptedAtUtc != null)), ct);
+                            x.IsActive && x.Subject != null && x.Subject.IsActive && (x.CreatedBy == teacherId || x.CreatedBy == exam.CreatedBy || x.IsVerified || _db.ExamInvigilators.Any(i => i.ExamId == examId && i.TeacherId == x.CreatedBy && i.IsActive && i.CanEditQuestions && i.AcceptedAtUtc != null && i.RevokedAtUtc == null)), ct);
                         if (question is null) return Json(new { success = false, message = "This question is not available to your question bank." });
                         await new AiExamProctoring.Services.ExamPaperEditor(_db).AddAsync(exam, question);
                     }

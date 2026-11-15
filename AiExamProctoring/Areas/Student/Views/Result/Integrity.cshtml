@@ -1,0 +1,28 @@
+@model AiExamProctoring.Models.ExamResult
+@using AiExamProctoring.Models
+@using AiExamProctoring.Services.Results
+@{
+    Layout = "~/Areas/Student/Views/Shared/_StudentLayout.cshtml";
+    ViewData["Title"] = "My Exam Integrity";
+    var logs = ViewBag.ProctoringLogs as IEnumerable<ProctoringLog> ?? Array.Empty<ProctoringLog>();
+    var relevant = logs.Where(x => x.CountsAsViolation || x.AlertType == ProctoringAlertType.ExamBlocked ||
+        x.AlertType == ProctoringAlertType.ExamUnblocked || x.AlertType == ProctoringAlertType.ExamResumed ||
+        x.AlertType == ProctoringAlertType.ReviewRequested).ToList();
+}
+@section Styles { <link rel="stylesheet" href="~/css/student-results.css" asp-append-version="true" /> }
+<section class="student-results">
+    <a asp-action="Details" asp-route-id="@Model.ResultId" class="sr-back"><i class="bi bi-arrow-left" aria-hidden="true"></i> Back to academic result</a>
+    <h1>Examination integrity record</h1>
+    <p class="sr-muted">@Model.Attempt?.Exam?.ExamTitle · @StudentResultAccess.CompletionStatus(Model.Attempt)</p>
+    <section class="sr-panel" aria-labelledby="integrity-heading">
+        <h2 id="integrity-heading">Recorded events</h2>
+        @if (!relevant.Any()) { <p class="sr-muted">No integrity events are recorded for this attempt.</p> }
+        @foreach (var log in relevant)
+        {
+            <div class="sr-integrity-row"><i class="bi bi-shield-check" aria-hidden="true"></i><div>
+                <strong>@AiExamProctoring.Services.Proctoring.TeacherAlertContract.Title(log.AlertType)</strong>
+                <small>@log.CreatedDate.ToString("dd MMM yyyy, hh:mm tt")</small>
+            </div></div>
+        }
+    </section>
+</section>

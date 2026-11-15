@@ -1,3 +1,5 @@
+
+
 using AiExamProctoring.Data;
 using AiExamProctoring.Models;
 using Microsoft.AspNetCore.Authorization;
@@ -137,6 +139,9 @@ public class ExamSessionController : Controller
 
             await _db.SaveChangesAsync();
 
+            var chosenBreakMinutes = workingExam.Sessions.Where(x => x.SessionNumber < workingExam.NumberOfSessions)
+                .Select(x => x.RestAfterMinutes).DefaultIfEmpty(10).First();
+            chosenBreakMinutes = Math.Clamp(chosenBreakMinutes, 0, 10);
             if (workingExam.Sessions.Count > 0)
             {
                 _db.ExamSessions.RemoveRange(workingExam.Sessions);
@@ -163,7 +168,7 @@ public class ExamSessionController : Controller
                     SessionTitle = $"Session {i + 1}",
                     Instructions = "Answer all questions carefully. Your progress is saved automatically.",
                     DurationMinutes = minutesForThisSession,
-                    RestAfterMinutes = i < sessionCount - 1 ? 10 : 0,
+                    RestAfterMinutes = i < sessionCount - 1 ? chosenBreakMinutes : 0,
                     DisplayOrder = i + 1,
                     IsActive = true,
                     IsLocked = false,

@@ -1,14 +1,69 @@
-@model List<AiExamProctoring.Models.ApplicationUser>
-@using AiExamProctoring.Models
-@{ ViewData["Title"] = "Teacher directory"; var connections = (List<TeacherConnection>)ViewBag.Connections; string actor = ViewBag.Actor; }
-<h1 class="h3">Teacher directory</h1><p>Connect with colleagues and coordinate exams. Manage exam-specific permissions from each exam's invitations page.</p>
-<a asp-controller="Invitations" asp-action="Index" class="btn btn-outline-primary mb-3">Exam invitations</a>
-<form method="get" class="d-flex gap-2 mb-3"><input name="search" class="form-control" placeholder="Search teachers" aria-label="Search teachers"/><button class="btn btn-primary">Search</button></form>
-<div class="row g-3">@foreach(var teacher in Model) {
-var connection = connections.FirstOrDefault(c => c.SenderId == teacher.Id || c.RecipientId == teacher.Id);
-<div class="col-md-6 col-xl-4"><div class="card p-3 h-100"><h2 class="h5">@teacher.FullName</h2><p>@teacher.Email</p>
-@if(connection is null) {<form asp-action="Connect" method="post"><input type="hidden" name="teacherId" value="@teacher.Id"/><button class="btn btn-primary">Connect</button></form>}
-else if(connection.AcceptedAtUtc.HasValue) {<a asp-action="Chat" asp-route-id="@connection.Id" class="btn btn-outline-primary">Private chat</a>}
-else if(connection.RecipientId == actor) {<form asp-action="Accept" method="post"><input type="hidden" name="id" value="@connection.Id"/><button class="btn btn-success">Accept connection</button></form>}
-else {<span>Request sent</span>}
-</div></div> }</div>
+@model AiExamProctoring.ViewModels.TeacherDirectoryViewModel
+@{
+    ViewData["Title"] = "Teacher connections";
+}
+<div class="teacher-community">
+    <header class="tcom-hero">
+        <div><span class="tcom-eyebrow"><i class="bi bi-people"></i> Teacher network</span>
+            <h1>Connect with colleagues</h1><p>Find approved teachers, manage invitations and open private conversations.</p></div>
+        <a asp-controller="Community" asp-action="Index" class="btn btn-light"><i class="bi bi-grid me-1"></i> Community feed</a>
+    </header>
+    <nav class="tcom-tabs" aria-label="Teacher connection categories">
+        <a asp-action="Index" asp-route-tab="directory" class="@(Model.Tab == "directory" ? "active" : "")">Directory</a>
+        <a asp-action="Index" asp-route-tab="received" class="@(Model.Tab == "received" ? "active" : "")">Received <span>@Model.ReceivedCount</span></a>
+        <a asp-action="Index" asp-route-tab="sent" class="@(Model.Tab == "sent" ? "active" : "")">Sent <span>@Model.SentCount</span></a>
+        <a asp-action="Index" asp-route-tab="connected" class="@(Model.Tab == "connected" ? "active" : "")">My connections <span>@Model.ConnectedCount</span></a>
+    </nav>
+    <section class="tcom-panel">
+        <form method="get" asp-action="Index" class="tcom-search">
+            <input type="hidden" name="tab" value="@Model.Tab" />
+            <label class="visually-hidden" for="teacher-search">Search approved teachers</label>
+            <input id="teacher-search" type="search" name="search" maxlength="100" value="@Model.Search" placeholder="Search teacher, department or organisation" class="form-control" />
+            <button type="submit" class="btn btn-primary"><i class="bi bi-search me-1"></i> Search</button>
+        </form>
+        <div class="tcom-directory">
+            @foreach (var item in Model.People)
+            {
+                var avatar = string.IsNullOrWhiteSpace(item.ProfileImage) ? Url.Content("~/images/default-user.svg") : Url.Content(item.ProfileImage);
+                <article class="tcom-person">
+                    <img class="tcom-avatar" src="@avatar" alt="" loading="lazy" onerror="this.onerror=null;this.src='@Url.Content("~/images/default-user.svg")'" />
+                    <div class="tcom-person-info">
+                        <a asp-controller="Community" asp-action="Profile" asp-route-id="@item.Id" class="tcom-person-name">@item.FullName</a>
+                        <p>@(item.Department ?? item.OrganizationName ?? "Approved teacher")@(item.City is null ? "" : " · " + item.City)</p>
+                    </div>
+                    <div class="tcom-actions">
+                        @if (item.Status == "none" || item.Status == "removed" || item.Status == "declined")
+                        {
+                            <form method="post" asp-action="Connect">@Html.AntiForgeryToken()<input type="hidden" name="teacherId" value="@item.Id" />
+                                <button class="btn btn-primary btn-sm" type="submit"><i class="bi bi-person-plus me-1"></i> Connect</button></form>
+                        }
+                        else if (item.Status == "connected")
+                        {
+                            <a asp-action="Chat" asp-route-id="@item.ConnectionId" class="btn btn-primary btn-sm"><i class="bi bi-chat-dots me-1"></i> Message</a>
+                            <form method="post" asp-action="Remove">@Html.AntiForgeryToken()<input type="hidden" name="id" value="@item.ConnectionId" />
+                                <button type="submit" class="btn btn-outline-secondary btn-sm" title="Remove this connection">Remove</button></form>
+                        }
+                        else if (item.Status == "received")
+                        {
+                            <form method="post" asp-action="Accept">@Html.AntiForgeryToken()<input type="hidden" name="id" value="@item.ConnectionId" />
+                                <button type="submit" class="btn btn-primary btn-sm">Accept</button></form>
+                            <form method="post" asp-action="Decline">@Html.AntiForgeryToken()<input type="hidden" name="id" value="@item.ConnectionId" />
+                                <button type="submit" class="btn btn-outline-secondary btn-sm">Decline</button></form>
+                        }
+                        else
+                        {
+                            <span class="tcom-status">Request sent</span>
+                            <form method="post" asp-action="Withdraw">@Html.AntiForgeryToken()<input type="hidden" name="id" value="@item.ConnectionId" />
+                                <button type="submit" class="btn btn-outline-secondary btn-sm">Withdraw</button></form>
+                        }
+                    </div>
+                </article>
+            }
+            @if (Model.People.Count == 0)
+            {
+                <div class="tcom-empty"><i class="bi bi-people"></i><strong>No teachers found</strong><p>Try another search or return to the directory.</p></div>
+            }
+        </div>
+    </section>
+</div>
+@section Styles { <link rel="stylesheet" href="~/css/teacher-community.css" asp-append-version="true" /> }

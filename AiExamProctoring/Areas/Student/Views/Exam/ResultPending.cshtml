@@ -1,2 +1,17 @@
-@{ViewData["Title"]="Result awaiting review";}
-<div class="card p-4"><h1>Your exam has been submitted</h1><p>Your result is waiting for your teacher's final review. Your saved answers and evidence remain on record.</p><a asp-action="Evidence">View my exam evidence</a><a asp-controller="Dashboard" asp-action="Index">Return to dashboard</a></div>
+@{
+    Layout = "~/Areas/Student/Views/Shared/_StudentLayout.cshtml";
+    var waitingForTeacher = ViewBag.WaitingForTeacherReview is true;
+    ViewData["Title"] = waitingForTeacher ? "Pending Teacher Review" : "Result processing";
+}
+@section Styles { <link rel="stylesheet" href="~/css/student-results.css" asp-append-version="true" /> }
+<section class="student-results sr-panel sr-pending-page" aria-live="polite">
+    <div class="sr-pending-symbol"><i class="bi @(waitingForTeacher ? "bi-shield-lock" : "bi-hourglass-split")" aria-hidden="true"></i></div>
+    <h1>@(waitingForTeacher ? "Pending Teacher Review" : "Finalizing your result")</h1>
+    <p>@(waitingForTeacher ? "Your answers are saved. The teacher will review the examination before your marks are released." : "Your submission is saved. Your result is being processed and will appear when finalized.")</p>
+    @if (ViewBag.PendingExamName is string name && !string.IsNullOrWhiteSpace(name))
+    { <p class="sr-muted">@name</p> }
+    <div class="sr-action-row">
+        <a asp-area="Student" asp-controller="Result" asp-action="Index" class="sr-primary-button">My Results</a>
+        <a asp-area="Student" asp-controller="Exam" asp-action="Evidence" class="sr-outline-button">My evidence</a>
+    </div>
+</section>

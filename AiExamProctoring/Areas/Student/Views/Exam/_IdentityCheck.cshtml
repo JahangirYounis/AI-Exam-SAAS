@@ -15,13 +15,14 @@ else
         <video id="entryCamera" autoplay muted playsinline class="w-100 rounded-3 bg-dark" style="max-height:360px"></video>
         <form id="entryIdentityForm">
             @Html.AntiForgeryToken()
-            <button id="verifyEntry" type="submit" class="btn btn-primary mt-3">Check camera and identity</button>
+            <button id="verifyEntry" type="submit" class="btn btn-primary mt-3">Check camera, display and identity</button>
         </form>
         <p id="entryStatus" role="status" aria-live="polite" class="mt-3">Camera access is required.</p>
         <noscript><p role="alert">Enable JavaScript to connect your camera and verify your identity.</p></noscript>
     </section>
     <div data-proctoring-attempt="@Model.AttemptId"></div>
     <script src="~/lib/signalr/signalr.min.js" asp-append-version="true"></script>
+    <script src="~/js/exam-display-capture.js" asp-append-version="true"></script>
     <script src="~/js/proctoring-client.js" asp-append-version="true"></script>
     <script>
         (() => {
@@ -34,14 +35,21 @@ else
                 form.dataset.ready = 'true';
                 let stream;
                 let leaving = false;
+                const inherited = ExamDisplayCapture.session(@Model.SessionAttemptId);
                 const delay = ms => new Promise(resolve => setTimeout(resolve, ms));
-                const stopCamera = () => { stream?.getTracks().forEach(track => track.stop()); stream = null; };
+                const stopCamera = () => { if (stream !== inherited?.camera) ExamDisplayCapture.stop(stream); stream = null; };
                 const blocked = () => window.ProctoringRealtime?.blocked === true;
                 async function verify(event) {
                     event?.preventDefault();
                     if (button.disabled || blocked() || leaving) return;
                     button.disabled = true;
+                    const keepDisplay = !!ExamDisplayCapture.live(inherited?.display);
+                    let display = inherited?.display;
                     try {
+                        if (!keepDisplay) {
+                            if (!event) { status.textContent = 'Select the exam check to share your entire display and verify your identity.'; return; }
+                            display = await ExamDisplayCapture.requestDisplay();
+                        }
                         if (!window.isSecureContext || !navigator.mediaDevices?.getUserMedia)
                             throw new Error('Camera access requires a supported browser and a trusted HTTPS connection.');
                         status.textContent = 'Starting camera…';
@@ -49,7 +57,7 @@ else
                             let expired = false;
                             let timer;
                             try {
-                                stream = await Promise.race([
+                                stream = inherited?.camera?.getVideoTracks().some(track => track.readyState === 'live') ? inherited.camera : await Promise.race([
                                     navigator.mediaDevices.getUserMedia({ video: { width: { ideal: 1280 }, height: { ideal: 720 } }, audio: false })
                                         .then(camera => {
                                             if (expired || leaving) { camera.getTracks().forEach(track => track.stop()); throw new Error('Camera request expired. Please retry.'); }
@@ -113,17 +121,29 @@ else
                             throw new Error('The server returned an invalid examination address. Contact your teacher.');
                         destination.searchParams.set('entryTicket', result.entryTicket);
                         status.textContent = 'Verified. Opening your paper…';
-                        leaving = true;
-                        stopCamera();
-                        window.location.replace(destination.href);
+                        if (inherited) {
+                            if (stream !== inherited.camera) {
+                                for (const track of stream.getTracks()) inherited.camera.addTrack(track);
+                                stream = inherited.camera;
+                            }
+                            inherited.display = display;
+                            leaving = true;
+                            window.location.replace(destination.href);
+                        } else {
+                            ExamDisplayCapture.openSession(destination.href, stream, display);
+                            leaving = true;
+                            stream = null;
+                        }
+                        display = null;
                     } catch (error) {
                         if (blocked() || leaving) return;
                         status.textContent = error.name === 'AbortError' ? 'Verification timed out. Please retry.'
                             : error.name === 'NotAllowedError' ? 'Camera permission was denied. Allow the camera in your browser, then retry.'
                             : error.message || 'Verification unavailable. Please retry or contact your teacher.';
                     } finally {
+                        if (!keepDisplay) ExamDisplayCapture.stop(display);
                         button.disabled = leaving || blocked();
-                        button.textContent = 'Retry camera check';
+                        button.textContent = 'Check camera, display and identity';
                     }
                 }
                 form.addEventListener('submit', verify);

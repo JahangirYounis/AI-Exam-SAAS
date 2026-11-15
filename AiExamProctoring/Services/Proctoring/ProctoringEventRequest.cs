@@ -45,6 +45,7 @@ public sealed class ProctoringEvidenceUploadRequest
     public int LogId { get; set; }
 
     public bool IncludesAudio { get; set; }
+    [System.ComponentModel.DataAnnotations.StringLength(2000)] public string? Metadata { get; set; }
 
     [Required]
     public IFormFile? EvidenceFile { get; set; }

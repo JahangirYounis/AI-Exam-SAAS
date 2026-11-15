@@ -2,16 +2,15 @@
 @{
     ViewData["Title"] = "Create a test";
 }
-<div class="d-flex justify-content-between align-items-start flex-wrap gap-3 mb-4">
-    <div><h1 class="h3 fw-bold">Create a test</h1><p class="text-secondary mb-0">Save the details, choose questions, then review and publish. Your draft stays private until you publish. After saving, invite multiple co-teachers from the paper builder to prepare questions and monitor the exam together.</p></div>
-    <a asp-action="Index" class="btn btn-outline-secondary">All tests</a>
-</div>
-<form asp-action="Create" method="post" id="teacherExamForm" asp-antiforgery="false" data-prevent-double-submit="false">
+<div class="te-page-header"><div><span class="te-eyebrow">TEACHER EXAMINATIONS</span><h1>Create a test</h1><p>Choose the test type, eligible students, details, schedule and monitoring. Build the paper next.</p></div>
+<a asp-action="Index" class="btn btn-outline-secondary"><i class="bi bi-arrow-left me-1"></i>My examinations</a></div>
+<form asp-action="Create" method="post" asp-antiforgery="false" id="teacherExamForm" class="te-exam-wizard" data-server-now="@DateTime.Now.ToString("yyyy-MM-ddTHH:mm:ss")" data-prevent-double-submit="true">
     @Html.AntiForgeryToken()
     <partial name="_ExamForm" model="Model" />
-    <div class="d-flex justify-content-end gap-2 mt-4"><a asp-action="Index" class="btn btn-light border">Cancel</a><button type="submit" class="btn btn-primary px-4">Save &amp; choose questions</button></div>
+    <div class="te-wizard-submit"><a asp-action="Index" class="btn btn-light border">Cancel</a><button type="submit" class="btn btn-primary px-4" data-wizard-submit><i class="bi bi-check2-circle me-1"></i>Save draft &amp; choose MCQs</button></div>
 </form>
 @section Scripts {
     <partial name="_ValidationScriptsPartial" />
     <script src="~/js/teacher-exam-form.js" asp-append-version="true" defer></script>
+    <script src="~/js/teacher-picker.js" asp-append-version="true" defer></script>
 }

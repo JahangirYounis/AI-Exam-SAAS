@@ -1,0 +1,30 @@
+@model AiExamProctoring.ViewModels.TeacherPublicCommunityProfileViewModel
+@{
+    ViewData["Title"] = Model.FullName + " · Teacher profile";
+    var photo = string.IsNullOrWhiteSpace(Model.ProfileImage) ? Url.Content("~/images/default-user.svg") : Url.Content(Model.ProfileImage);
+}
+<div class="teacher-community">
+    <header class="tcom-profile-banner"><div class="tcom-profile-top">
+        <img src="@photo" class="tcom-profile-photo" alt="Teacher profile" onerror="this.onerror=null;this.src='@Url.Content("~/images/default-user.svg")'" />
+        <div class="tcom-grow"><span class="tcom-eyebrow">Approved teacher</span><h1>@Model.FullName</h1>
+            <p>@(Model.TeacherHeadline ?? Model.Department ?? "Teacher")</p>
+            @if (!string.IsNullOrWhiteSpace(Model.OrganizationName)) { <p>@Model.OrganizationName</p> }
+            <p class="tcom-muted">@(Model.HighestQualification ?? "") @(Model.City is null ? "" : " · " + Model.City) @(Model.Country is null ? "" : " · " + Model.Country)</p></div>
+        <div class="tcom-actions">
+            @if (Model.IsOwnProfile) { <a asp-controller="Profile" asp-action="Edit" class="btn btn-light">Edit my profile</a> }
+            else if (Model.ConnectionStatus == "connected")
+            { <a asp-controller="Connections" asp-action="Chat" asp-route-id="@Model.ConnectionId" class="btn btn-light">Message</a> }
+            else if (Model.ConnectionStatus == "received")
+            { <form asp-controller="Connections" asp-action="Accept" method="post">@Html.AntiForgeryToken()<input type="hidden" name="id" value="@Model.ConnectionId" /><button class="btn btn-light">Accept request</button></form> }
+            else if (Model.ConnectionStatus == "sent") { <span class="tcom-status">Request sent</span> }
+            else { <form asp-controller="Connections" asp-action="Connect" method="post">@Html.AntiForgeryToken()<input type="hidden" name="teacherId" value="@Model.Id" /><button class="btn btn-light">Connect</button></form> }
+        </div>
+    </div></header>
+    <div class="tcom-profile-stream">
+        @if (!string.IsNullOrWhiteSpace(Model.TeacherBio)) { <section class="tcom-panel"><h2 class="h5 fw-bold">About</h2><p class="tcom-post-body mb-0">@Model.TeacherBio</p></section> }
+        <h2 class="h5 fw-bold mb-3">Posts by @Model.FullName</h2>
+        @foreach (var post in Model.Posts) { <partial name="~/Areas/Teacher/Views/Community/_PostCard.cshtml" model="post" /> }
+        @if (Model.Posts.Count == 0) { <div class="tcom-panel tcom-empty">No posts are visible to you.</div> }
+    </div>
+</div>
+@section Styles { <link rel="stylesheet" href="~/css/teacher-community.css" asp-append-version="true" /> }

@@ -39,6 +39,15 @@ public sealed class ProfileImageController : Controller
         var canReviewProfile = isOwner || User.IsInRole("Admin");
         if (!canReviewProfile && User.IsInRole("Teacher") && !string.IsNullOrWhiteSpace(currentUserId))
         {
+            // Teacher colleagues can see approved teachers' professional profile photos.
+            // This does NOT grant access to student identity photos or proctoring evidence.
+            var teacherRoleIds = _db.Roles.Where(r => r.Name == "Teacher").Select(r => r.Id);
+            canReviewProfile = await _db.Users.AsNoTracking().AnyAsync(u =>
+                u.Id == ownerId && u.IsApproved && !u.IsBlocked &&
+                _db.UserRoles.Any(ur => ur.UserId == u.Id && teacherRoleIds.Contains(ur.RoleId)),
+                cancellationToken);
+            if (!canReviewProfile)
+            {
             // A Teacher may see only candidates connected to an examination
             // created by that Teacher. Merely knowing a private filename never
             // grants access to an unrelated candidate photograph.
@@ -51,6 +60,7 @@ public sealed class ProfileImageController : Controller
                 await _db.ExamAttempts.AsNoTracking().AnyAsync(x =>
                     x.StudentId == ownerId && x.Exam != null && x.Exam.CreatedBy == currentUserId,
                     cancellationToken);
+            }
         }
 
         if (!canReviewProfile) return Forbid();

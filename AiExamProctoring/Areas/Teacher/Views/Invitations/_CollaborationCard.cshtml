@@ -1,0 +1,63 @@
+@model AiExamProctoring.ViewModels.TeacherCollaborationCardViewModel
+@using AiExamProctoring.Services.Collaboration
+@{
+    var pending = Model.Status == CollaborationState.Pending;
+    var active = Model.Status == CollaborationState.Active;
+    var historyStatus = Model.Status == CollaborationState.Declined ? "Rejected" : Model.Status.ToString();
+    var canViewTeamHistory = !Model.IsHistoricalCycle && Model.AcceptedAtUtc.HasValue &&
+        Model.Status is CollaborationState.Completed or CollaborationState.Expired;
+}
+<article class="tc-card">
+    <div class="tc-card-top">
+        <div class="tc-card-icon"><i class="bi bi-journal-text" aria-hidden="true"></i></div>
+        <div class="tc-card-title">
+            <h3>@Model.ExamTitle</h3>
+            <p><i class="bi bi-person-circle" aria-hidden="true"></i> Hosted by <strong>@Model.OwnerName</strong></p>
+        </div>
+        <span class="tc-status @(pending ? "tc-status-pending" : active ? "tc-status-active" : "tc-status-past")">@historyStatus</span>
+    </div>
+    <div class="tc-card-details">
+        <div><span>YOUR PERMISSIONS</span>
+            <div class="tc-permission-row">
+                @if (Model.CanEditQuestions) { <span class="tc-permission"><i class="bi bi-pencil-square"></i> Question paper</span> }
+                @if (Model.CanMonitor) { <span class="tc-permission"><i class="bi bi-camera-video"></i> Live monitoring</span> }
+                @if (!Model.CanEditQuestions && !Model.CanMonitor) { <span class="tc-muted">No permissions granted</span> }
+            </div>
+        </div>
+        <div class="tc-card-dates"><span>INVITED</span><time datetime="@Model.InvitedAtUtc.ToString("o")">@Model.InvitedAtUtc.ToString("dd MMM yyyy, hh:mm tt") UTC</time></div>
+    </div>
+    @if (Model.IsHistoricalCycle) { <p class="tc-history-note"><i class="bi bi-clock-history"></i> Previous invitation cycle — does not grant current access</p> }
+    @if (Model.ClosedAtUtc.HasValue && !active && !pending)
+    { <p class="tc-history-note">Closed <time datetime="@Model.ClosedAtUtc.Value.ToString("o")">@Model.ClosedAtUtc.Value.ToString("dd MMM yyyy, hh:mm tt") UTC</time></p> }
+    @if (pending)
+    {
+        <div class="tc-actions">
+            <form asp-action="Accept" method="post"><input type="hidden" name="id" value="@Model.InvitationId" /><button type="submit" class="btn btn-primary btn-sm"><i class="bi bi-check-circle"></i> Accept invitation</button></form>
+            <form asp-action="Decline" method="post" onsubmit="return confirm('Reject this invitation?');"><input type="hidden" name="id" value="@Model.InvitationId" /><button type="submit" class="btn btn-outline-secondary btn-sm">Decline</button></form>
+        </div>
+    }
+    else if (active)
+    {
+        <div class="tc-actions">
+            <a class="btn btn-primary btn-sm" asp-action="Team" asp-route-examId="@Model.ExamId"><i class="bi bi-chat-dots"></i> Team discussion</a>
+            @if (Model.CanEditQuestions) { <a class="btn btn-outline-primary btn-sm" asp-controller="ExamQuestion" asp-action="Index" asp-route-examId="@Model.ExamId">Question paper</a> }
+            @if (Model.CanMonitor) { <a class="btn btn-outline-primary btn-sm" asp-controller="Monitoring" asp-action="Live" asp-route-examId="@Model.ExamId">Live room</a> }
+        </div>
+    }
+    else if (canViewTeamHistory)
+    {
+        <div class="tc-actions"><a class="btn btn-outline-secondary btn-sm" asp-action="Team" asp-route-examId="@Model.ExamId"><i class="bi bi-chat-left-text"></i> View team messages</a></div>
+    }
+    @if (Model.History.Count != 0 && !active && !pending)
+    {
+        <details class="tc-timeline"><summary>Invitation activity (@Model.History.Count)</summary>
+            <ol>
+                @foreach (var item in Model.History)
+                {
+                    <li><strong>@(item.EventType == "Declined" ? "Rejected" : item.EventType == "LegacyRevoked" ? "Revoked (legacy)" : item.EventType)</strong> · @item.ActorName
+                        <small>@item.OccurredAtUtc.ToString("dd MMM yyyy, hh:mm tt") UTC</small></li>
+                }
+            </ol>
+        </details>
+    }
+</article>

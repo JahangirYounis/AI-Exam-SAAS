@@ -1,0 +1,27 @@
+@model AiExamProctoring.ViewModels.TeacherPostCardViewModel
+@using AiExamProctoring.Models
+@{
+    var photo = string.IsNullOrWhiteSpace(Model.AuthorPhoto) ? Url.Content("~/images/default-user.svg") : Url.Content(Model.AuthorPhoto);
+}
+<article class="tcom-post" aria-label="Post by @Model.AuthorName">
+    <div class="tcom-post-head">
+        <img class="tcom-avatar" alt="" src="@photo" loading="lazy" onerror="this.onerror=null;this.src='@Url.Content("~/images/default-user.svg")'" />
+        <div class="tcom-grow">
+            <a class="tcom-person-name" asp-controller="Community" asp-action="Profile" asp-route-id="@Model.AuthorId">@Model.AuthorName</a>
+            <div class="tcom-muted">@Model.CreatedAtUtc.ToString("dd MMM yyyy, HH:mm") UTC · @(Model.Visibility == TeacherPostVisibility.Teachers ? "Teacher community" : "Connections only")</div>
+        </div>
+        @if (Model.IsMine)
+        {
+            <form asp-controller="Community" asp-action="Delete" method="post">@Html.AntiForgeryToken()<input type="hidden" name="id" value="@Model.Id" />
+                <button type="submit" class="btn btn-outline-secondary btn-sm" title="Remove my post" aria-label="Remove my post"><i class="bi bi-trash"></i></button></form>
+        }
+    </div>
+    <p class="tcom-post-body">@Model.Body</p>
+    <footer class="tcom-post-footer">
+        <form asp-controller="Community" asp-action="Like" method="post">@Html.AntiForgeryToken()
+            <input type="hidden" name="id" value="@Model.Id" /><input type="hidden" name="liked" value="@(!Model.LikedByMe)" /><input type="hidden" name="returnTo" value="post" />
+            <button type="submit" class="btn btn-sm @(Model.LikedByMe ? "btn-primary" : "btn-outline-primary")"><i class="bi bi-hand-thumbs-up me-1"></i> @(Model.LikedByMe ? "Liked" : "Like") · @Model.LikeCount</button>
+        </form>
+        <a class="btn btn-sm btn-outline-secondary" asp-controller="Community" asp-action="Post" asp-route-id="@Model.Id"><i class="bi bi-chat-left-text me-1"></i> Comments · @Model.CommentCount</a>
+    </footer>
+</article>

@@ -15,8 +15,7 @@ namespace AiExamProctoring.Data
         {
             await SeedRolesAsync(roleManager, logger);
             await SeedDepartmentsAndPostsAsync(context, logger);
-            await QuestionBankSeed.SeedAsync(context, logger);
-            await PakistanQuestionBankExpansionSeed.SeedAsync(context, logger);
+            await ComputerScienceQuestionBankSeed.SeedAsync(context, logger);
             await SeedAdminAsync(userManager, configuration, logger);
             // University admissions exposes entry tests only; retain legacy records without re-seeding demo tests.
         }

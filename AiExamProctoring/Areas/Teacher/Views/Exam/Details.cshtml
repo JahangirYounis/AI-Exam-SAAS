@@ -14,7 +14,9 @@ else
     var assigned = Model.Assignments?.Count(a => a.IsActive) ?? 0;
     var ended = Model.Status == ExamStatus.Cancelled || (!Model.IsReusable && Model.Status == ExamStatus.Completed);
     var editable = !Model.IsPublished && !Model.IsLocked && !ended;
-    var sectionsValid = Model.NumberOfSessions >= 1 && Model.NumberOfSessions <= selected.Count && Model.DurationMinutes >= Model.NumberOfSessions;
+    var sessionsConfigured = Model.Sessions.Count(s => s.IsActive) == Model.NumberOfSessions &&
+        Model.Sessions.Where(s => s.IsActive).Sum(s => s.DurationMinutes) == Model.DurationMinutes;
+    var sectionsValid = sessionsConfigured && Model.NumberOfSessions >= 1 && Model.NumberOfSessions <= selected.Count && Model.DurationMinutes >= Model.NumberOfSessions;
     var audienceReady = Model.Audience == ExamAudience.Public || Model.AcademicClassId.HasValue || assigned > 0;
     var windowOpen = Model.IsReusable || DateTime.Now <= Model.LatestStartDate;
     var canPublish = editable && sectionsValid && audienceReady && windowOpen && (!Model.QuestionLimit.HasValue || selected.Count == Model.QuestionLimit.Value);
@@ -22,7 +24,11 @@ else
         <div><span class="badge @(Model.IsPublished ? "text-bg-success" : "text-bg-secondary")">@(ended? Model.Status.ToString() : Model.IsPublished ? "Published" : "Draft")</span><h1 class="h3 fw-bold mt-2">@Model.ExamTitle</h1><p class="text-secondary mb-0">@Model.AudienceDisplay · @Model.PurposeDisplay</p></div>
         <a asp-action="Index" class="btn btn-outline-secondary">All tests</a>
     </div>
-    @if (Model.QuestionLimit.HasValue) {<p class="alert alert-info">Paper: @selected.Count / @Model.QuestionLimit questions selected. Select exactly this number before publishing.</p>}
+    <div class="te-flow-links mb-3"><span class="te-flow-link is-done">1. Draft created</span>
+        @if (editable) { <a asp-controller="Invitations" asp-action="Manage" asp-route-examId="@Model.ExamId" class="te-flow-link"><i class="bi bi-people"></i> 2. Invite teachers</a> }
+        <a asp-controller="ExamQuestion" asp-action="Index" asp-route-examId="@Model.ExamId" class="te-flow-link"><i class="bi bi-patch-question"></i> 3. Select MCQs (@selected.Count/@(Model.QuestionLimit ?? 0))</a>
+        <a href="#teSessionSetup" class="te-flow-link"><i class="bi bi-clock"></i> 4. Sessions &amp; timing</a>
+        <a href="#tePublish" class="te-flow-link"><i class="bi bi-check-circle"></i> 5. Publish</a></div>
     @if (Model.Purpose == ExamPurpose.Recruitment) {<p>Department: @Model.RecruitmentDepartment · Job: @Model.RecruitmentPost · Grade: @Model.RecruitmentGrade</p>}
     <div class="row g-4">
         <div class="col-lg-8">
@@ -34,7 +40,7 @@ else
 </div>
                 <p class="mb-2">@Model.DurationMinutes active minutes · @Model.TotalMarks.ToString("0.##") marks · Pass: @Model.PassingPercentage.ToString("0.##")%</p>
                 <p class="small text-secondary mb-2">@(Model.IsReusable ? "Always open" : $"Starts {Model.StartDate:dd MMM yyyy, hh:mm tt} · Latest entry {Model.LatestStartDate:hh:mm tt}")</p>
-                <p class="small text-secondary mb-0">@Model.NumberOfSessions section@(Model.NumberOfSessions == 1 ? "" : "s") · Wrong-answer deduction: @Model.NegativeMarksPerWrongAnswer.ToString("0.##"). Sections are prepared automatically on publish.</p>
+                <p class="small text-secondary mb-0"><span data-section-summary>@Model.NumberOfSessions</span> section@(Model.NumberOfSessions == 1 ? "" : "s") · Wrong-answer deduction: @Model.NegativeMarksPerWrongAnswer.ToString("0.##"). Configure the exam session timing after selecting the questions.</p>
             </div>
         </section>
         <section class="card border-0 shadow-sm rounded-4 mb-3">
@@ -53,7 +59,7 @@ else
                 }
                 @if (selected.Count > 0 && !sectionsValid)
                 {
-                    <p class="text-danger mt-3 mb-0">Each section needs at least one question and one minute. Adjust the section count or add questions.</p>
+                    <p class="text-warning mt-3 mb-0">Session setup is incomplete. After selecting your MCQs, configure the session count and total exam time below.</p>
                 }
             </div>
         </section>
@@ -84,28 +90,38 @@ else
     <div class="col-lg-4">
 @if (editable)
 {
-    <section class="card p-4 my-3">
-        <h2 class="h5">Configure sections</h2>
-        <p>Set this once after choosing your questions. Publishing prepares the sections and locks the paper.</p>
-        <form asp-action="ConfigureSections" method="post" class="d-flex gap-2 flex-wrap">
+    <section class="card p-4 my-3 border-0 shadow-sm" id="teSessionSetup">
+        <h2 class="h5 fw-bold">4. Configure sessions</h2>
+        <p class="small text-secondary">Choose your MCQs first. Then set total test time, session count and optional breaks. Publishing distributes questions and minutes across the sessions.</p>
+        @if(selected.Count == 0) { <a asp-controller="ExamQuestion" asp-action="Index" asp-route-examId="@Model.ExamId" class="btn btn-outline-primary">Choose MCQs first</a> }
+        else {
+        <form id="configure-sections" data-prevent-double-submit="false" asp-action="ConfigureSections" method="post" asp-antiforgery="false" class="row g-3">
+            @Html.AntiForgeryToken()
             <input type="hidden" name="id" value="@Model.ExamId" />
-            <label for="section-count">Number of sections</label>
-            <input id="section-count" class="form-control w-auto" name="count" type="number" min="1" max="20" value="@Model.NumberOfSessions" required />
-            <button class="btn btn-outline-primary">Save sections</button>
-        </form>
+            <div class="col-12"><label for="section-count" class="form-label">Number of sessions</label><input id="section-count" class="form-control" name="count" type="number" min="1" max="@(Math.Min(20,selected.Count))" value="@Model.NumberOfSessions" required /></div>
+            <div class="col-12"><label for="session-total-minutes" class="form-label">Total exam time (minutes)</label><input id="session-total-minutes" class="form-control" name="durationMinutes" type="number" min="1" max="600" value="@Model.DurationMinutes" required /></div>
+            <div class="col-12"><label for="session-break-minutes" class="form-label">Optional break between sessions (minutes)</label><input id="session-break-minutes" class="form-control" name="restAfterMinutes" type="number" min="0" max="10" value="@((Model.Sessions.Where(x => x.SessionNumber < Model.NumberOfSessions).OrderBy(x => x.SessionNumber).Select(x => (int?)x.RestAfterMinutes).FirstOrDefault() ?? 10))" required /></div>
+            <div class="col-12"><button type="submit" class="btn btn-outline-primary w-100">Save session timing</button></div>
+        </form> }
+        <p id="section-save-status" role="status" aria-live="polite" class="mt-2 mb-0"></p>
     </section>
 }
 
-        <section class="card border-0 shadow-sm rounded-4">
+        <section class="card border-0 shadow-sm rounded-4" id="tePublish">
             <div class="card-body p-4">
-                <h2 class="h5 fw-bold">@(Model.IsPublished ? "Test is published" : "Ready to publish?")</h2>
+                <h2 class="h5 fw-bold">@(Model.IsPublished ? "Test is published" : "5. Review and publish")</h2>
                 @if (editable)
                 {
                     <p class="small text-secondary">Check the paper, schedule and audience. Publishing locks the test and makes it available to eligible students at the scheduled time.</p>
-                    <p class="small">Monitoring: <strong>@(Model.BlockingMode == ExamBlockingMode.MANUAL_ONLY ? "Teacher controls" : "Automatic block")</strong>. @(Model.BlockingMode == ExamBlockingMode.MANUAL_ONLY ? "Teachers review alerts and decide whether to block." : "The fourth standard violation blocks the test; confirmed identity replacement can block immediately.")</p>
+                    <p class="small">Monitoring: <strong>@(Model.BlockingMode == ExamBlockingMode.MANUAL_ONLY ? "Teacher review" : "Automatic after warnings")</strong>. A confirmed identity change causes a protective hold.</p>
+                    <details class="small mb-3"><summary class="text-primary fw-semibold" style="cursor:pointer">Advanced object monitoring</summary><p class="text-secondary mb-1">Review which objects are monitored without changing the core cheating-detection thresholds.</p><a asp-controller="ObjectPolicy" asp-action="Edit" asp-route-id="@Model.ExamId">Configure object detection</a></details>
                     @if (!windowOpen)
                     {
                         <p class="text-danger small">The entry window has closed. Edit the schedule.</p>
+                    }
+                    @if (!sectionsValid)
+                    {
+                        <p class="text-warning small">Finish selecting MCQs and save session timing before publishing.</p>
                     }
                     @if (!audienceReady)
                     {
@@ -113,7 +129,7 @@ else
                     }
                     <form asp-action="Publish" asp-route-id="@Model.ExamId" method="post" asp-antiforgery="false">
                         @Html.AntiForgeryToken()
-                        <button type="submit" class="btn btn-primary w-100" disabled="@(!canPublish ? "disabled" : null)">Publish and Lock</button>
+                        <button data-publish-exam type="submit" class="btn btn-primary w-100" disabled="@(!canPublish ? "disabled" : null)">Publish and Lock</button>
                     </form>
                     <p class="small text-secondary mt-2 mb-0">Server checks confirm the latest question and candidate eligibility before publishing.</p>
                 }
@@ -125,12 +141,47 @@ else
                         <a asp-controller="ResultReview" asp-action="Index" asp-route-examId="@Model.ExamId" class="btn btn-outline-primary">Review results</a>
                     </div>
                 }
-                <hr /><a asp-controller="Invitations" asp-action="Manage" asp-route-examId="@Model.ExamId" class="small">Manage co-teachers</a>
+                <hr /><a asp-controller="Invitations" asp-action="Manage" asp-route-examId="@Model.ExamId" class="btn btn-sm btn-outline-secondary"><i class="bi bi-people me-1"></i>Invite / manage teachers</a>
             </div>
         </section>
     </div>
 </div>
 }
 
-@if (Model is not null) { @await Component.InvokeAsync("ExamAudit", new { examId = Model.ExamId }) }
+@if (Model is not null) {
+<details class="card border-0 shadow-sm rounded-4 mt-4"><summary class="card-body fw-semibold" style="cursor:pointer">Exam history and technical audit</summary>
+<div class="card-body pt-0">@await Component.InvokeAsync("ExamAudit", new { examId = Model.ExamId })</div></details>
+}
+
+
+@section Scripts {
+<script src="~/js/exam-http.js" asp-append-version="true"></script>
+<script>
+(() => {
+    const form=document.getElementById('configure-sections');
+    if(!form)return;
+    const button=form.querySelector('button[type="submit"]');
+    const message=document.getElementById('section-save-status');
+    form.addEventListener('submit',async event=>{
+        event.preventDefault();
+        if(button.disabled || !form.reportValidity())return;
+        button.disabled=true;button.textContent='Saving...';
+        message.textContent='Saving section settings...';message.className='mt-2 mb-0 text-secondary';
+        try {
+            const response=await fetch(form.action,{method:'POST',body:new FormData(form),credentials:'same-origin',headers:{Accept:'application/json'},signal:AbortSignal.timeout(20000)});
+            const result=await window.ExamHttp.readJson(response);
+            if(!response.ok || !result.ok)throw new Error(result.message || 'Sections could not be saved. Please retry.');
+            document.querySelectorAll('[data-section-summary]').forEach(node=>node.textContent=result.count);
+            const publish=document.querySelector('[data-publish-exam]');if(publish)publish.disabled=!result.canPublish;
+            message.textContent=result.message;message.className='mt-2 mb-0 text-success';
+            // Load saved settings and refreshed server-side publication eligibility.
+            window.setTimeout(() => window.location.reload(), 500);
+        } catch(error) {
+            message.textContent=error.name==='TimeoutError' ? 'Saving took too long. Reload the review page to confirm whether the settings were saved before retrying.' : error.message || 'Sections could not be saved. Please retry.';
+            message.className='mt-2 mb-0 text-danger';
+        } finally {button.disabled=false;button.textContent='Save sections';}
+    });
+})();
+</script>
+}
 

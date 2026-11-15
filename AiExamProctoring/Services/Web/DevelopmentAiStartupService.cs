@@ -19,6 +19,8 @@ public sealed class DevelopmentAiStartupService(
         var projectRoot = Path.GetFullPath(Path.Combine(environment.ContentRootPath, "..", ".."));
         var launcher = Path.Combine(projectRoot, "START_AI_SERVICES.ps1");
         if (!File.Exists(launcher))
+            launcher = Path.Combine(projectRoot, "AI", "services", "run_all_ai_services.ps1");
+        if (!File.Exists(launcher))
         {
             logger.LogWarning("Local AI launcher was not found. Start the configured AI services separately.");
             return;

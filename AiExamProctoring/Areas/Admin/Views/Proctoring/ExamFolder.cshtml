@@ -30,9 +30,9 @@
             <td>#@(log.AttemptId?.ToString() ?? "—")<div class="small text-secondary">@(log.SessionAttempt?.Session?.SessionTitle ?? "Pre-exam / exam level")</div></td>
             <td style="min-width:300px"><div>@log.Description</div><small class="@(log.CountsAsViolation ? "text-danger" : "text-secondary")">@(log.CountsAsViolation ? "Counts as violation" : "Observation / recovery event")</small></td>
             <td class="text-nowrap">
-                @if (hasScreenshot){<a asp-action="Evidence" asp-route-id="@log.LogId" asp-route-kind="screenshot" target="_blank" class="btn btn-sm btn-outline-primary rounded-pill"><i class="bi bi-image me-1"></i>Screenshot</a>}
-                @if (hasRecording){<a asp-action="Evidence" asp-route-id="@log.LogId" asp-route-kind="recording" target="_blank" class="btn btn-sm btn-outline-dark rounded-pill ms-1"><i class="bi bi-camera-video me-1"></i>Clip @(log.RecordingIncludesAudio ? "+ audio" : "")</a>}
-                @if (!hasScreenshot && !hasRecording){<span class="text-secondary small">None</span>}
+                <span class="small text-secondary" title="Only the examination Teacher or a named recipient with an active grant may access raw evidence.">
+                    <i class="bi bi-shield-lock" aria-hidden="true"></i> Teacher-private
+                </span>
             </td>
             <td class="text-nowrap">
                 <a asp-action="Details" asp-route-id="@log.LogId" class="btn btn-sm btn-light border rounded-pill">Details</a>

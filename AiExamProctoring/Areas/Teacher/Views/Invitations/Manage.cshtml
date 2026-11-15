@@ -1,5 +1,79 @@
 @model List<AiExamProctoring.Models.ExamInvigilator>
-@{var exam=(AiExamProctoring.Models.Exam)ViewBag.Exam;ViewData["Title"]="Invite invigilators";}
-<h1>Invite teachers — @exam.ExamTitle</h1><p>Invited teachers must accept before they can watch candidates or review evidence.</p>
-<a class="btn btn-outline-primary" asp-action="Team" asp-route-examId="@exam.ExamId">Team discussion</a><form asp-action="Invite" method="post" class="d-flex flex-wrap gap-2 mb-3"><input type="hidden" name="examId" value="@exam.ExamId"/><textarea name="email" required class="form-control" rows="3" aria-label="Teacher emails" placeholder="Registered teacher emails, separated by commas or new lines"></textarea><label><input type="checkbox" name="canEditQuestions" value="true" checked /> Question addition and selection</label><label><input type="checkbox" name="canMonitor" value="true" checked /> Live monitoring and review</label><button class="btn btn-primary">Send invitation</button></form>
-@foreach(var i in Model){<div class="card p-3 mb-2">@i.Teacher?.FullName — @(i.RevokedAtUtc.HasValue ? "Revoked" : i.IsActive ? "Accepted" : "Pending") · Questions: @i.CanEditQuestions · Monitoring: @i.CanMonitor<form asp-action="Revoke" method="post"><input type="hidden" name="id" value="@i.Id"/><button class="btn btn-outline-danger btn-sm">Revoke access</button></form></div>}
+@using AiExamProctoring.Models
+@{
+ var exam=(Exam)ViewBag.Exam;
+ var teachers=(List<ApplicationUser>)ViewBag.Teachers;
+ var connections=(List<TeacherConnection>)ViewBag.Connections;
+ bool monitoringOnly=ViewBag.MonitoringOnly;
+ string actor=ViewBag.Actor;
+ int page=ViewBag.Page;
+ ViewData["Title"]="Invite teachers";
+}
+<div class="d-flex align-items-center justify-content-between gap-2 flex-wrap mb-3">
+ <div><h1 class="h3">Manage co-teachers — @exam.ExamTitle</h1><p class="text-secondary mb-0">Invite approved teachers or start a private conversation. Invitations require the teacher's acceptance.</p></div>
+ <div class="d-flex gap-2 flex-wrap"><a class="btn btn-outline-primary" asp-controller="ExamQuestion" asp-action="Index" asp-route-examId="@exam.ExamId">Back to question paper</a><a class="btn btn-outline-secondary" asp-action="Index">My collaborations</a></div>
+</div>
+@if(ViewBag.CanInvite == false){<div class="alert alert-secondary">This examination is completed, cancelled or past its entry and duration window. Existing invitation history is preserved, but new invitations are closed.</div>}
+@if(monitoringOnly){<div class="alert alert-info">Monitoring invitations only. These invitations do not grant question preparation access. <a asp-action="Manage" asp-route-examId="@exam.ExamId">Manage all collaboration permissions</a></div>}
+@if(ViewBag.CanInvite != false && !monitoringOnly){
+<section class="card p-4 mb-4 shadow-sm border-0 rounded-4 te-invite-batch" aria-labelledby="teBatchHeading">
+ <h2 class="h5 fw-bold" id="teBatchHeading">Invite multiple teachers</h2>
+ <p class="small text-secondary">Add up to 50 registered approved Teachers at once. They must accept before they can edit the paper or monitor candidates.</p>
+ <form asp-action="Invite" method="post" class="row g-3">
+  <input type="hidden" name="examId" value="@exam.ExamId" />
+  <div class="col-12"><label for="teacherEmailBatch" class="form-label">Teacher email addresses</label><textarea id="teacherEmailBatch" class="form-control" name="email" rows="2" placeholder="teacher1@example.com, teacher2@example.com" maxlength="5000" required></textarea><div class="form-text">Separate email addresses with commas or new lines.</div></div>
+  <div class="col-md-6"><label class="form-check-label"><input name="canEditQuestions" type="checkbox" value="true" class="form-check-input me-2" checked />Can create and select MCQs</label></div>
+  <div class="col-md-6"><label class="form-check-label"><input name="canMonitor" type="checkbox" value="true" class="form-check-input me-2" />Can monitor the live test</label></div>
+  <div class="col-12"><button type="submit" class="btn btn-primary"><i class="bi bi-send me-1"></i>Send collaboration invitations</button></div>
+ </form>
+</section>}
+<section class="card p-4 mb-4 shadow-sm border-0 rounded-4">
+ <h2 class="h5">Available teachers</h2>
+ <form method="get" class="d-flex gap-2 mb-3">
+  <input type="hidden" name="examId" value="@exam.ExamId"/><input type="hidden" name="monitoringOnly" value="@monitoringOnly.ToString().ToLowerInvariant()"/>
+  <input type="search" name="search" value="@ViewBag.Search" class="form-control" placeholder="Search by name or email" aria-label="Search teachers"/><button class="btn btn-outline-primary">Search</button>
+ </form>
+ <p class="small text-secondary">Private messages use your existing teacher connection. If you are not connected, send a chat request first.</p>
+ @foreach(var teacher in teachers){
+  var invite=Model.Where(i=>i.TeacherId==teacher.Id).OrderByDescending(i=>i.RevokedAtUtc==null).ThenByDescending(i=>i.InvitedAtUtc).FirstOrDefault();
+  var connection=connections.FirstOrDefault(c=>c.SenderId==teacher.Id||c.RecipientId==teacher.Id);
+  <div class="border rounded-3 p-3 mb-3">
+   <div class="d-flex justify-content-between align-items-center flex-wrap gap-3">
+    <div><strong>@teacher.FullName</strong><div class="small text-secondary">@teacher.Email</div></div>
+    <div>
+     @if(connection?.AcceptedAtUtc!=null){<a class="btn btn-outline-primary btn-sm" asp-controller="Connections" asp-action="Chat" asp-route-id="@connection.Id">Message</a>}
+     else if(connection?.RecipientId==actor){<form asp-controller="Connections" asp-action="Accept" method="post"><input type="hidden" name="id" value="@connection.Id"/><button class="btn btn-outline-primary btn-sm">Accept &amp; message</button></form>}
+     else if(connection!=null){<span class="badge text-bg-light border">Chat request pending</span>}
+     else {<form asp-controller="Connections" asp-action="Connect" method="post"><input type="hidden" name="teacherId" value="@teacher.Id"/><input type="hidden" name="examId" value="@exam.ExamId"/><input type="hidden" name="monitoringOnly" value="@monitoringOnly.ToString().ToLowerInvariant()"/><button class="btn btn-outline-primary btn-sm">Message — request chat</button></form>}
+    </div>
+   </div>
+   @if(invite!=null&&invite.RevokedAtUtc==null){
+    <div class="d-flex align-items-center gap-3 flex-wrap mt-3"><span class="small text-secondary">@(invite.IsActive&&invite.AcceptedAtUtc!=null?"Accepted":"Invitation pending") · Questions: @(invite.CanEditQuestions?"Yes":"No") · Monitoring: @(invite.CanMonitor?"Yes":"No")</span>
+     <form asp-action="Revoke" method="post"><input type="hidden" name="id" value="@invite.Id"/><button class="btn btn-outline-danger btn-sm">Revoke access</button></form>
+    </div>
+   }else if(ViewBag.CanInvite != false){
+    <form asp-action="Invite" method="post" class="d-flex align-items-center flex-wrap gap-3 mt-3">
+     <input type="hidden" name="examId" value="@exam.ExamId"/><input type="hidden" name="email" value="@teacher.Email"/><input type="hidden" name="monitoringOnly" value="@monitoringOnly.ToString().ToLowerInvariant()"/>
+     @if(monitoringOnly){<input type="hidden" name="canMonitor" value="true"/><span class="small text-secondary">Live monitoring only</span>}
+     else{
+      <label><input class="form-check-input me-1" type="checkbox" name="canEditQuestions" value="true" checked/>Question preparation</label>
+      <label><input class="form-check-input me-1" type="checkbox" name="canMonitor" value="true" checked/>Live monitoring</label>
+     }
+     <button type="submit" class="btn btn-primary btn-sm" disabled="@(string.IsNullOrWhiteSpace(teacher.Email))">@(monitoringOnly?"Invite for live monitoring":"Invite teacher")</button>
+    </form>
+   }
+  </div>
+ }
+ @if(teachers.Count==0){<p class="text-secondary">No available teachers match your search.</p>}
+ <div class="d-flex gap-2">
+  @if(page>1){<a class="btn btn-outline-primary" asp-action="Manage" asp-route-examId="@exam.ExamId" asp-route-monitoringOnly="@monitoringOnly" asp-route-search="@ViewBag.Search" asp-route-page="@(page-1)">Previous</a>}
+  @if(ViewBag.HasMore==true){<a class="btn btn-outline-primary" asp-action="Manage" asp-route-examId="@exam.ExamId" asp-route-monitoringOnly="@monitoringOnly" asp-route-search="@ViewBag.Search" asp-route-page="@(page+1)">Next</a>}
+ </div>
+</section>
+<h2 class="h5 mb-3">Invitation history</h2>
+@foreach(var i in Model.GroupBy(i=>i.TeacherId).Select(g=>g.OrderByDescending(i=>i.RevokedAtUtc==null).ThenByDescending(i=>i.InvitedAtUtc).First())){
+ <div class="card p-3 mb-2"><div class="d-flex flex-wrap align-items-center justify-content-between gap-2">
+  <div><strong>@i.Teacher?.FullName</strong><div class="small text-secondary">@(i.RevokedAtUtc.HasValue?"Revoked":i.IsActive&&i.AcceptedAtUtc!=null?"Accepted":"Pending") · Questions: @(i.CanEditQuestions?"Yes":"No") · Monitoring: @(i.CanMonitor?"Yes":"No")</div></div>
+  @if(i.RevokedAtUtc==null){<form asp-action="Revoke" method="post"><input type="hidden" name="id" value="@i.Id"/><button class="btn btn-outline-danger btn-sm">Revoke access</button></form>}
+ </div></div>
+}

@@ -3,38 +3,111 @@
     ViewData["Title"] = "Exam Evidence Folder";
     var candidate = Model.Candidate;
     var folder = Model.ExamFolder;
+    var reviewableIds = ViewData["ReviewableIds"] as HashSet<int> ?? new HashSet<int>();
+    var media = (ViewData["AbsenceEvidence"] as List<AiExamProctoring.Models.ProctoringLog> ?? new()).Where(a => a.ScreenshotPath != null || a.VideoEvidencePath != null || a.RecordingPath != null).ToLookup(a => a.ParentIncidentId);
 }
 
+<div class="teacher-evidence te-evidence-detail">
 <nav class="small mb-3">
-    <a asp-action="ExamFolder" asp-route-studentId="@candidate.StudentId" asp-route-examId="@folder.ExamId" asp-route-recordingsOnly="true" class="btn btn-outline-primary btn-sm me-3">Session recordings</a>
-    <a asp-action="Index">Candidate folders</a><span class="mx-2 text-secondary">/</span>
-    <a asp-action="Candidate" asp-route-studentId="@candidate.StudentId">@candidate.CandidateName</a><span class="mx-2 text-secondary">/</span>
-    <span>@folder.ExamTitle</span>
+    <a asp-action="Index">Examination evidence</a><span class="mx-2 text-secondary">/</span><a asp-action="Exam" asp-route-examId="@folder.ExamId">@folder.ExamTitle</a><span class="mx-2 text-secondary">/</span><a asp-action="Candidate" asp-route-studentId="@candidate.StudentId" asp-route-examId="@folder.ExamId">@candidate.CandidateName</a><span class="mx-2 text-secondary">/</span><span>Attempt #@Model.AttemptId</span><span class="mx-2 text-secondary">·</span>
+    <a asp-action="ExamFolder" asp-route-studentId="@candidate.StudentId" asp-route-examId="@folder.ExamId" asp-route-attemptId="@Model.AttemptId" asp-route-savedMediaOnly="true" class="btn btn-outline-primary btn-sm me-2">Saved evidence</a>
+    <a asp-action="ExamFolder" asp-route-studentId="@candidate.StudentId" asp-route-examId="@folder.ExamId" asp-route-attemptId="@Model.AttemptId" asp-route-recordingsOnly="true" class="btn btn-outline-primary btn-sm me-3">Session recordings</a>
+
 </nav>
+@if (ViewBag.RecordingsOnly == true || ViewBag.RecordingMarker is int)
+{
+    <section id="session-timeline" class="card p-3 mb-3" data-marker-id="@ViewBag.RecordingMarker"
+             data-url="@Url.Action("RecordingTimeline", new { attemptId = Model.AttemptId })">
+        <h3 class="h5">Session recording</h3>
+        <p>Only pixels visible on the selected display are recorded. Timing follows the browser capture clock. Missing footage remains blank.</p>
+        <div class="d-flex flex-wrap gap-2 mb-2">
+            <label>Session <select data-session class="form-select"></select></label>
+            <label>Browser observation <select data-marker class="form-select"></select></label>
+            <button type="button" data-play class="btn btn-primary align-self-end" disabled>Play</button>
+            <button type="button" data-pause class="btn btn-outline-secondary align-self-end">Pause</button>
+        </div>
+        <div class="d-flex flex-wrap gap-2 align-items-center mb-2">
+            <button type="button" data-event-start class="btn btn-outline-primary btn-sm" disabled>Event start</button>
+            <button type="button" data-event-return class="btn btn-outline-primary btn-sm" disabled>Return</button>
+            <span data-event-summary class="small"></span>
+        </div>
+        <div class="position-relative bg-dark rounded overflow-hidden" style="aspect-ratio:16/9">
+            <video data-screen preload="metadata" playsinline muted class="w-100 h-100" style="object-fit:contain" aria-label="Recorded shared display"></video>
+            <video data-camera preload="metadata" playsinline class="position-absolute top-0 end-0 m-2 rounded border bg-dark"
+                   style="width:23%;aspect-ratio:4/3;object-fit:contain" aria-label="Recorded webcam and available microphone audio"></video>
+        </div>
+        <label class="mt-2">Recording position <input data-seek class="form-range" type="range" min="0" max="0" value="0" step="0.1" /></label>
+        <p data-time class="mb-0"></p>
+        <p data-status class="small mb-0" role="status">Loading recordings…</p>
+    </section>
+    <script src="~/js/session-recording-player.js" asp-append-version="true" defer></script>
+}
 <nav aria-label="Evidence pages" class="d-flex gap-3 mb-3">
     @if ((int)ViewBag.RecordingPage > 1)
     {
-        <a asp-action="ExamFolder" asp-route-studentId="@candidate.StudentId" asp-route-examId="@folder.ExamId" asp-route-pendingOnly="@Model.PendingOnly" asp-route-recordingsOnly="@ViewBag.RecordingsOnly" asp-route-page="@((int)ViewBag.RecordingPage - 1)">Previous page</a>
+        <a asp-action="ExamFolder" asp-route-studentId="@candidate.StudentId" asp-route-examId="@folder.ExamId" asp-route-attemptId="@Model.AttemptId" asp-route-pendingOnly="@Model.PendingOnly" asp-route-recordingsOnly="@ViewBag.RecordingsOnly" asp-route-savedMediaOnly="@ViewBag.SavedMediaOnly" asp-route-page="@((int)ViewBag.RecordingPage - 1)" asp-route-alert="@ViewBag.SelectedAlert" asp-route-severity="@ViewBag.SelectedSeverity">Previous page</a>
     }
     <span>Page @ViewBag.RecordingPage of @ViewBag.RecordingPages</span>
     @if ((int)ViewBag.RecordingPage < (int)ViewBag.RecordingPages)
     {
-        <a asp-action="ExamFolder" asp-route-studentId="@candidate.StudentId" asp-route-examId="@folder.ExamId" asp-route-pendingOnly="@Model.PendingOnly" asp-route-recordingsOnly="@ViewBag.RecordingsOnly" asp-route-page="@((int)ViewBag.RecordingPage + 1)">Next page</a>
+        <a asp-action="ExamFolder" asp-route-studentId="@candidate.StudentId" asp-route-examId="@folder.ExamId" asp-route-attemptId="@Model.AttemptId" asp-route-pendingOnly="@Model.PendingOnly" asp-route-recordingsOnly="@ViewBag.RecordingsOnly" asp-route-savedMediaOnly="@ViewBag.SavedMediaOnly" asp-route-page="@((int)ViewBag.RecordingPage + 1)" asp-route-alert="@ViewBag.SelectedAlert" asp-route-severity="@ViewBag.SelectedSeverity">Next page</a>
     }
 </nav>
 
 <div class="d-flex justify-content-between align-items-start flex-wrap gap-3 mb-4">
-    <div><span class="eyebrow">Exam evidence</span><h2 class="fw-bold mt-1 mb-1"><i class="bi bi-folder2-open text-warning me-2"></i>@folder.ExamTitle</h2><p class="text-secondary mb-0">@candidate.CandidateName · @candidate.CandidateNumber</p></div>
-    <div class="d-flex gap-2"><a asp-action="ExamFolder" asp-route-studentId="@candidate.StudentId" asp-route-examId="@folder.ExamId" class="btn @(Model.PendingOnly ? "btn-light border" : "btn-primary") rounded-pill">All events</a><a asp-action="ExamFolder" asp-route-studentId="@candidate.StudentId" asp-route-examId="@folder.ExamId" asp-route-pendingOnly="true" class="btn @(Model.PendingOnly ? "btn-warning" : "btn-outline-warning") rounded-pill">Pending only</a></div>
+    <div><span class="eyebrow">Exam evidence</span><h2 class="fw-bold mt-1 mb-1"><i class="bi bi-folder2-open text-warning me-2"></i>@folder.ExamTitle</h2><p class="text-secondary mb-0">Exam #@folder.ExamId · @candidate.CandidateName · @candidate.CandidateNumber · Attempt #@Model.AttemptId · @Model.AttemptStatus</p></div>
+    <div class="d-flex gap-2"><a asp-action="ExamFolder" asp-route-studentId="@candidate.StudentId" asp-route-examId="@folder.ExamId" asp-route-attemptId="@Model.AttemptId" class="btn @(Model.PendingOnly ? "btn-light border" : "btn-primary") rounded-pill">All events</a><a asp-action="ExamFolder" asp-route-studentId="@candidate.StudentId" asp-route-examId="@folder.ExamId" asp-route-attemptId="@Model.AttemptId" asp-route-pendingOnly="true" class="btn @(Model.PendingOnly ? "btn-warning" : "btn-outline-warning") rounded-pill">Pending only</a></div>
 </div>
+
+<form asp-action="ExamFolder" method="get" class="te-incident-filters" role="search" aria-label="Filter evidence incidents">
+    <input type="hidden" name="studentId" value="@candidate.StudentId" />
+    <input type="hidden" name="examId" value="@folder.ExamId" />
+    <input type="hidden" name="attemptId" value="@Model.AttemptId" />
+    <input type="hidden" name="pendingOnly" value="@Model.PendingOnly.ToString().ToLowerInvariant()" />
+    <input type="hidden" name="savedMediaOnly" value="@((ViewBag.SavedMediaOnly == true).ToString().ToLowerInvariant())" />
+    <input type="hidden" name="recordingsOnly" value="@ViewBag.RecordingsOnly.ToString().ToLowerInvariant()" />
+    <label>Incident type
+        <select name="alert" class="form-select">
+            <option value="">All incident types</option>
+            @foreach(var type in Enum.GetValues<AiExamProctoring.Models.ProctoringAlertType>())
+            {
+                <option value="@type" selected="@(string.Equals((string?)ViewBag.SelectedAlert, type.ToString(), StringComparison.OrdinalIgnoreCase))">@AiExamProctoring.Services.Proctoring.TeacherAlertContract.Title(type)</option>
+            }
+        </select>
+    </label>
+    <label>Severity
+        <select name="severity" class="form-select">
+            <option value="">All severities</option>
+            @foreach(var level in Enum.GetValues<AiExamProctoring.Models.ProctoringSeverity>())
+            {
+                <option value="@level" selected="@(string.Equals((string?)ViewBag.SelectedSeverity, level.ToString(), StringComparison.OrdinalIgnoreCase))">@level</option>
+            }
+        </select>
+    </label>
+    <button type="submit" class="btn btn-primary">Apply filters</button>
+    <a asp-action="ExamFolder" asp-route-studentId="@candidate.StudentId" asp-route-examId="@folder.ExamId" asp-route-attemptId="@Model.AttemptId" class="btn btn-outline-secondary">Clear</a>
+</form>
 
 <partial name="_EvidenceResumeControl" model="Model" />
 
-<div class="row g-3 mb-4"><div class="col-6 col-xl-3"><div class="metric-card"><strong>@folder.AlertCount</strong><span>Events</span></div></div><div class="col-6 col-xl-3"><div class="metric-card"><strong>@folder.ViolationCount</strong><span>Violations</span></div></div><div class="col-6 col-xl-3"><div class="metric-card"><strong>@folder.EvidenceCount</strong><span>Evidence events</span></div></div><div class="col-6 col-xl-3"><div class="metric-card"><strong class="text-warning">@folder.PendingCount</strong><span>Pending review</span></div></div></div>
+<div class="row g-3 mb-4 te-metrics"><div class="col-6 col-xl-3"><div class="metric-card"><strong>@folder.AlertCount</strong><span>Events</span></div></div><div class="col-6 col-xl-3"><div class="metric-card"><strong>@folder.ViolationCount</strong><span>Violations</span></div></div><div class="col-6 col-xl-3"><div class="metric-card"><strong>@folder.EvidenceCount</strong><span>Evidence events</span></div></div><div class="col-6 col-xl-3"><div class="metric-card"><strong class="text-warning">@folder.PendingCount</strong><span>Pending review</span></div></div></div>
 
 <div class="alert alert-light border rounded-4"><strong>Review before deciding.</strong> Images, sound levels and movements are observations, not proof of cheating. Play the clip, check the test rules and consider technical or accessibility issues. You can pause an active attempt with a written reason and authorize resume. A clip marked with audio includes microphone sound.</div>
 
-<div class="card border-0 shadow-sm rounded-4">
+@if ((int)(ViewBag.PendingObservations ?? 0) > 0)
+{
+    <form asp-action="MarkExamReviewed" method="post" class="mb-3 d-flex align-items-center gap-2 flex-wrap">
+        @Html.AntiForgeryToken()
+        <input type="hidden" name="studentId" value="@candidate.StudentId" />
+        <input type="hidden" name="examId" value="@folder.ExamId" />
+        <input type="hidden" name="attemptId" value="@Model.AttemptId" />
+        <button class="btn btn-outline-success" type="submit"><i class="bi bi-check2-all me-1"></i>Mark this attempt's observations reviewed</button>
+        <small class="text-secondary">Does not publish results or alter a blocked attempt.</small>
+    </form>
+}
+
+<div class="card border-0 shadow-sm rounded-4 te-incident-panel">
+    <div class="te-incident-panel-title"><h3>Incident timeline</h3><p>Individual observations, not every AI frame. Additional recordings are grouped under their incident.</p></div>
     <div class="table-responsive">
         <table class="table align-middle mb-0">
             <thead><tr><th>Time</th><th>Alert</th><th>Attempt / Session</th><th>Description</th><th>Saved evidence</th><th>Teacher action</th></tr></thead>
@@ -44,24 +117,124 @@
                     var legacyRecording = log.RecordingPath is null && log.ScreenshotPath?.EndsWith(".webm", StringComparison.OrdinalIgnoreCase) == true;
                     var hasScreenshot = !string.IsNullOrWhiteSpace(log.ScreenshotPath) && !legacyRecording;
                     var hasRecording = !string.IsNullOrWhiteSpace(log.RecordingPath) || legacyRecording;
-                    <tr class="@(!log.IsReviewed ? "table-warning" : null)">
-                        <td class="text-nowrap">@log.CreatedDate.ToString("dd MMM yyyy")<div class="small text-secondary">@log.CreatedDate.ToString("hh:mm:ss tt")</div></td>
-                        <td><span class="badge @log.AlertBadgeClass">@log.AlertTypeDisplay</span><div class="small mt-1"><span class="badge @log.SeverityBadgeClass">@log.Severity</span></div></td>
+                    <tr id="incident-@log.LogId" class="te-incident-row @(!log.IsReviewed ? "table-warning" : null)">
+                        <td class="text-nowrap"><strong>Incident #@log.LogId</strong>@if(Model.TeacherScope && Model.ExamFolder != null && ViewBag.IsOwner == true &&
+                            (hasScreenshot || hasRecording || log.VideoEvidencePath != null))
+                        { <div><a asp-controller="EvidenceSharing" asp-action="Index" asp-route-logId="@log.LogId">Share selected evidence</a></div> }<div>Warning @(log.WarningNumber?.ToString() ?? "—") / @(log.Exam?.AllowedWarnings.ToString() ?? "—")</div>@log.CreatedDate.ToString("dd MMM yyyy")<div class="small text-secondary">@log.CreatedDate.ToString("hh:mm:ss tt")</div></td>
+                        <td><span class="badge @log.AlertBadgeClass">@(log.IncidentKey == "absence" ? "Student Absence" : AiExamProctoring.Services.Proctoring.TeacherAlertContract.Title(log))</span><div class="small mt-1"><span class="badge @log.SeverityBadgeClass">@log.Severity</span></div></td>
                         <td>#@(log.AttemptId?.ToString() ?? "—")<div class="small text-secondary">@(log.SessionAttempt?.Session?.SessionTitle ?? "Pre-exam / exam")</div></td>
-                        <td style="min-width:300px">@log.Description
+                        <td style="min-width:300px">
+                            @if (!log.IncidentStartedAtUtc.HasValue) { <p>Start, end and duration were not recorded for this event.</p> }
+                            @if (log.IncidentStartedAtUtc.HasValue) { <p>@(log.IncidentKey == "browser" ? "Server first received:" : "Started:") @log.IncidentStartedAtUtc.Value.ToString("u") · @(log.IncidentKey == "browser" ? "Client-reported elapsed:" : "Observed:") @(log.ObservedDurationSeconds.HasValue ? $"{log.ObservedDurationSeconds:0.0} seconds" : "Not recorded") · Status: @(log.RecoveryStatus == "ReturnedPhysically" ? "Person returned; identity checked separately" : log.RecoveryStatus == "ReturnedIdentityVerified" ? "Student returned — identity verified" : log.RecoveryStatus == "Absent" ? "Student absent" : log.RecoveryStatus ?? "Unknown") · End: @(log.IncidentEndedAtUtc?.ToString("u") ?? "Not established")</p> }
+<p class="te-description">@(string.IsNullOrWhiteSpace(log.Description) ?
+                                AiExamProctoring.Services.Proctoring.TeacherAlertContract.Title(log.AlertType) + " was observed. Teacher verification is required." : log.Description)</p>
+                            <small class="text-secondary">Source: @(log.ModelName ?? "Exam monitoring") · @(log.IsReviewed ? "Reviewed" : "Pending review")</small>
+                            @if(log.IncidentKey?.StartsWith("object:", StringComparison.Ordinal) == true && reviewableIds.Contains(log.LogId)){
+                              <form asp-controller="Alerts" asp-action="Review" method="post">
+                               @Html.AntiForgeryToken()<input type="hidden" name="id" value="@log.LogId" />
+                               <select name="decision" aria-label="Review decision"><option value="confirmed-rule-violation">Confirmed rule violation</option><option value="false-positive">False alert</option><option value="insufficient-evidence">Insufficient evidence</option><option value="allowed-object">Allowed object</option><option value="further-review">Requires further review</option></select>
+                               <input name="notes" aria-label="Review notes" minlength="10" maxlength="300" required /><button type="submit">Save separate review decision</button>
+                              </form>
+                            }
+                            @if ((log.IncidentKey is "absence:escalation" or "persons:escalation") && log.ParentIncidentId is int originalIncidentId)
+                            {
+                                <p><a asp-action="ExamFolder" asp-route-examId="@log.ExamId" asp-route-studentId="@log.StudentId"
+                                      asp-route-incidentId="@originalIncidentId" asp-fragment="incident-@originalIncidentId">Open original absence evidence</a></p>
+                            }
+                            @if (log.MaxSimultaneousPeople.HasValue) { <p>Maximum simultaneously supported people: @log.MaxSimultaneousPeople · @(log.IncidentEndedAtUtc.HasValue ? "Additional people cleared" : "Review pending")</p> }
+                            @if ((log.IncidentKey is "absence" or "persons" || log.AlertType == AiExamProctoring.Models.ProctoringAlertType.IdentityMismatch) && log.VideoEvidencePath != null) { <p class="fw-semibold">@AiExamProctoring.Services.Proctoring.AbsenceEvidenceMetadata.Label(log.MachineObservationsJson)</p> }
+                            @if (log.MachineObservationsJson != null) { <details><summary>Machine-readable observations for review</summary><pre>@log.MachineObservationsJson</pre><p>Track identifiers are temporary spatial tracks, not biometric identities. Presentation and reflection classifications are suspicions requiring review.</p></details> }
+                            @foreach (var analysis in (ViewData["AbsenceEvidence"] as List<AiExamProctoring.Models.ProctoringLog> ?? new()).Where(a => a.ParentIncidentId == log.LogId && a.ModelName == "Speech analysis").OrderBy(a => a.FrameCapturedAt)) {
+                                var notes = AiExamProctoring.Services.SpeechRecognition.SpeechContextAnalyzer.ReadReview(analysis.MachineObservationsJson);
+                                <details>
+                                    <summary>Transcript window · @(analysis.MatchedQuestionId is int matched ? $"Matched question #{matched}" : "No recorded match") · @analysis.FrameCapturedAt?.ToString("u")</summary>
+                                    <p style="white-space:pre-wrap">@analysis.SpeechTranscript</p>
+                                    <p>@notes.Status · @(analysis.SpeakerAttribution == "mouth_correlated" ? "Mouth activity aligned" : "Speaker unknown")</p>
+                                    @if (!string.IsNullOrWhiteSpace(notes.Question)) { <p><strong>Captured question</strong> @notes.Question</p> }
+                                    @if (!string.IsNullOrWhiteSpace(notes.Phrases)) { <p><strong>Matching phrases</strong> @notes.Phrases</p> }
+                                    @if (notes.Score is double score) { <p>Semantic similarity @score.ToString("0.000")</p> }
+                                </details>
+                            }
                             @if (!string.IsNullOrWhiteSpace(log.SpeechTranscript)) {
                                 <details><summary>Speech evidence details</summary><p style="white-space:pre-wrap">@log.SpeechTranscript</p><p>Matched question: @(log.MatchedQuestionId?.ToString() ?? "Not recorded") · Similarity: @(log.SemanticSimilarity?.ToString("0.000") ?? "Not recorded") · Attribution: @(log.SpeakerAttribution ?? "Unknown")</p></details>
                             }
                             <div class="small @(log.CountsAsViolation ? "text-danger" : "text-secondary")">@(log.CountsAsViolation ? "Counts as violation" : "Observation / recovery")</div></td>
                         <td class="text-nowrap">
+                            @if (log.AlertType is AiExamProctoring.Models.ProctoringAlertType.ExamPageHidden or AiExamProctoring.Models.ProctoringAlertType.TabSwitch or AiExamProctoring.Models.ProctoringAlertType.FullScreenExit)
+                            {
+                                <a asp-action="ExamFolder" asp-route-examId="@folder.ExamId" asp-route-studentId="@candidate.StudentId"
+                                   asp-route-attemptId="@Model.AttemptId" asp-route-recordingsOnly="true" asp-route-marker="@log.LogId"
+                                   asp-fragment="session-timeline">Open recording at observation</a>
+                            }
+                            @if(log.IncidentKey == "browser" || media[log.LogId].Any(a => a.ModelName == "screen-original" || a.ModelName == "composite")) {
+                                <details class="browser-evidence-player"><summary>Review synchronized recordings</summary>
+                                    <p>Original sources are preserved separately. Timing is approximate and based on client capture clocks; unavailable intervals remain blank.</p>
+                                    <button type="button" class="play-media">Play synchronized review</button>
+                                    <button type="button" class="pause-media">Pause</button>
+                                    <input type="range" class="media-position" aria-label="Recording position" min="0" max="0" step="0.1" value="0" />
+                                    <output class="media-time"></output>
+                                    @foreach(var clip in (ViewData["AbsenceEvidence"] as List<AiExamProctoring.Models.ProctoringLog> ?? new()).Where(a=>a.ParentIncidentId==log.LogId && a.VideoEvidencePath!=null)) {
+                                        <div class="review-clip" data-timing="@clip.MachineObservationsJson">
+                                            <strong>@clip.ModelName</strong>
+                                            <video controls preload="none" style="width:100%;max-width:640px" src="@Url.Action("Evidence", new {id=clip.LogId,kind="video"})"></video>
+                                        </div>
+                                    }
+                                </details>
+                            }
+                            @foreach (var source in media[log.LogId].GroupBy(a => a.ModelName)) {
+                                <details><summary>@(source.Key == "absence-segment" ? "Absence camera timeline" : source.Key) · @source.Count() ordered segment(s)</summary>
+                                @if (source.Key == "absence-segment") {
+                                    <p>Capture times are reported by the browser. Segments may overlap. Review the time ranges for gaps and play the clips to check microphone audio.</p>
+                                }
+                                @foreach (var asset in source.OrderBy(a => a.FrameCapturedAt).ThenBy(a => a.LogId)) {
+                                    <div><a asp-action="Evidence" asp-route-id="@asset.LogId" asp-route-kind="@(asset.VideoEvidencePath != null ? "video" : asset.RecordingPath != null ? "recording" : "screenshot")" target="_blank">Original · @asset.FrameCapturedAt?.ToString("u")</a></div>
+                                    @if (asset.ModelName == "audio-original") { <audio controls preload="none" src="@Url.Action("Evidence", new {id=asset.LogId,kind="video"})"></audio> }
+                                    @if (asset.ModelName == "absence-segment") {
+                                        <video controls preload="none" style="width:100%;max-width:640px" src="@Url.Action("Evidence", new {id=asset.LogId,kind="video"})"></video>
+                                        <small>@AiExamProctoring.Services.Proctoring.AbsenceEvidenceMetadata.SegmentLabel(asset.MachineObservationsJson)</small>
+                                    }
+                                }
+                                </details>
+                            }
                             @if (hasScreenshot){<a asp-action="Evidence" asp-route-id="@log.LogId" asp-route-kind="screenshot" target="_blank" class="btn btn-sm btn-outline-primary rounded-pill"><i class="bi bi-image me-1"></i>Screenshot</a>}
                             @if (log.VideoEvidencePath != null){<a asp-action="Evidence" asp-route-id="@log.LogId" asp-route-kind="video" target="_blank" class="btn btn-sm btn-outline-dark">Camera event video</a>}
                             @if (hasRecording){<a asp-action="Evidence" asp-route-id="@log.LogId" asp-route-kind="recording" target="_blank" class="btn btn-sm btn-outline-dark rounded-pill ms-1"><i class="bi bi-camera-video me-1"></i>Clip @(log.RecordingIncludesAudio ? "+ audio" : "")</a>}
-                            @if (!hasScreenshot && !hasRecording){<span class="small text-secondary">None</span>}
+                                                        @{
+                                var files = media[log.LogId].Prepend(log);
+                            }
+                            <details><summary>Download original files</summary>
+                            @foreach (var asset in files)
+                            {
+                                foreach (var entry in new[] { ("screenshot", asset.ScreenshotPath), ("recording", asset.RecordingPath), ("video", asset.VideoEvidencePath) })
+                                {
+                                    if (string.IsNullOrWhiteSpace(entry.Item2)) continue;
+                                    var kind = entry.Item1;
+                                    var label = System.IO.Path.GetExtension(entry.Item2)?.ToLowerInvariant() switch
+                                    {
+                                        ".wav" => "Microphone audio",
+                                        ".jpg" or ".png" => "Screenshot",
+                                        _ => "Recording"
+                                    };
+                                    <div><a asp-action="Evidence" asp-route-id="@asset.LogId" asp-route-kind="@kind" asp-route-download="true">Download @label · #@asset.LogId</a> @if (ViewBag.IsOwner == true) { <a asp-controller="EvidenceSharing" asp-action="Index" asp-route-logId="@asset.LogId">Share this source</a> }</div>
+                                }
+                            }
+                            </details>
+                            @if (!hasScreenshot && !hasRecording && log.VideoEvidencePath == null && !media[log.LogId].Any()){<span class="small text-secondary">Media pending or unavailable. This incident remains recorded; do not infer a complete recording.</span>}
                         </td>
                         <td class="text-nowrap">
-                            @if (!log.IsReviewed){<form asp-action="MarkReviewed" method="post" class="d-inline">@Html.AntiForgeryToken()<input type="hidden" name="id" value="@log.LogId"/><input type="hidden" name="studentId" value="@candidate.StudentId"/><input type="hidden" name="examId" value="@folder.ExamId"/><button class="btn btn-sm btn-outline-success rounded-pill" type="submit">Reviewed</button></form>}
-                            @if ((hasScreenshot || hasRecording) && log.Attempt?.Status == AiExamProctoring.Models.AttemptStatus.InProgress)
+                            @if (reviewableIds.Contains(log.LogId) && log.AlertType != AiExamProctoring.Models.ProctoringAlertType.ObjectObservation)
+                            {
+                            <details><summary>Review decision and notes</summary>
+                                <form asp-controller="Alerts" asp-action="Review" method="post">
+                                    @Html.AntiForgeryToken()<input type="hidden" name="id" value="@log.LogId" />
+                                    <label>Decision<select name="decision" class="form-select"><option value="confirmed-rule-violation">Cheating Confirmed</option><option value="false-positive">Not Cheating</option><option value="further-review">Needs Further Review</option></select></label>
+                                    <label>Review notes<textarea name="notes" class="form-control" minlength="10" maxlength="300" required></textarea></label>
+                                    <button class="btn btn-sm btn-outline-primary">Save audited review</button>
+                                </form>
+                            </details>
+                            }
+                            @if (!log.IsReviewed && reviewableIds.Contains(log.LogId)){<form asp-action="MarkReviewed" method="post" class="d-inline">@Html.AntiForgeryToken()<input type="hidden" name="id" value="@log.LogId"/><input type="hidden" name="studentId" value="@candidate.StudentId"/><input type="hidden" name="examId" value="@folder.ExamId"/><button class="btn btn-sm btn-outline-success rounded-pill" type="submit">Reviewed</button></form>}
+                            @if (reviewableIds.Contains(log.LogId) && (hasScreenshot || hasRecording) && log.Attempt?.Status == AiExamProctoring.Models.AttemptStatus.InProgress)
                             {
                                 <details class="mt-2"><summary>Pause after reviewing evidence</summary>
                                     <form asp-action="PauseAfterReview" method="post" class="mt-2">
@@ -76,8 +249,14 @@
                         </td>
                     </tr>
                 }
-                @if (Model.Logs.Count == 0){<tr><td colspan="6" class="text-center text-secondary py-5">No events match this folder view.</td></tr>}
+                @if (Model.Logs.Count == 0){<tr><td colspan="6" class="text-center text-secondary py-5">No events match these filters. Open Saved evidence or Session recordings to review available media.</td></tr>}
             </tbody>
         </table>
     </div>
+</div>
+
+<script src="~/js/browser-evidence-player.js" asp-append-version="true" defer></script>
+
+
+
 </div>

@@ -39,7 +39,20 @@ namespace AiExamProctoring.Models
         ReminderIssued,
         SessionRecording,
         ExamResumed,
-        ReviewRequested
+        ReviewRequested,
+        LookingAwaySpeaking,
+        CameraMonitoringInterrupted,
+        AbsenceEvidence,
+        AdditionalPersonObservation,
+        PersonEvidence,
+        ExamPageHidden,
+        ExamWindowLeft,
+        ScreenCaptureUnavailable,
+        BrowserEvidence,
+        ObjectObservation,
+        ObjectEvidence,
+        SystemAudit,
+        FaceNotVisible
     }
 
     public enum ProctoringSeverity
@@ -126,6 +139,13 @@ namespace AiExamProctoring.Models
         public int? DetectedFaceCount { get; set; }
 
         public int? DurationSeconds { get; set; }
+        public DateTime? IncidentStartedAtUtc { get; set; }
+        public DateTime? IncidentEndedAtUtc { get; set; }
+        public double? ObservedDurationSeconds { get; set; }
+        public int? MaxSimultaneousPeople { get; set; }
+        [StringLength(24000)] public string? MachineObservationsJson { get; set; }
+        public int? ParentIncidentId { get; set; }
+        [StringLength(40)] public string? RecoveryStatus { get; set; }
 
         [StringLength(100)]
         public string? ModelName { get; set; }
@@ -140,6 +160,7 @@ namespace AiExamProctoring.Models
 
         public bool CountsAsViolation { get; set; } = true;
         public bool PolicyProcessed { get; set; }
+        public DateTime? PolicyAppliedAt { get; set; }
         public bool PolicyPending { get; set; }
         [StringLength(32)] public string? IncidentKey { get; set; }
         public int? WarningNumber { get; set; }
@@ -159,7 +180,7 @@ namespace AiExamProctoring.Models
             AlertType switch
             {
                 ProctoringAlertType.FaceNotDetected =>
-                    "Face Not Detected",
+                    "Student Absence",
 
                 ProctoringAlertType.IdentityVerified =>
                     "Identity Verified",
@@ -168,10 +189,11 @@ namespace AiExamProctoring.Models
                     "Identity Mismatch",
 
                 ProctoringAlertType.MultipleFaces =>
-                    "Multiple Faces",
+                    "Multiple Faces on Single Screen",
 
                 ProctoringAlertType.LookAway =>
                     "Looking Away",
+                ProctoringAlertType.LookingAwaySpeaking => "Looking Away and Speaking",
 
                 ProctoringAlertType.AudioDetected =>
                     "Audio Detected",
@@ -229,7 +251,7 @@ namespace AiExamProctoring.Models
                 ProctoringAlertType.ExamUnblocked =>
                     "Exam Unblocked",
 
-                _ => "Other"
+                _ => AlertType.ToString()
             };
 
         [NotMapped]

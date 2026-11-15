@@ -85,6 +85,9 @@ namespace AiExamProctoring.Models
         [StringLength(150)]
         public string? OrganizationName { get; set; }
 
+        [StringLength(140)] public string? TeacherHeadline { get; set; }
+        [StringLength(700)] public string? TeacherBio { get; set; }
+
         [StringLength(100)] public string? Province { get; set; }
         [StringLength(100)] public string? District { get; set; }
         [StringLength(100)] public string? Domicile { get; set; }

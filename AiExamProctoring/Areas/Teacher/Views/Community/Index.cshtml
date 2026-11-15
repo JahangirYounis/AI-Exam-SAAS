@@ -1,0 +1,47 @@
+@model AiExamProctoring.ViewModels.TeacherCommunityIndexViewModel
+@using AiExamProctoring.Models
+@{
+    ViewData["Title"] = "Teacher community";
+}
+<div class="teacher-community">
+    <header class="tcom-hero"><div><span class="tcom-eyebrow"><i class="bi bi-people-fill"></i> Teacher community</span>
+        <h1>Share ideas. Work together.</h1><p>Professional updates, teaching ideas and connections with approved colleagues.</p></div>
+        <a asp-controller="Connections" asp-action="Index" class="btn btn-light"><i class="bi bi-person-plus me-1"></i> Find teachers</a>
+    </header>
+    <div class="tcom-grid">
+        <div class="tcom-stream">
+            <section class="tcom-panel" aria-labelledby="compose-heading">
+                <h2 id="compose-heading" class="h5 fw-bold mb-3">Write a post</h2>
+                <form method="post" asp-action="Create" class="tcom-compose" data-prevent-double-submit>@Html.AntiForgeryToken()
+                    <label for="teacher-post-text" class="visually-hidden">Share an update with teachers</label>
+                    <textarea id="teacher-post-text" name="body" maxlength="2000" rows="3" required class="form-control" placeholder="Share a teaching tip, question or professional update…"></textarea>
+                    <div class="tcom-compose-actions"><label for="post-visibility">Who can see it?</label>
+                        <select id="post-visibility" name="visibility" class="form-select"><option value="0">My connections</option><option value="1">All approved teachers</option></select>
+                        <button type="submit" class="btn btn-primary"><i class="bi bi-send me-1"></i> Post</button>
+                    </div>
+                </form>
+            </section>
+            <nav class="tcom-tabs" aria-label="Community feed filter">
+                <a asp-action="Index" asp-route-filter="all" class="@(Model.Filter == "all" ? "active" : "")">Community feed</a>
+                <a asp-action="Index" asp-route-filter="connections" class="@(Model.Filter == "connections" ? "active" : "")">Connections</a>
+                <a asp-action="Index" asp-route-filter="mine" class="@(Model.Filter == "mine" ? "active" : "")">My posts</a>
+            </nav>
+            @foreach (var post in Model.Posts) { <partial name="~/Areas/Teacher/Views/Community/_PostCard.cshtml" model="post" /> }
+            @if (Model.Posts.Count == 0) { <div class="tcom-panel tcom-empty"><i class="bi bi-chat-square-text"></i><strong>No posts in this feed yet</strong><p>Share an update or connect with other Teachers.</p></div> }
+            <div class="tcom-pagination">
+                @if (Model.Page > 1) { <a class="btn btn-outline-secondary" asp-action="Index" asp-route-filter="@Model.Filter" asp-route-page="@(Model.Page - 1)">Previous</a> }
+                <span>Page @Model.Page</span>
+                @if (Model.HasNext) { <a class="btn btn-outline-primary" asp-action="Index" asp-route-filter="@Model.Filter" asp-route-page="@(Model.Page + 1)">Next</a> }
+            </div>
+        </div>
+        <aside class="tcom-aside" aria-label="Teacher network shortcuts">
+            <section class="tcom-panel"><h2 class="h6 fw-bold">Your network</h2>
+                <div class="tcom-number"><strong>@Model.ConnectionCount</strong><span>Connections</span></div>
+                <div class="tcom-number"><strong>@Model.PendingRequests</strong><span>Requests to review</span></div>
+                <a asp-controller="Connections" asp-action="Index" asp-route-tab="received" class="btn btn-outline-primary w-100">Manage requests</a>
+            </section>
+            <section class="tcom-panel"><h2 class="h6 fw-bold">Community guidelines</h2><p class="tcom-muted">Share professional, respectful content. Avoid posting exam answers, private student information or proctoring evidence.</p></section>
+        </aside>
+    </div>
+</div>
+@section Styles { <link rel="stylesheet" href="~/css/teacher-community.css" asp-append-version="true" /> }

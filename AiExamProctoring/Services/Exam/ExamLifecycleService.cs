@@ -248,7 +248,7 @@ public sealed class ExamLifecycleService : BackgroundService
             {
                 var previousSession = completedSessions[0];
 
-                const int restMinutes = 10;
+                var restMinutes = Math.Clamp(previousSession.Session?.RestAfterMinutes ?? 0, 0, 10);
 
                 var restEndsAt =
                     (previousSession.CompletedAt ?? now)
@@ -305,7 +305,7 @@ public sealed class ExamLifecycleService : BackgroundService
         //    EndDate should already represent:
         //    latest allowed start + active session time + allowed breaks.
         // ------------------------------------------------------------
-        var releasableHistory = await db.Exams
+        var releasableHistory = await db.Exams.Include(x => x.Sessions)
             .Where(x =>
                 x.IsPublished &&
                 (x.Status == ExamStatus.Scheduled ||
@@ -313,22 +313,8 @@ public sealed class ExamLifecycleService : BackgroundService
                 x.ExamDate <= now.Date)
             .ToListAsync(cancellationToken);
 
-        foreach (var exam in releasableHistory.Where(x => now > x.EndDate))
+        foreach (var exam in releasableHistory.Where(x => now >= x.EndDate))
         {
-            var hasActiveAttempt = await db.ExamAttempts
-                .AsNoTracking()
-                .AnyAsync(
-                    x =>
-                        x.ExamId == exam.ExamId &&
-                        (x.Status == AttemptStatus.InProgress ||
-                         x.Status == AttemptStatus.ProctoringBlocked),
-                    cancellationToken);
-
-            if (hasActiveAttempt)
-            {
-                continue;
-            }
-
             exam.Status = ExamStatus.Completed;
             exam.UpdatedDate = now;
         }
@@ -357,155 +343,26 @@ public sealed class ExamLifecycleService : BackgroundService
             return;
         }
 
-        var rows = await db.ExamQuestions
-            .AsNoTracking()
-            .Include(x => x.Question)
-            .Where(x =>
-                x.ExamId == sessionAttempt.Attempt.ExamId &&
-                x.SessionId == sessionAttempt.SessionId &&
-                x.IsActive &&
-                x.Question != null &&
-                x.Question.IsActive)
-            .OrderBy(x => x.DisplayOrder)
-            .ToListAsync(cancellationToken);
-
-        var answers = await db.StudentAnswers
-            .Where(x =>
-                x.SessionAttemptId ==
-                sessionAttempt.SessionAttemptId)
-            .ToDictionaryAsync(
-                x => x.QuestionId,
-                cancellationToken);
-
-        decimal marks = 0m;
-        var correct = 0;
-        var wrong = 0;
-        var skipped = 0;
-
-        foreach (var row in rows)
+        var allowBlocked = db.Database.CurrentTransaction != null;
+        var sessionId = sessionAttempt.SessionAttemptId;
+        async Task<bool> Score()
         {
-            if (row.Question is null)
-            {
-                continue;
-            }
-
-            answers.TryGetValue(
-                row.QuestionId,
-                out var answer);
-
-            var selected =
-                string.IsNullOrWhiteSpace(answer?.SelectedOption)
-                    ? null
-                    : answer!.SelectedOption!
-                        .Trim()
-                        .ToUpperInvariant();
-
-            var correctLetter =
-                sessionAttempt.Attempt.Exam.ShuffleOptions
-                    ? GetShuffledCorrectLetter(
-                        row.Question,
-                        sessionAttempt.SessionAttemptId,
-                        row.QuestionId)
-                    : row.Question.CorrectAnswer;
-
-            if (answer is null)
-            {
-                answer = new StudentAnswer
-                {
-                    SessionAttemptId =
-                        sessionAttempt.SessionAttemptId,
-                    QuestionId = row.QuestionId,
-                    SelectedOption = null,
-                    AnsweredAt = completedAt
-                };
-
-                db.StudentAnswers.Add(answer);
-            }
-
-            if (selected is null)
-            {
-                answer.IsCorrect = null;
-                answer.MarksAwarded = 0m;
-                skipped++;
-            }
-            else if (string.Equals(
-                         selected,
-                         correctLetter,
-                         StringComparison.OrdinalIgnoreCase))
-            {
-                answer.IsCorrect = true;
-                answer.MarksAwarded = row.Marks;
-
-                marks += row.Marks;
-                correct++;
-            }
-            else
-            {
-                answer.IsCorrect = false;
-                answer.MarksAwarded = -row.NegativeMarks;
-
-                marks -= row.NegativeMarks;
-                wrong++;
-            }
+            sessionAttempt = await db.ExamSessionAttempts.Include(s => s.Session).Include(s => s.Attempt).ThenInclude(a => a!.Exam)
+                .SingleAsync(s => s.SessionAttemptId == sessionId, cancellationToken);
+            if (!allowBlocked && (sessionAttempt.Attempt!.Status != AttemptStatus.InProgress || sessionAttempt.FrozenAtUtc.HasValue)) return false;
+            if (sessionAttempt.Status is not (AttemptStatus.InProgress or AttemptStatus.ProctoringBlocked)) return false;
+            await Services.Results.ExamResultFinalizationService.ScoreSessionAsync(db, sessionAttempt,
+                sessionAttempt.Attempt!.Exam!.ShuffleOptions, null, completedAt,
+                latestSavedAt: sessionAttempt.Status == AttemptStatus.InProgress && sessionAttempt.StartedAt.HasValue
+                    ? sessionAttempt.StartedAt.Value.AddMinutes(sessionAttempt.Session!.DurationMinutes) : null,
+                ct: cancellationToken);
+            sessionAttempt.Status = AttemptStatus.AutoSubmitted;
+            sessionAttempt.CompletedAt = completedAt;
+            await db.SaveChangesAsync(cancellationToken);
+            return true;
         }
-
-        sessionAttempt.MarksObtained = marks;
-        sessionAttempt.TotalMarks = rows.Sum(x => x.Marks);
-        sessionAttempt.CorrectAnswers = correct;
-        sessionAttempt.WrongAnswers = wrong;
-        sessionAttempt.SkippedAnswers = skipped;
-        sessionAttempt.Status = AttemptStatus.AutoSubmitted;
-        sessionAttempt.CompletedAt = completedAt;
-
-        await db.SaveChangesAsync(cancellationToken);
-    }
-
-    private static string GetShuffledCorrectLetter(
-        Question question,
-        int sessionAttemptId,
-        int questionId)
-    {
-        var options = new List<string>
-        {
-            "A",
-            "B",
-            "C",
-            "D"
-        };
-
-        if (!string.IsNullOrWhiteSpace(question.OptionE))
-        {
-            options.Add("E");
-        }
-
-        var random = new Random(
-            unchecked(
-                2719 +
-                sessionAttemptId * 47 +
-                questionId));
-
-        for (var i = options.Count - 1; i > 0; i--)
-        {
-            var j = random.Next(i + 1);
-            (options[i], options[j]) =
-                (options[j], options[i]);
-        }
-
-        var index = options.FindIndex(
-            x => string.Equals(
-                x,
-                question.CorrectAnswer,
-                StringComparison.Ordinal));
-
-        return index switch
-        {
-            0 => "A",
-            1 => "B",
-            2 => "C",
-            3 => "D",
-            4 => "E",
-            _ => question.CorrectAnswer
-        };
+        if (db.Database.CurrentTransaction != null) await Score();
+        else await Services.Results.ExamResultFinalizationService.WriteAsync(db, sessionAttempt.AttemptId, Score, cancellationToken);
     }
 
     internal static async Task FinalizeAttemptAsync(
@@ -514,108 +371,9 @@ public sealed class ExamLifecycleService : BackgroundService
         DateTime completedAt,
         CancellationToken cancellationToken)
     {
-        if (attempt.Status != AttemptStatus.InProgress ||
-            attempt.Exam is null)
-        {
-            return;
-        }
-
-        var sessions = await db.ExamSessionAttempts
-            .Where(x => x.AttemptId == attempt.AttemptId)
-            .ToListAsync(cancellationToken);
-
-        var requiredSessionCount = await db.ExamSessions
-            .AsNoTracking()
-            .CountAsync(
-                x =>
-                    x.ExamId == attempt.ExamId &&
-                    x.IsActive,
-                cancellationToken);
-
-        var completedSessionCount = sessions.Count(
-            x =>
-                x.Status == AttemptStatus.Completed ||
-                x.Status == AttemptStatus.AutoSubmitted);
-
-        if (completedSessionCount < requiredSessionCount)
-        {
-            return;
-        }
-
-        var obtained = sessions.Sum(
-            x => x.MarksObtained);
-
-        var total = attempt.Exam.TotalMarks;
-
-        attempt.TotalMarksObtained = obtained;
-        attempt.TotalMarks = total;
-
-        attempt.Percentage =
-            total <= 0m
-                ? 0m
-                : Math.Round(
-                    obtained / total * 100m,
-                    2);
-
-        attempt.IsPassed =
-            !attempt.IsDisqualified &&
-            attempt.Percentage >=
-            attempt.Exam.PassingPercentage;
-
-        attempt.Status =
-            attempt.IsDisqualified
-                ? AttemptStatus.Disqualified
-                : AttemptStatus.Completed;
-
-        attempt.CompletedAt = completedAt;
-
-        var result = await db.ExamResults
-            .FirstOrDefaultAsync(
-                x => x.AttemptId == attempt.AttemptId,
-                cancellationToken);
-
-        var correct = sessions.Sum(
-            x => x.CorrectAnswers);
-
-        var wrong = sessions.Sum(
-            x => x.WrongAnswers);
-
-        var skipped = sessions.Sum(
-            x => x.SkippedAnswers);
-
-        if (result is null)
-        {
-            db.ExamResults.Add(new ExamResult
-            {
-                AttemptId = attempt.AttemptId,
-                TotalMarksObtained = obtained,
-                TotalMarks = total,
-                Percentage = attempt.Percentage,
-                IsPassed = attempt.IsPassed,
-                CorrectAnswers = correct,
-                WrongAnswers = wrong,
-                SkippedAnswers = skipped,
-                CertificateNumber =
-                    $"AIE-{completedAt:yyyyMMdd}-{attempt.AttemptId:000000}",
-                GeneratedDate = completedAt
-            });
-        }
+        if (db.Database.CurrentTransaction != null)
+            await Services.Results.ExamResultFinalizationService.FinalizeCompletedInTransactionAsync(db, attempt.AttemptId, completedAt, cancellationToken);
         else
-        {
-            result.TotalMarksObtained = obtained;
-            result.TotalMarks = total;
-            result.Percentage = attempt.Percentage;
-            result.IsPassed = attempt.IsPassed;
-            result.CorrectAnswers = correct;
-            result.WrongAnswers = wrong;
-            result.SkippedAnswers = skipped;
-
-            result.CertificateNumber ??=
-                $"AIE-{completedAt:yyyyMMdd}-{attempt.AttemptId:000000}";
-
-            result.GeneratedDate = completedAt;
-        }
-
-        await db.SaveChangesAsync(cancellationToken);
+            await Services.Results.ExamResultFinalizationService.FinalizeCompletedAsync(db, attempt.AttemptId, completedAt, cancellationToken);
     }
 }

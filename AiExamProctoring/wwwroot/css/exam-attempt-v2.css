@@ -1,0 +1,37 @@
+/* Student Task 02: isolate the exam-taking UI from Teacher/Admin styling. */
+.student-shell.exam-mode .student-main{margin:0;width:100%;max-width:none}
+.student-shell.exam-mode .student-content{max-width:none;padding:clamp(12px,2vw,28px)}
+.exam-taking{--et-ink:#173047;--et-border:#dae5f2;--et-blue:#1769e7;color:var(--et-ink);max-width:1630px;margin:auto}
+.exam-taking-header{background:linear-gradient(115deg,#17344f,#245d8d);color:#fff;border-radius:18px;padding:21px 27px;display:flex;align-items:center;justify-content:space-between;gap:18px;margin-bottom:18px}
+.exam-taking-overline{font-size:.77rem;color:#bcdef8;font-weight:800;letter-spacing:.06em}
+.exam-taking-heading h1{font-size:clamp(1.3rem,2.2vw,1.95rem);margin:9px 0 4px;font-weight:800;color:#fff}
+.exam-taking-heading p{color:#daeaf8;margin:0;font-size:.9rem}
+.exam-taking-timer{border:1px solid #75a5cf;border-radius:14px;background:#ffffff1c;text-align:center;padding:11px 24px;min-width:160px;display:flex;flex-direction:column;line-height:1.2}
+.exam-taking-timer small,.exam-taking-timer span{font-size:.76rem;color:#daeaf8}.exam-taking-timer strong{font-size:2.1rem;font-variant-numeric:tabular-nums}
+.exam-taking-timer.urgent{background:#7f1d1d;border-color:#fda4af}
+.exam-taking-layout{display:grid;grid-template-columns:minmax(0,1fr) 300px;align-items:start;gap:18px}
+.exam-taking-paper,.exam-taking-panel{background:#fff;border:1px solid var(--et-border);border-radius:16px;box-shadow:0 6px 24px #1938540b}
+.exam-taking-paper{min-width:0;padding:clamp(17px,2vw,28px)}.exam-taking-progress{padding-bottom:17px;border-bottom:1px solid #e8eef5}
+.exam-taking-progress>div:first-child{display:flex;align-items:center;justify-content:space-between;gap:12px}.exam-taking-progress span{font-size:.84rem;color:#667b91}
+.exam-progress-track{margin-top:13px;height:7px;background:#ecf2fa;border-radius:50px;overflow:hidden}.exam-progress-track>span{display:block;background:var(--et-blue);width:0;height:100%;transition:width .2s}
+.exam-question{padding:25px 0 12px}.exam-question-label{display:inline-block;color:#2769bc;font-size:.76rem;font-weight:800;letter-spacing:.08em;margin-bottom:9px}
+.exam-question h2{font-size:clamp(1.12rem,1.6vw,1.38rem);font-weight:750;line-height:1.55;overflow-wrap:anywhere;white-space:pre-wrap}
+.exam-question-image{max-width:100%;max-height:360px;object-fit:contain;border-radius:12px;margin:12px 0}
+.exam-answer-options{display:grid;gap:10px;margin:20px 0}.exam-answer-option{display:flex;align-items:flex-start;gap:13px;padding:13px 15px;border:1px solid #dbe5f1;border-radius:11px;cursor:pointer;line-height:1.45}
+.exam-answer-option:hover{border-color:#8cb4ed;background:#f5f9ff}.exam-answer-option:has(input:checked){border-color:#1f6fe8;background:#edf5ff}
+.exam-answer-option input{margin-top:7px;accent-color:#1f6fe8}.exam-answer-letter{flex:none;display:grid;place-items:center;border-radius:8px;width:28px;height:28px;background:#e9f2ff;color:#1c61ac;font-weight:750}
+.exam-taking-controls{display:flex;gap:9px;flex-wrap:wrap;border-top:1px solid #edf1f6;padding-top:18px}.exam-taking-controls #examNext{margin-left:auto}
+.exam-taking-save-status{font-size:.85rem;color:#426b55;padding:14px 0}.exam-taking-save-status.error{color:#a51f32;font-weight:700}
+.exam-taking-submit{display:flex;justify-content:space-between;align-items:center;gap:14px;padding:17px;background:#f5f9fd;border:1px solid #e3edf5;border-radius:12px}
+.exam-taking-submit strong{font-weight:750}.exam-taking-submit p{font-size:.82rem;color:#6e8090;margin:3px 0 0}.exam-taking-aside{display:grid;gap:14px;min-width:0}
+.exam-taking-panel{padding:18px}.exam-taking-panel h2{font-size:1rem;font-weight:800;margin:0 0 12px}
+.exam-question-grid{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:7px}.exam-question-jump{border:1px solid #cbd9e8;border-radius:8px;background:#fff;font-weight:700;padding:9px 1px;color:#36536e;position:relative}
+.exam-question-jump.answered{background:#dfeefe;border-color:#9cc3f6}.exam-question-jump.current{outline:3px solid #2176f5;outline-offset:1px}.exam-question-jump.reviewed::after{content:'•';position:absolute;right:2px;top:-2px;color:#af6300}
+.exam-question-jump:disabled{opacity:.72}.exam-taking-camera{width:100%;height:155px;object-fit:cover;background:#172a3e;border-radius:10px}
+.exam-monitoring-status p{font-size:.75rem;margin:8px 0;line-height:1.35}.exam-monitoring-status span{overflow-wrap:anywhere}
+.exam-monitoring-details summary{cursor:pointer;font-size:.83rem;color:#2162ae}.exam-taking #examIncidentNotice:not([hidden]),.exam-taking #examMediaProblem:not([hidden]){padding:10px;border:1px solid #e9b7a6;background:#fff8f2;border-radius:8px;margin-top:12px}
+.exam-taking a:focus-visible,.exam-taking button:focus-visible,.exam-taking input:focus-visible{outline:3px solid #1d78e9;outline-offset:3px}
+@media(max-width:1050px){.exam-taking-layout{grid-template-columns:minmax(0,1fr) 260px}}
+@media(max-width:800px){.exam-taking-layout{grid-template-columns:1fr}.exam-taking-aside{grid-template-columns:1fr 1fr}.exam-monitoring-panel{grid-column:1/-1}}
+@media(max-width:575px){.exam-taking-header{flex-direction:column;align-items:stretch;padding:18px}.exam-taking-timer{align-self:flex-start}.exam-taking-aside{grid-template-columns:1fr}.exam-taking-paper{padding:15px}.exam-taking-controls .btn{flex:1 1 42%}.exam-taking-controls #examNext{margin-left:0}.exam-taking-submit{align-items:stretch;flex-direction:column}.exam-taking-submit button{width:100%}}
+@media(prefers-reduced-motion:reduce){.exam-progress-track>span{transition:none}}

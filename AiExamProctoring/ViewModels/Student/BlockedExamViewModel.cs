@@ -10,6 +10,8 @@ public sealed class BlockedExamViewModel
     public int SavedAnswers { get; init; }
     public DateTime? LockedAt { get; init; }
     public bool ReviewRequested { get; init; }
+    public bool ReviewRejected { get; init; }
+    public string? ReviewDecisionReason { get; init; }
     public IReadOnlyList<BlockedExamIncident> Incidents { get; init; } = [];
     public string FrozenTime => TimeSpan.FromSeconds(Math.Max(0, FrozenSeconds)).ToString(@"hh\:mm\:ss");
 }

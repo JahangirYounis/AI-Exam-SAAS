@@ -1,4 +1,4 @@
-﻿using AiExamProctoring.Data;
+using AiExamProctoring.Data;
 using AiExamProctoring.Models;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
@@ -174,7 +174,31 @@ namespace AiExamProctoring.Areas.Admin.Controllers
             if (result == null)
                 return NotFound();
 
-            return View(result);
+            ViewBag.AnswerRows = await AnswerRowsAsync(result); return View(result);
         }
+        private async Task<List<AiExamProctoring.ViewModels.Student.ResultAnswerRow>> AnswerRowsAsync(ExamResult result)
+    {
+        var sessions = await _context.ExamSessionAttempts.AsNoTracking().Include(x => x.Session)
+            .Where(x => x.AttemptId == result.AttemptId).OrderBy(x => x.Session!.DisplayOrder).ToListAsync(HttpContext.RequestAborted);
+        var answers = await _context.StudentAnswers.AsNoTracking().Include(x => x.Question)
+            .Where(x => x.SessionAttempt!.AttemptId == result.AttemptId).ToListAsync(HttpContext.RequestAborted);
+        var questions = await _context.ExamQuestions.AsNoTracking().Include(x => x.Question)
+            .Where(x => x.ExamId == result.Attempt!.ExamId).OrderBy(x => x.DisplayOrder).ToListAsync(HttpContext.RequestAborted);
+        var rows = new List<AiExamProctoring.ViewModels.Student.ResultAnswerRow>();
+        foreach (var session in sessions)
+        {
+            var included = new HashSet<int>();
+            foreach (var question in questions.Where(x => x.SessionId == session.SessionId))
+            {
+                included.Add(question.QuestionId);
+                var answer = answers.FirstOrDefault(x => x.SessionAttemptId == session.SessionAttemptId && x.QuestionId == question.QuestionId);
+                rows.Add(AiExamProctoring.ViewModels.Student.ResultAnswerRow.From(question.Question, answer, session.SessionAttemptId, result.Attempt!.Exam!.ShuffleOptions));
+            }
+            foreach (var answer in answers.Where(x => x.SessionAttemptId == session.SessionAttemptId && !included.Contains(x.QuestionId)))
+                rows.Add(AiExamProctoring.ViewModels.Student.ResultAnswerRow.From(answer.Question, answer, session.SessionAttemptId, result.Attempt!.Exam!.ShuffleOptions));
+        }
+        return rows;
     }
+
+}
 }

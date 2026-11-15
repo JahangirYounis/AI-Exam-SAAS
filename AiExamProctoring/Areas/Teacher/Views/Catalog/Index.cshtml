@@ -1,74 +1,79 @@
 @model AiExamProctoring.ViewModels.TeacherCatalogViewModel
-@{ ViewData["Title"] = "Question subjects"; }
-<h1>Question subjects</h1>
-<section id="subjects" class="dashboard-card mb-4">
-    <div class="dashboard-card-header">
-        <div><span class="eyebrow">Step 3 · Subjects</span><h3 class="h5 fw-bold mb-0 mt-1">Subjects</h3></div>
-        <a asp-controller="Question" asp-action="Index" class="btn btn-sm btn-outline-primary rounded-pill">Open Question Bank</a>
+@{
+    ViewData["Title"] = "Manage Question Subjects";
+}
+<div class="qb-page qb-catalog-page">
+    <header class="qb-hero">
+        <div><span class="qb-overline"><i class="bi bi-folder2-open me-1" aria-hidden="true"></i>Question organization</span><h1>Subject Catalog</h1><p>Browse available subjects and organize questions. Shared and protected subjects cannot be renamed or archived by individual teachers.</p></div>
+        <div class="qb-hero-actions"><a asp-area="Teacher" asp-controller="Question" asp-action="Index" class="btn qb-hero-primary"><i class="bi bi-arrow-left me-2" aria-hidden="true"></i>Question Bank</a></div>
+    </header>
+
+    <div class="qb-metrics qb-catalog-metrics" aria-label="Catalog summary">
+        <div class="qb-metric"><span class="qb-metric-icon qb-ic-blue"><i class="bi bi-grid-3x3-gap" aria-hidden="true"></i></span><span><strong>@Model.ActiveSubjectCount</strong><small>Active subjects shown</small></span></div>
+        <div class="qb-metric"><span class="qb-metric-icon qb-ic-teal"><i class="bi bi-check2-circle" aria-hidden="true"></i></span><span><strong>@Model.VisibleQuestionCount</strong><small>Accessible active MCQs</small></span></div>
+        <div class="qb-metric"><span class="qb-metric-icon qb-ic-violet"><i class="bi bi-shield-lock" aria-hidden="true"></i></span><span><strong>@Model.LockedSubjectCount</strong><small>Protected subjects shown</small></span></div>
     </div>
-    <div class="dashboard-card-body">
-        <form asp-action="CreateSubject" method="post" class="portal-panel p-3 mb-4" data-prevent-double-submit>
+
+    <section class="qb-panel qb-catalog-create" id="subjects" aria-labelledby="qb-add-subject-title">
+        <div class="qb-panel-head"><div><span class="qb-mini-heading">Organize</span><h2 id="qb-add-subject-title">Add a subject</h2></div></div>
+        <form asp-area="Teacher" asp-controller="Catalog" asp-action="CreateSubject" method="post" data-prevent-double-submit>
             @Html.AntiForgeryToken()
             <div class="row g-3 align-items-end">
-                <div class="col-lg-5"><label class="form-label">Subject name</label><input name="subjectName" class="form-control" maxlength="150" required placeholder="e.g. Environmental Science" /></div>
-                <div class="col-lg-5"><label class="form-label">Simple description</label><input name="description" class="form-control" maxlength="500" placeholder="Topics covered by this subject" /></div>
-                <div class="col-lg-2"><button class="btn btn-primary w-100" type="submit"><i class="bi bi-plus-lg me-1"></i>Add</button></div>
+                <div class="col-lg-4"><label for="qbSubjectName" class="form-label">Subject name</label><input id="qbSubjectName" name="subjectName" class="form-control" maxlength="150" minlength="2" required placeholder="e.g. Computer Science"/></div>
+                <div class="col-lg-6"><label for="qbSubjectDescription" class="form-label">Description <span class="qb-optional">Optional</span></label><input id="qbSubjectDescription" name="description" class="form-control" maxlength="500" placeholder="Topics covered by this subject"/></div>
+                <div class="col-lg-2 d-grid"><button class="btn btn-primary" type="submit"><i class="bi bi-plus-lg me-1" aria-hidden="true"></i>Add subject</button></div>
             </div>
         </form>
+    </section>
 
-        <div class="table-responsive">
-            <table class="table align-middle table-modern mb-0">
-                <thead><tr><th>Subject</th><th>Question bank</th><th>Status</th><th class="text-end">Manage</th></tr></thead>
-                <tbody>
-                    @foreach (var subject in Model.Subjects)
-                    {
-                        <tr>
-                            <td><strong>@subject.SubjectName</strong><div class="small text-secondary">@(subject.Description ?? "No description")</div></td>
-                            <td><span class="badge-soft @(subject.ActiveQuestionCount >= 50 ? "soft-success" : "soft-warning")">@subject.ActiveQuestionCount active MCQs</span></td>
-                            <td><span class="badge @(subject.IsActive ? "text-bg-success" : "text-bg-secondary")">@(subject.IsActive ? "Active" : "Archived")</span>@if(subject.IsLocked){<span class="badge text-bg-light border ms-1"><i class="bi bi-lock-fill"></i> Seed protected</span>}</td>
-                            <td class="text-end">
-                                @if (!subject.IsLocked)
-                                {
-                                    <details class="d-inline-block text-start catalog-row-editor">
-                                        <summary class="btn btn-sm btn-light border rounded-pill">Edit</summary>
-                                        <div class="catalog-popover shadow">
-                                            <form asp-action="UpdateSubject" method="post" data-prevent-double-submit>
-                                                @Html.AntiForgeryToken()<input type="hidden" name="subjectId" value="@subject.SubjectId" />
-                                                <label class="form-label small">Subject name</label><input name="subjectName" value="@subject.SubjectName" class="form-control mb-2" required />
-                                                <label class="form-label small">Description</label><textarea name="description" class="form-control mb-2" rows="2">@subject.Description</textarea>
-                                                <button class="btn btn-sm btn-primary w-100" type="submit">Save</button>
-                                            </form>
-                                            <form asp-action="ToggleSubject" method="post" class="mt-2">@Html.AntiForgeryToken()<input type="hidden" name="id" value="@subject.SubjectId" /><button class="btn btn-sm @(subject.IsActive ? "btn-outline-warning" : "btn-outline-success") w-100" type="submit">@(subject.IsActive ? "Archive" : "Activate")</button></form>
-                                        </div>
-                                    </details>
-                                }
-                            </td>
-                        </tr>
-                    }
-                    @if (Model.Subjects.Count == 0){<tr><td colspan="4" class="text-center text-secondary py-5">No subject matches the current search.</td></tr>}
-                </tbody>
-            </table>
-        </div>
-    </div>
-</section>
-
-@section Styles {
-<style>
-    .catalog-summary{cursor:pointer;list-style:none}.catalog-summary::-webkit-details-marker{display:none}
-    .catalog-summary::after{content:"\F282";font-family:"bootstrap-icons";color:#64748b;transition:.2s}
-    details[open]>.catalog-summary::after{transform:rotate(180deg)}
-    .catalog-row-editor{position:relative}.catalog-row-editor>summary{list-style:none}.catalog-row-editor>summary::-webkit-details-marker{display:none}
-    .catalog-popover{position:absolute;right:0;top:calc(100% + 8px);z-index:20;width:min(320px,80vw);padding:16px;background:#fff;border:1px solid #e5e7eb;border-radius:16px}
-    @@media(max-width:767.98px){.catalog-popover{position:fixed;left:16px;right:16px;top:auto;bottom:16px;width:auto}}
-</style>
-}
-
-@section Scripts {
-<script>
-(() => {
-    const requested = new URLSearchParams(window.location.search).get('section');
-    const target = requested && document.getElementById(requested);
-    if (target) window.setTimeout(() => target.scrollIntoView({ behavior: 'smooth', block: 'start' }), 120);
-})();
-</script>
-}
+    <section class="qb-panel qb-catalog-list" aria-labelledby="qb-catalog-title">
+        <div class="qb-panel-head"><div><span class="qb-mini-heading">Directory</span><h2 id="qb-catalog-title">Available subjects</h2><p class="qb-description">Select a subject to view its questions. Shared and locked subjects stay read-only.</p></div></div>
+        <form asp-area="Teacher" asp-controller="Catalog" asp-action="Index" method="get" class="qb-catalog-filters">
+            <div class="qb-search-field"><i class="bi bi-search" aria-hidden="true"></i><label class="visually-hidden" for="qbSubjectSearch">Search subjects</label><input type="search" id="qbSubjectSearch" name="search" maxlength="120" value="@Model.Search" placeholder="Search a subject" /></div>
+            <label class="visually-hidden" for="qbCatalogStatus">Subject status</label>
+            <select id="qbCatalogStatus" name="status" class="form-select"><option value="all" selected="@(Model.Status == "all")">All statuses</option><option value="active" selected="@(Model.Status == "active")">Active only</option><option value="archived" selected="@(Model.Status == "archived")">Archived only</option></select>
+            <button type="submit" class="btn btn-primary">Filter</button>
+            @if(Model.Search is not null || Model.Status != "all") { <a asp-area="Teacher" asp-controller="Catalog" asp-action="Index" class="btn btn-outline-secondary">Reset</a> }
+        </form>
+        @if (Model.Subjects.Count == 0)
+        {
+            <div class="qb-empty"><i class="bi bi-folder2-open" aria-hidden="true"></i><h3>No matching subjects</h3><p>Adjust your search or create a new subject using the form above.</p></div>
+        }
+        else
+        {
+            <div class="qb-catalog-grid">
+                @foreach (var subject in Model.Subjects)
+                {
+                    <article class="qb-catalog-item">
+                        <div class="qb-catalog-item-head"><span class="qb-subject-tile"><i class="bi bi-folder" aria-hidden="true"></i></span><div class="qb-tags"><span class="qb-tag @(subject.IsActive ? "qb-tag-active" : "qb-tag-archived")">@(subject.IsActive ? "Active" : "Archived")</span>@if(subject.IsLocked){<span class="qb-tag qb-tag-neutral"><i class="bi bi-lock-fill" aria-hidden="true"></i> Shared / protected</span>}</div></div>
+                        <h3>@subject.SubjectName</h3>
+                        <p>@(string.IsNullOrWhiteSpace(subject.Description) ? "Browse and organize MCQs in this subject." : subject.Description)</p>
+                        <div class="qb-catalog-counts"><span><strong>@subject.VisibleActiveQuestionCount</strong> accessible active MCQs</span><span>@subject.MyQuestionCount mine · @subject.SharedQuestionCount verified</span></div>
+                        <div class="qb-catalog-actions">
+                            <a asp-area="Teacher" asp-controller="Question" asp-action="Index" asp-route-subjectId="@subject.SubjectId" class="btn qb-card-btn"><i class="bi bi-box-arrow-up-right me-1" aria-hidden="true"></i>Browse MCQs</a>
+                            @if (!subject.IsLocked)
+                            {
+                                <details class="qb-catalog-editor">
+                                    <summary class="btn qb-card-btn"><i class="bi bi-pencil me-1" aria-hidden="true"></i>Manage</summary>
+                                    <div class="qb-catalog-editor-body">
+                                        <form asp-area="Teacher" asp-controller="Catalog" asp-action="UpdateSubject" method="post" data-prevent-double-submit>
+                                            @Html.AntiForgeryToken()
+                                            <input type="hidden" name="subjectId" value="@subject.SubjectId" />
+                                            <label class="form-label" for="subject-name-@subject.SubjectId">Subject name</label><input class="form-control mb-2" id="subject-name-@subject.SubjectId" name="subjectName" required maxlength="150" minlength="2" value="@subject.SubjectName" />
+                                            <label class="form-label" for="subject-description-@subject.SubjectId">Description</label><textarea class="form-control mb-2" id="subject-description-@subject.SubjectId" name="description" rows="2" maxlength="500">@subject.Description</textarea>
+                                            <button type="submit" class="btn btn-primary btn-sm w-100">Save subject</button>
+                                        </form>
+                                        <form asp-area="Teacher" asp-controller="Catalog" asp-action="ToggleSubject" method="post" class="mt-2">
+                                            @Html.AntiForgeryToken()<input type="hidden" name="id" value="@subject.SubjectId" />
+                                            <button type="submit" class="btn btn-sm btn-outline-secondary w-100">@(subject.IsActive ? "Archive subject" : "Reactivate subject")</button>
+                                        </form>
+                                    </div>
+                                </details>
+                            }
+                        </div>
+                    </article>
+                }
+            </div>
+        }
+    </section>
+</div>

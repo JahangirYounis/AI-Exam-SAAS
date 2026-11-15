@@ -12,7 +12,7 @@ public partial class ExamController
 {
     private static readonly ConcurrentDictionary<string, byte> SpeechConnections = new();
     private static readonly JsonSerializerOptions StreamJson = new(JsonSerializerDefaults.Web);
-    private sealed record AudioChunk(string Audio, int? QuestionId);
+    private sealed record AudioChunk(string Audio, int? QuestionId, long? Sequence);
 
     [HttpGet]
     public async Task SpeechStream(int attemptId, int sessionAttemptId)
@@ -48,6 +48,7 @@ public partial class ExamController
                 // this controller's scoped DbContext; inference cannot block microphone intake.
                 async Task UploadAsync()
                 {
+                    long? previousSequence = null;
                     try
                     {
                         while (!lifetime.IsCancellationRequested)
@@ -58,6 +59,13 @@ public partial class ExamController
                             if (packet is null) throw new InvalidDataException();
                             var wav = Convert.FromBase64String(packet.Audio);
                             if (wav.Length is < 44 or > 32044) throw new InvalidDataException();
+                            if (packet.Sequence is long sequence && previousSequence is long previous)
+                            {
+                                if (sequence <= previous) throw new InvalidDataException("Replayed audio packet");
+                                if (sequence - previous > 1)
+                                    await service.SendAsync(Array.Empty<byte>(), WebSocketMessageType.Binary, true, timeout.Token);
+                            }
+                            previousSequence = packet.Sequence;
                             if (!chunks.Writer.TryWrite((packet, wav, DateTime.Now))) throw new InvalidDataException("Audio backlog exceeded two seconds");
                             await service.SendAsync(wav, WebSocketMessageType.Binary, true, timeout.Token);
                         }

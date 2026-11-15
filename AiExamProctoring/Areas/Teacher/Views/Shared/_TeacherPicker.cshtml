@@ -1,0 +1,19 @@
+@model AiExamProctoring.Areas.Teacher.Controllers.TeacherPickerPage
+<div class="teacher-picker" data-exam-id="@Model.ExamId" data-max="@(Model.Mode == "create" ? 20 : 50)" data-directory-url="@Url.Action("Directory","Invitations",new{area="Teacher"})">
+ <input type="hidden" name="@(Model.Mode == "create" ? "invigilatorEmails" : "email")" data-picked-emails value="" />
+ <button type="button" class="btn btn-outline-primary" data-bs-toggle="modal" data-bs-target="#teacherPickModal-@Model.Mode"><i class="bi bi-people me-2"></i>Choose teachers</button>
+ <span class="ms-2 small text-secondary" data-selected-summary>No teachers selected</span>
+ <div class="d-flex align-items-center gap-3 flex-wrap mt-3">
+  <label class="form-check"><input type="checkbox" class="form-check-input" name="@(Model.Mode == "create" ? "inviteQuestions" : "canEditQuestions")" value="true" checked /><span class="form-check-label">Question preparation</span></label>
+  <label class="form-check"><input type="checkbox" class="form-check-input" name="@(Model.Mode == "create" ? "inviteMonitoring" : "canMonitor")" value="true" checked /><span class="form-check-label">Live monitoring</span></label>
+ </div>
+ <div class="modal fade" id="teacherPickModal-@Model.Mode" tabindex="-1" aria-labelledby="teacherPickTitle-@Model.Mode" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered modal-dialog-scrollable modal-lg"><div class="modal-content">
+   <div class="modal-header"><h2 class="modal-title fs-5" id="teacherPickTitle-@Model.Mode">Select approved teachers</h2><button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button></div>
+   <div class="modal-body"><label class="visually-hidden" for="teacherPickSearch-@Model.Mode">Search teachers</label><input class="form-control mb-3" type="search" id="teacherPickSearch-@Model.Mode" data-directory-search placeholder="Search by name or email" autocomplete="off" />
+    <p class="text-secondary small" data-directory-status>Loading directory…</p><div data-directory-results class="d-grid gap-2"></div><button type="button" class="btn btn-light border w-100 mt-3" data-directory-more hidden>Load more teachers</button>
+   </div>
+   <div class="modal-footer"><span class="me-auto small text-secondary" data-picked-count>0 selected</span><button class="btn btn-primary" type="button" data-bs-dismiss="modal">Done</button></div>
+  </div></div>
+ </div>
+</div>

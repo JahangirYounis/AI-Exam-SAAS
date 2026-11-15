@@ -1,0 +1,11 @@
+@model List<AiExamProctoring.Models.EvidenceGrant>
+@{ViewData["Title"]="Share selected evidence";var log=(AiExamProctoring.Models.ProctoringLog)ViewBag.Log;}
+<h1>Share selected evidence — Incident #@log.LogId</h1>
+<p>Only the selected source is shared. The named recipient must sign in. Other recordings, transcripts and identity photographs remain private.</p>
+<form asp-action="Grant" method="post" class="card p-3"><input type="hidden" name="logId" value="@log.LogId"/>
+<label>Recipient<select name="recipientId" asp-items="@ViewBag.Recipients" class="form-select" required><option value="">Select an identified account</option></select></label>
+<label>Evidence source<select name="kind" class="form-select"><option value="screenshot">Screenshot</option><option value="recording">Recording / audio</option><option value="video">Video</option></select></label>
+<label>Expires after hours (maximum 168)<input name="hours" type="number" value="24" min="1" max="168" class="form-control" required/></label>
+<label>Reason<textarea name="reason" minlength="10" maxlength="1000" required class="form-control"></textarea></label><button class="btn btn-primary mt-3">Share selected source</button></form>
+<h2 class="mt-4">Grant history</h2>
+@foreach(var g in Model){<article class="card p-3 my-2"><p>@g.Kind · Recipient account: @g.RecipientId · Created @g.CreatedAtUtc UTC · Expires @g.ExpiresAtUtc UTC · @(g.RevokedAtUtc.HasValue?"Revoked":"Granted")</p><p>@g.Reason</p>@if(!g.RevokedAtUtc.HasValue){<form asp-action="Revoke" method="post"><input type="hidden" name="id" value="@g.Id"/><button class="btn btn-outline-danger">Revoke access</button></form>}</article>}

@@ -48,6 +48,8 @@ public sealed class ProctoringCandidateFolderPageViewModel
 
 public sealed class ProctoringExamFolderPageViewModel
 {
+    public int AttemptId { get; init; }
+    public AttemptStatus AttemptStatus { get; init; }
     public IReadOnlyList<int> BlockedAttemptIds { get; init; } = Array.Empty<int>();
     public CandidateProctoringFolderViewModel Candidate { get; init; } = new();
     public ExamProctoringFolderViewModel ExamFolder { get; init; } = new();

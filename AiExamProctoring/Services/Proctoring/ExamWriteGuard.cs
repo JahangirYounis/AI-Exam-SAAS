@@ -31,6 +31,16 @@ public sealed class ExamWriteGuard(ApplicationDbContext db) : IAsyncActionFilter
             db.ChangeTracker.Clear();
             await using var tx = await db.Database.BeginTransactionAsync(request.HttpContext.RequestAborted);
             await ProctoringStateService.LockAttemptAsync(db, id, request.HttpContext.RequestAborted);
+            var blocked = await db.ExamSessionAttempts.AsNoTracking().AnyAsync(s =>
+                s.SessionAttemptId == sid && s.AttemptId == id &&
+                (s.FrozenAtUtc.HasValue || s.Status == Models.AttemptStatus.ProctoringBlocked ||
+                 s.Attempt!.Status == Models.AttemptStatus.ProctoringBlocked), request.HttpContext.RequestAborted);
+            if (blocked)
+            {
+                context.Result = new ObjectResult(new { ok = false, blocked = true,
+                    redirectUrl = $"/Student/Exam/Blocked?attemptId={id}" }) { StatusCode = StatusCodes.Status423Locked };
+                return;
+            }
             var result = await next();
             if (result.Exception is null || result.ExceptionHandled) await tx.CommitAsync(request.HttpContext.RequestAborted);
         });

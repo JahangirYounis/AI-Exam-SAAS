@@ -29,6 +29,22 @@ public sealed class ProctoringHub(ApplicationDbContext db, IProctoringStateServi
         return await states.GetAsync(attemptId, Context.ConnectionAborted);
     }
 
+    public async Task RequestIdentityVerification(int attemptId)
+    {
+        if (!Context.User!.IsInRole("Teacher")) throw new HubException("Teacher connection required.");
+        var attempt = await db.ExamAttempts.SingleOrDefaultAsync(a => a.AttemptId == attemptId && a.Status == Models.AttemptStatus.InProgress &&
+            (a.Exam!.CreatedBy == UserId || db.ExamInvigilators.Any(i => i.ExamId == a.ExamId && i.TeacherId == UserId && i.IsActive && i.CanMonitor && i.AcceptedAtUtc != null && i.RevokedAtUtc == null)), Context.ConnectionAborted);
+        if (attempt is null) throw new HubException("Active attempt unavailable.");
+        var since = DateTime.UtcNow.AddSeconds(-10);
+        if (await db.ProctoringLogs.AnyAsync(l => l.AttemptId == attemptId && l.ModelName == "Teacher identity request" && l.CreatedDate > since)) return;
+        db.ProctoringLogs.Add(new Models.ProctoringLog { StudentId = attempt.StudentId, ExamId = attempt.ExamId, AttemptId = attemptId,
+            AlertType = Models.ProctoringAlertType.ReviewRequested, CountsAsViolation = false, PolicyProcessed = true,
+            ModelName = "Teacher identity request", ActionByUserId = UserId, CreatedDate = DateTime.UtcNow,
+            Description = "An authorized teacher requested fresh candidate identity verification." });
+        await db.SaveChangesAsync(Context.ConnectionAborted);
+        await Clients.Group(AttemptGroup(attemptId)).SendAsync("IdentityReverificationRequested", new { attemptId, identityState = "REVERIFICATION_REQUIRED" }, Context.ConnectionAborted);
+    }
+
     public async Task Relay(int attemptId, string viewer, string kind, string data)
     {
         var teacher = Context.User!.IsInRole("Teacher");
@@ -37,13 +53,13 @@ public sealed class ProctoringHub(ApplicationDbContext db, IProctoringStateServi
             throw new HubException("Invalid signal.");
         var owner = await db.ExamAttempts.Where(a => a.AttemptId == attemptId &&
             (a.Status == Models.AttemptStatus.InProgress || a.Status == Models.AttemptStatus.ProctoringBlocked) &&
-            (teacher ? (a.Exam!.CreatedBy == UserId || db.ExamInvigilators.Any(i => i.ExamId == a.ExamId && i.TeacherId == UserId && i.IsActive && i.CanMonitor && i.AcceptedAtUtc != null)) : a.StudentId == UserId))
+            (teacher ? (a.Exam!.CreatedBy == UserId || db.ExamInvigilators.Any(i => i.ExamId == a.ExamId && i.TeacherId == UserId && i.IsActive && i.CanMonitor && i.AcceptedAtUtc != null && i.RevokedAtUtc == null)) : a.StudentId == UserId))
             .Select(a => a.Exam!.CreatedBy).SingleOrDefaultAsync(Context.ConnectionAborted);
         if (owner is null) throw new HubException("Attempt unavailable.");
         if (teacher && !signals.BindViewer(attemptId, viewer, UserId)) throw new HubException("Viewer unavailable.");
         if (!teacher) {
             owner = signals.ViewerTeacher(attemptId, viewer);
-            if (owner is null || !await db.ExamAttempts.AnyAsync(a => a.AttemptId == attemptId && (a.Exam!.CreatedBy == owner || db.ExamInvigilators.Any(i => i.ExamId == a.ExamId && i.TeacherId == owner && i.IsActive && i.CanMonitor && i.AcceptedAtUtc != null)))) throw new HubException("Viewer unavailable.");
+            if (owner is null || !await db.ExamAttempts.AnyAsync(a => a.AttemptId == attemptId && (a.Exam!.CreatedBy == owner || db.ExamInvigilators.Any(i => i.ExamId == a.ExamId && i.TeacherId == owner && i.IsActive && i.CanMonitor && i.AcceptedAtUtc != null && i.RevokedAtUtc == null)))) throw new HubException("Viewer unavailable.");
         }
         var message = new LiveSignal(attemptId, viewer, kind, data, DateTime.UtcNow.AddSeconds(30));
         var channel = teacher ? $"student:{attemptId}" : $"teacher:{owner}:{viewer}";

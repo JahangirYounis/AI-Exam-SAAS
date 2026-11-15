@@ -1,32 +1,13 @@
-/* Authenticated signalling for video-only WebRTC camera monitoring. */
+/* Authenticated signalling for separate, video-only camera and display tracks. */
 window.LiveProctoring = (() => {
-    const signals = [];
-    const received = new Set();
-    let subscribed = false;
-    function socket() {
-        const connection = window.ProctoringRealtime?.connection;
-        if (connection && !subscribed) {
-            subscribed = true;
-            connection.on('VideoSignal', message => { if (signals.length < 128) signals.push(message); });
-        }
-        return connection?.state === 'Connected' ? connection : null;
-    }
     async function post(path, values, token) {
-        const connection = socket();
-        if (connection && path === '/live-proctoring/signal') {
-            await connection.invoke('Relay', Number(values.attemptId), values.viewer, values.kind, values.data || '');
-            return { ok: true };
-        }
         const body = new URLSearchParams({ ...values, __RequestVerificationToken: token });
         const response = await fetch(path, { method: 'POST', body, credentials: 'same-origin', signal: AbortSignal.timeout(10000) });
         if (!response.ok) throw new Error(String(response.status));
         if (path === '/live-proctoring/poll') {
-            const batch = [...signals.splice(0), ...await response.json()];
+            const batch = await response.json();
             const unique = batch.filter(m => {
                 if (values.viewer ? m.viewer !== values.viewer : m.attemptId !== Number(values.attemptId)) return false;
-                if (m.id && received.has(m.id)) return false;
-                if (m.id) received.add(m.id);
-                if (received.size > 512) received.delete(received.values().next().value);
                 return true;
             });
             return { ok: true, json: async () => unique };
@@ -42,7 +23,7 @@ window.LiveProctoring = (() => {
         const pc = new RTCPeerConnection(config);
         const pending = [];
         pc.onicecandidate = event => { if (event.candidate) send('ice', JSON.stringify(event.candidate)).catch(() => {}); };
-        pc.ontrack = event => onTrack?.(event.streams[0]);
+        pc.ontrack = event => onTrack?.(event.streams[0] || new MediaStream([event.track]), event);
         pc.onconnectionstatechange = () => onState?.(pc.connectionState);
         return {
             pc,
@@ -58,29 +39,53 @@ window.LiveProctoring = (() => {
             }
         };
     }
-    function student(attemptId, token, getStream, onStatus) {
+    function student(attemptId, token, getStream, onStatus, getDisplay) {
         const peers = new Map();
         let stopped = false, config;
         const send = (viewer, kind, data = '') => post('/live-proctoring/signal', { attemptId, viewer, kind, data }, token);
         const close = viewer => { peers.get(viewer)?.pc.close(); peers.delete(viewer); };
+        const liveTrack = stream => stream?.getVideoTracks().find(track => track.readyState === 'live');
+        async function syncTracks(current, tracks) {
+            for (const [role, transceiver] of Object.entries(current.media)) {
+                const track = tracks[role] || null;
+                if (transceiver.sender.track !== track)
+                    await transceiver.sender.replaceTrack(track);
+            }
+            const availability = JSON.stringify(Object.fromEntries(
+                Object.entries(tracks).map(([role, track]) => [role, !!track && !track.muted])));
+            if (current.channel.readyState === 'open' && availability !== current.availability) {
+                current.channel.send(availability);
+                current.availability = availability;
+            }
+        }
         async function tick() {
             if (stopped) return;
             try {
-                const stream = getStream();
-                if (!stream?.getVideoTracks().some(t => t.readyState === 'live')) {
-                    for (const viewer of peers.keys()) close(viewer);
-                    onStatus?.('Camera sharing unavailable');
+                const tracks = { camera: liveTrack(getStream()), screen: liveTrack(getDisplay?.()) };
+                if (!tracks.camera && !tracks.screen) {
+                    for (const viewer of peers.keys()) {
+                        close(viewer);
+                        void send(viewer, 'bye').catch(() => {});
+                    }
+                    onStatus?.('Live video unavailable');
                     return;
                 }
                 config ??= await configuration();
+                if (stopped) return;
                 const response = await post('/live-proctoring/poll', { attemptId }, token);
+                if (stopped) return;
+                for (const [viewer, current] of peers) {
+                    try { await syncTracks(current, tracks); }
+                    catch { close(viewer); }
+                }
                 for (const message of await response.json()) {
+                    if (stopped) return;
                     const viewer = message.viewer;
                     if (message.kind === 'bye') { close(viewer); continue; }
                     let current = peers.get(viewer);
                     if (message.kind === 'watch') {
-                        if (current && !['closed', 'failed', 'disconnected'].includes(current.pc.connectionState)
-                            && (current.pc.connectionState === 'connected' || Date.now() - current.created < 20000)) {
+                        if (current && !['closed', 'failed'].includes(current.pc.connectionState)
+                            && (current.pc.connectionState === 'connected' || Date.now() - current.created < 12000)) {
                             current.seen = Date.now(); continue;
                         }
                         close(viewer);
@@ -89,27 +94,38 @@ window.LiveProctoring = (() => {
                         current.seen = Date.now();
                         current.created = Date.now();
                         peers.set(viewer, current);
-                        for (const track of stream.getVideoTracks()) {
-                            const sender = current.pc.addTrack(track, stream);
-                            const parameters = sender.getParameters();
-                            parameters.encodings = [{ maxBitrate: 220000, maxFramerate: 8, scaleResolutionDownBy: 2 }];
-                            await sender.setParameters(parameters).catch(() => {});
-                        }
-                        await current.pc.setLocalDescription(await current.pc.createOffer());
-                        await send(viewer, 'offer', JSON.stringify(current.pc.localDescription));
+                        current.media = {
+                            camera: current.pc.addTransceiver('video', { direction: 'sendonly',
+                                sendEncodings: [{ maxBitrate: 160000, maxFramerate: 8, scaleResolutionDownBy: 2 }] }),
+                            screen: current.pc.addTransceiver('video', { direction: 'sendonly',
+                                sendEncodings: [{ maxBitrate: 480000, maxFramerate: 5, scaleResolutionDownBy: 1.5 }] })
+                        };
+                        current.channel = current.pc.createDataChannel('exam-video-status');
+                        try {
+                            await syncTracks(current, tracks);
+                            if (stopped) { close(viewer); return; }
+                            await current.pc.setLocalDescription(await current.pc.createOffer());
+                            await send(viewer, 'offer', JSON.stringify({
+                                type: current.pc.localDescription.type, sdp: current.pc.localDescription.sdp,
+                                media: Object.fromEntries(Object.entries(current.media).map(([role, transceiver]) => [role, transceiver.mid]))
+                            }));
+                        } catch { close(viewer); }
                     } else if (current) {
-                        await current.receive(message.kind, message.data);
+                        // A stale ICE candidate can arrive after a new offer.
+                        await current.receive(message.kind, message.data).catch(() => {});
                     }
                 }
                 for (const [viewer, current] of peers) if (Date.now() - current.seen > 30000) close(viewer);
-                onStatus?.(peers.size ? 'Live camera shared with your teacher' : 'Your teacher can view your live camera during this exam');
+                onStatus?.(peers.size ? 'Live monitoring connected' : 'Ready for teacher live monitoring');
             } catch (error) {
                 if (error.message === '404' || error.message === '401' || error.message === '403') {
                     stopped = true;
                     for (const viewer of peers.keys()) close(viewer);
                 }
-                onStatus?.('Live camera connection interrupted');
-            } finally { if (!stopped) setTimeout(tick, 2000); }
+                onStatus?.('Live monitoring connection interrupted');
+            } finally {
+                if (!stopped) setTimeout(tick, [...peers.values()].some(p => p.pc.connectionState !== 'connected') ? 250 : peers.size ? 750 : 1000);
+            }
         }
         tick();
         return () => { stopped = true; for (const viewer of peers.keys()) close(viewer); };

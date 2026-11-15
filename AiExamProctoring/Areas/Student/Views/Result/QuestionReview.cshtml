@@ -1,4 +1,12 @@
 @model IEnumerable<AiExamProctoring.ViewModels.Student.ResultAnswerRow>
-@{ Layout="~/Areas/Student/Views/Shared/_StudentLayout.cshtml"; ViewData["Title"]="Answer Review"; }
-<a asp-action="Index">My results</a>
-<partial name="_AnswerRows" model="Model" />
+@{
+    Layout = "~/Areas/Student/Views/Shared/_StudentLayout.cshtml";
+    ViewData["Title"] = "Answer Review";
+    var result = ViewBag.Result as AiExamProctoring.Models.ExamResult;
+}
+@section Styles { <link rel="stylesheet" href="~/css/student-results.css" asp-append-version="true" /> }
+<section class="student-results">
+    <a asp-action="Details" asp-route-id="@(result?.ResultId)" class="sr-back"><i class="bi bi-arrow-left" aria-hidden="true"></i> Back to my result</a>
+    <h1>Answer Review</h1><p class="sr-muted">@(result?.Attempt?.Exam?.ExamTitle)</p>
+    <partial name="_AnswerRows" model="Model" />
+</section>

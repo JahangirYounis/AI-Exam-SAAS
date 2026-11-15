@@ -1,6 +1,8 @@
 using AiExamProctoring.Data;
 using AiExamProctoring.Models;
 using AiExamProctoring.Services.Pdf;
+using AiExamProctoring.Services.Results;
+using AiExamProctoring.ViewModels.Student;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
@@ -11,6 +13,7 @@ namespace AiExamProctoring.Areas.Student.Controllers;
 
 [Area("Student")]
 [Authorize(Roles="Student")]
+[ResponseCache(NoStore = true, Location = ResponseCacheLocation.None)]
 public class ResultController : Controller
 {
     private readonly ApplicationDbContext _context;
@@ -33,52 +36,100 @@ public class ResultController : Controller
     private string? StudentId=>User.FindFirstValue(ClaimTypes.NameIdentifier);
 
     [HttpGet]
-    public async Task<IActionResult> Index()
+    public async Task<IActionResult> Index(CancellationToken cancellationToken, int page = 1, int pendingPage = 1)
     {
-        if(StudentId is null)return Challenge();
-        var results=await _context.ExamResults.AsNoTracking().Where(r => r.Attempt!.ResultReleasedAtUtc != null ||
-                (!r.Attempt.SubmittedForViolations && r.Attempt.Status != AttemptStatus.ProctoringBlocked &&
-                 !_context.ProctoringLogs.Any(l => l.AttemptId == r.AttemptId && l.CountsAsViolation))).Include(x=>x.Attempt).ThenInclude(x=>x!.Exam)
-            .Where(x=>x.Attempt!.StudentId==StudentId).OrderByDescending(x=>x.GeneratedDate).ToListAsync();
-        ViewBag.PendingCount = await _context.ExamResults.CountAsync(r => r.Attempt!.StudentId == StudentId && r.Attempt.ResultReleasedAtUtc == null &&
-            (r.Attempt.SubmittedForViolations || _context.ProctoringLogs.Any(l => l.AttemptId == r.AttemptId && l.CountsAsViolation)));
-        return View(results);
+        var studentId = StudentId;
+        if (string.IsNullOrWhiteSpace(studentId)) return Challenge();
+
+        const int pageSize = 12;
+        const int pendingPageSize = 6;
+        var releasedQuery = StudentResultAccess.ReleasedFor(_context, studentId);
+        var releasedTotal = await releasedQuery.CountAsync(cancellationToken);
+        var releasedPages = Math.Max(1, (int)Math.Ceiling(releasedTotal / (double)pageSize));
+        page = Math.Clamp(page, 1, releasedPages);
+        var released = await releasedQuery.Include(r => r.Attempt).ThenInclude(a => a!.Exam)
+            .OrderByDescending(r => r.Attempt!.ResultReleasedAtUtc)
+            .ThenByDescending(r => r.ResultId)
+            .Skip((page - 1) * pageSize).Take(pageSize).ToListAsync(cancellationToken);
+
+        // A pending academic result may be processing or require a Teacher decision.
+        // Do not expose the withheld marks under either status.
+        var pendingQuery = _context.ExamAttempts.AsNoTracking()
+            .Where(a => a.StudentId == studentId && a.ResultReleasedAtUtc == null &&
+                (a.Status == AttemptStatus.ProctoringBlocked || a.Status == AttemptStatus.Completed ||
+                 a.Status == AttemptStatus.AutoSubmitted || a.Status == AttemptStatus.Disqualified));
+        var pendingTotal = await pendingQuery.CountAsync(cancellationToken);
+        var pendingPages = Math.Max(1, (int)Math.Ceiling(pendingTotal / (double)pendingPageSize));
+        pendingPage = Math.Clamp(pendingPage, 1, pendingPages);
+        var pending = await pendingQuery.OrderByDescending(a => a.StartedAt)
+            .ThenByDescending(a => a.AttemptId)
+            .Skip((pendingPage - 1) * pendingPageSize).Take(pendingPageSize)
+            .Select(a => new PendingStudentResultRow
+            {
+                AttemptId = a.AttemptId,
+                ExamTitle = a.Exam!.ExamTitle,
+                ExaminationDate = a.StartedAt,
+                IsBlocked = a.Status == AttemptStatus.ProctoringBlocked,
+                NeedsTeacherReview = a.Status == AttemptStatus.ProctoringBlocked ||
+                    a.Status == AttemptStatus.Disqualified || a.SubmittedForViolations ||
+                    _context.ProctoringLogs.Any(l => l.AttemptId == a.AttemptId &&
+                        l.ParentIncidentId == null && !l.IsReviewed &&
+                        l.AlertType != ProctoringAlertType.SystemAudit &&
+                        l.AlertType != ProctoringAlertType.SessionRecording &&
+                        l.AlertType != ProctoringAlertType.AiMonitoringUnavailable &&
+                        l.AlertType != ProctoringAlertType.CameraMonitoringInterrupted &&
+                        l.AlertType != ProctoringAlertType.CameraAccessLost &&
+                        l.AlertType != ProctoringAlertType.MicrophoneAccessLost &&
+                        l.AlertType != ProctoringAlertType.ScreenCaptureUnavailable &&
+                        l.AlertType != ProctoringAlertType.AudioDetected &&
+                        l.AlertType != ProctoringAlertType.TalkingDetected &&
+                        l.AlertType != ProctoringAlertType.ExamBlocked &&
+                        l.AlertType != ProctoringAlertType.ReviewRequested &&
+                        (l.CountsAsViolation || l.PolicyPending ||
+                         l.AlertType == ProctoringAlertType.AnswerPromptSpeech ||
+                         l.AlertType == ProctoringAlertType.IdentityMismatch ||
+                         l.AlertType == ProctoringAlertType.ObjectObservation ||
+                         l.AlertType == ProctoringAlertType.AdditionalPersonObservation))
+            }).ToListAsync(cancellationToken);
+        return View(new StudentResultsIndexViewModel
+        {
+            ReleasedResults = released, PendingAttempts = pending,
+            ReleasedTotal = releasedTotal, PendingTotal = pendingTotal,
+            Page = page, PendingPage = pendingPage,
+            ReleasedPages = releasedPages, PendingPages = pendingPages
+        });
     }
 
     [HttpGet]
-    public async Task<IActionResult> Details(int? id)
+    public async Task<IActionResult> Details(int? id, CancellationToken cancellationToken)
     {
-        if (StudentId is null) return Challenge();
+        var studentId = StudentId;
+        if (string.IsNullOrWhiteSpace(studentId)) return Challenge();
         if (id is null or <= 0) return ResultUnavailable();
-        var result=await _context.ExamResults.AsNoTracking().Where(r => r.Attempt!.ResultReleasedAtUtc != null ||
-                (!r.Attempt.SubmittedForViolations && r.Attempt.Status != AttemptStatus.ProctoringBlocked &&
-                 !_context.ProctoringLogs.Any(l => l.AttemptId == r.AttemptId && l.CountsAsViolation)))
-            .Include(x=>x.Attempt).ThenInclude(x=>x!.Exam)
-            .Include(x=>x.Attempt).ThenInclude(x=>x!.Student)
-            .FirstOrDefaultAsync(x=>x.ResultId==id&&x.Attempt!.StudentId==StudentId);
+        var result = await StudentResultAccess.ReleasedFor(_context, studentId)
+            .Include(r => r.Attempt).ThenInclude(a => a!.Exam)
+            .Include(r => r.Attempt).ThenInclude(a => a!.Student)
+            .FirstOrDefaultAsync(r => r.ResultId == id.Value, cancellationToken);
         if (result?.Attempt?.Exam is null) return ResultUnavailable();
+
         ViewBag.ExamRollNumber = await _context.ExamAssignments.AsNoTracking()
-            .Where(x => x.ExamId == result.Attempt.ExamId && x.StudentId == StudentId)
-            .Select(x => x.RollNumber)
-            .FirstOrDefaultAsync();
-        ViewBag.ProctoringLogs = await _context.ProctoringLogs.AsNoTracking()
-            .Where(x => x.AttemptId == result.AttemptId)
-            .OrderByDescending(x => x.CreatedDate)
-            .Take(20)
-            .ToListAsync();
+            .Where(a => a.ExamId == result.Attempt.ExamId && a.StudentId == studentId)
+            .Select(a => a.RollNumber).FirstOrDefaultAsync(cancellationToken);
         ViewBag.AnswerRows = await AnswerRowsAsync(result);
         return View("~/Areas/Student/Views/Result/Details.cshtml", result);
     }
 
     [HttpGet]
-    public async Task<IActionResult> QuestionReview(int id)
+    public async Task<IActionResult> QuestionReview(int id, CancellationToken cancellationToken)
     {
-        var result=await _context.ExamResults.AsNoTracking().Where(r => r.Attempt!.ResultReleasedAtUtc != null ||
-                (!r.Attempt.SubmittedForViolations && r.Attempt.Status != AttemptStatus.ProctoringBlocked &&
-                 !_context.ProctoringLogs.Any(l => l.AttemptId == r.AttemptId && l.CountsAsViolation))).Include(x=>x.Attempt).ThenInclude(x=>x!.Exam)
-            .FirstOrDefaultAsync(x=>x.ResultId==id&&x.Attempt!.StudentId==StudentId);
-        if(result?.Attempt==null)return NotFound();
+        var studentId = StudentId;
+        if (string.IsNullOrWhiteSpace(studentId)) return Challenge();
+        var result = await StudentResultAccess.ReleasedFor(_context, studentId)
+            .Include(r => r.Attempt).ThenInclude(a => a!.Exam)
+            .FirstOrDefaultAsync(r => r.ResultId == id, cancellationToken);
+        if (result?.Attempt?.Exam is null) return NotFound();
         ViewBag.Exam = result.Attempt.Exam;
+        ViewBag.Result = result;
         return View(await AnswerRowsAsync(result));
     }
 
@@ -86,6 +137,27 @@ public class ResultController : Controller
     {
         Response.StatusCode = StatusCodes.Status404NotFound;
         return View("ResultUnavailable");
+    }
+
+    [HttpGet]
+    public async Task<IActionResult> Integrity(int id, CancellationToken cancellationToken)
+    {
+        var studentId = StudentId;
+        if (string.IsNullOrWhiteSpace(studentId)) return Challenge();
+        var result = await StudentResultAccess.ReleasedFor(_context, studentId)
+            .Include(r => r.Attempt).ThenInclude(a => a!.Exam)
+            .FirstOrDefaultAsync(r => r.ResultId == id, cancellationToken);
+        if (result?.Attempt?.Exam is null) return NotFound();
+
+        // Hide unrelated system audit records and any other attempt's incidents.
+        ViewBag.ProctoringLogs = await _context.ProctoringLogs.AsNoTracking()
+            .Where(l => l.AttemptId == result.AttemptId &&
+                l.StudentId == studentId && l.AlertType != ProctoringAlertType.SystemAudit)
+            .OrderByDescending(l => l.CreatedDate)
+            .ThenByDescending(l => l.LogId)
+            .Take(100)
+            .ToListAsync(cancellationToken);
+        return View("Integrity", result);
     }
 
     private async Task<List<AiExamProctoring.ViewModels.Student.ResultAnswerRow>> AnswerRowsAsync(ExamResult result)
@@ -113,99 +185,55 @@ public class ResultController : Controller
     }
 
     [HttpGet]
-    public async Task<IActionResult> DownloadPdf(int id)
+    public async Task<IActionResult> DownloadPdf(int id, CancellationToken cancellationToken)
     {
-        var result=await _context.ExamResults.AsNoTracking().Where(r => r.Attempt!.ResultReleasedAtUtc != null ||
-                (!r.Attempt.SubmittedForViolations && r.Attempt.Status != AttemptStatus.ProctoringBlocked &&
-                 !_context.ProctoringLogs.Any(l => l.AttemptId == r.AttemptId && l.CountsAsViolation))).Include(x=>x.Attempt).ThenInclude(x=>x!.Exam)
-            .Include(x=>x.Attempt).ThenInclude(x=>x!.Student)
-            .FirstOrDefaultAsync(x=>x.ResultId==id&&x.Attempt!.StudentId==StudentId);
-        if(result?.Attempt?.Student is null || result.Attempt.Exam is null)return NotFound();
-        var attempt = result.Attempt;
-        if (attempt?.Student == null)
-            await _context.Entry(attempt!).Reference(x => x.Student).LoadAsync();
+        var studentId = StudentId;
+        if (string.IsNullOrWhiteSpace(studentId)) return Challenge();
+        var result = await StudentResultAccess.ReleasedFor(_context, studentId)
+            .Include(r => r.Attempt).ThenInclude(a => a!.Exam)
+            .Include(r => r.Attempt).ThenInclude(a => a!.Student)
+            .FirstOrDefaultAsync(r => r.ResultId == id, cancellationToken);
+        if (result?.Attempt?.Exam is null || result.Attempt.Student is null) return NotFound();
 
-        var examRollNumber = await _context.ExamAssignments.AsNoTracking()
-            .Where(x => x.ExamId == attempt!.ExamId && x.StudentId == StudentId)
-            .Select(x => x.RollNumber)
-            .FirstOrDefaultAsync();
-
-        var bytes = _pdf.Generate(result, examRollNumber);
-        var safeName = string.Concat(result.Attempt?.Exam?.ExamTitle ?? "Exam", "_Result")
-            .Replace(" ", "_");
-        return File(bytes, "application/pdf", $"{safeName}.pdf");
+        var rollNumber = await _context.ExamAssignments.AsNoTracking()
+            .Where(a => a.ExamId == result.Attempt.ExamId && a.StudentId == studentId)
+            .Select(a => a.RollNumber).FirstOrDefaultAsync(cancellationToken);
+        var bytes = _pdf.Generate(result, rollNumber);
+        var safeName = string.Concat(result.Attempt.Exam.ExamTitle
+            .Where(c => char.IsLetterOrDigit(c) || c == '-' || c == '_')).Trim();
+        Response.Headers.CacheControl = "private,no-store,max-age=0";
+        return File(bytes, "application/pdf", $"{(safeName.Length == 0 ? "Exam" : safeName)}_Result.pdf");
     }
 
     [HttpGet]
     public async Task<IActionResult> DownloadCertificate(int id, CancellationToken cancellationToken)
     {
-        if (StudentId is null) return Challenge();
-        var result = await _context.ExamResults.AsNoTracking().Where(r => r.Attempt!.ResultReleasedAtUtc != null ||
-                (!r.Attempt.SubmittedForViolations && r.Attempt.Status != AttemptStatus.ProctoringBlocked &&
-                 !_context.ProctoringLogs.Any(l => l.AttemptId == r.AttemptId && l.CountsAsViolation)))
-            .Include(x => x.Attempt).ThenInclude(x => x!.Exam)
-            .Include(x => x.Attempt).ThenInclude(x => x!.Student)
-            .FirstOrDefaultAsync(
-                x => x.ResultId == id && x.Attempt!.StudentId == StudentId,
-                cancellationToken);
-        if (result?.Attempt?.Student is null || result.Attempt.Exam is null) return NotFound();
-
-        var logs = await _context.ProctoringLogs.AsNoTracking()
-            .Where(x => x.AttemptId == result.AttemptId)
-            .OrderBy(x => x.CreatedDate)
-            .ToListAsync(cancellationToken);
-        var examRollNumber = await _context.ExamAssignments.AsNoTracking()
-            .Where(x => x.ExamId == result.Attempt.ExamId && x.StudentId == StudentId)
-            .Select(x => x.RollNumber)
-            .FirstOrDefaultAsync(cancellationToken);
-        var profileImage = await _context.AttemptIdentityPhotos.AsNoTracking().Where(x => x.AttemptId == result.AttemptId).Select(x => x.ImageBytes).SingleOrDefaultAsync(cancellationToken);
-        if (result.Attempt.Status != AttemptStatus.Completed) return Conflict("Complete the examination before downloading a certificate.");
-        var protector = HttpContext.RequestServices.GetRequiredService<IDataProtectionProvider>()
-            .CreateProtector(AiExamProctoring.Controllers.CertificateController.Purpose);
-        var token = protector.Protect(result.ResultId.ToString(System.Globalization.CultureInfo.InvariantCulture));
-        var verificationUrl = Url.Action("Verify", "Certificate", new { area = "", token }, Request.Scheme);
-        var teacherName = await _context.Users.AsNoTracking().Where(x => x.Id == result.Attempt.Exam.CreatedBy)
-            .Select(x => x.FullName).FirstOrDefaultAsync(cancellationToken);
+        var studentId = StudentId;
+        if (string.IsNullOrWhiteSpace(studentId)) return Challenge();
         var configuration = HttpContext.RequestServices.GetService<IConfiguration>();
-        var agencyLogo = await ReadProfileImageAsync(configuration?["Certificate:LogoPath"], cancellationToken);
-        var bytes = _certificatePdf.Generate(result, logs, profileImage, examRollNumber, verificationUrl,
-            teacherName, agencyLogo, configuration?["Certificate:AgencyName"]);
-        var safeTitle = string.Concat(result.Attempt.Exam.ExamTitle.Where(character =>
-            char.IsLetterOrDigit(character) || character is ' ' or '-' or '_')).Trim().Replace(' ', '_');
-        return File(bytes, "application/pdf", $"{safeTitle}_Certificate.pdf");
+        // Never trust an arbitrary Host header for a signed certificate destination.
+        var configured = configuration?["Certificate:PublicOrigin"];
+        if (!Uri.TryCreate(configured, UriKind.Absolute, out var origin) || origin.Scheme != "https" ||
+            !string.IsNullOrEmpty(origin.UserInfo) || origin.AbsolutePath != "/" || !string.IsNullOrEmpty(origin.Query) || !string.IsNullOrEmpty(origin.Fragment))
+            return Conflict("Configure Certificate:PublicOrigin with the application's trusted HTTPS origin before downloading certificates.");
+        ExamResult result;
+        try { result = await CertificateRecords.IssueAsync(_context, id, studentId, cancellationToken); }
+        catch (UnauthorizedAccessException) { return NotFound(); }
+        catch (InvalidOperationException ex) { return Conflict(ex.Message); }
+        if (CertificateRecords.Status(result) != "Valid") return Conflict("This certificate is revoked or expired.");
+        var photo = await _context.AttemptIdentityPhotos.AsNoTracking().SingleOrDefaultAsync(p => p.AttemptId == result.AttemptId, cancellationToken);
+        if (photo != null && !CertificateRecords.ValidPhoto(photo)) return Conflict("Original photograph integrity check failed.");
+        var protector = HttpContext.RequestServices.GetRequiredService<IDataProtectionProvider>().CreateProtector(CertificateRecords.TokenPurpose);
+        var token = protector.Protect(result.CertificateReference!);
+        var verificationUrl = origin.GetLeftPart(UriPartial.Authority) + "/certificate/verify?token=" + Uri.EscapeDataString(token);
+        byte[] bytes;
+        try { bytes = _certificatePdf.Generate(result, [], photo?.ImageBytes, null, verificationUrl,
+            agencyName: configuration?["Certificate:AgencyName"]); }
+        catch (Exception ex) when (ex is not OutOfMemoryException && ex is not OperationCanceledException)
+        { return Conflict("The original certificate record or photograph cannot be rendered. Contact the examination owner."); }
+        Response.Headers.CacheControl = "private,no-store,max-age=0";
+        Response.Headers["X-Content-Type-Options"] = "nosniff";
+        return File(bytes, "application/pdf", $"Result-{result.CertificateNumber}.pdf");
     }
 
-    private async Task<byte[]?> ReadProfileImageAsync(string? storedPath, CancellationToken cancellationToken)
-    {
-        if (string.IsNullOrWhiteSpace(storedPath))
-            return null;
-
-        if (storedPath.StartsWith("/ProfileImage/", StringComparison.OrdinalIgnoreCase))
-        {
-            var privateName = Path.GetFileName(storedPath);
-            if (string.IsNullOrWhiteSpace(privateName) || privateName != storedPath["/ProfileImage/".Length..])
-                return null;
-            var privatePath = Path.Combine(AiExamProctoring.Services.Web.PrivateStorage.Root(_environment), "profiles", privateName);
-            if (!System.IO.File.Exists(privatePath)) return null;
-            var privateInfo = new FileInfo(privatePath);
-            return privateInfo.Length is > 0 and <= 5_000_000
-                ? await System.IO.File.ReadAllBytesAsync(privatePath, cancellationToken)
-                : null;
-        }
-
-        if (string.IsNullOrWhiteSpace(_environment.WebRootPath)) return null;
-
-        var relativePath = storedPath.Trim().TrimStart('~', '/', '\\')
-            .Replace('/', Path.DirectorySeparatorChar)
-            .Replace('\\', Path.DirectorySeparatorChar);
-        var root = Path.GetFullPath(_environment.WebRootPath) + Path.DirectorySeparatorChar;
-        var fullPath = Path.GetFullPath(Path.Combine(root, relativePath));
-        if (!fullPath.StartsWith(root, StringComparison.OrdinalIgnoreCase) || !System.IO.File.Exists(fullPath))
-            return null;
-
-        var information = new FileInfo(fullPath);
-        if (information.Length <= 0 || information.Length > 5_000_000)
-            return null;
-        return await System.IO.File.ReadAllBytesAsync(fullPath, cancellationToken);
-    }
 }

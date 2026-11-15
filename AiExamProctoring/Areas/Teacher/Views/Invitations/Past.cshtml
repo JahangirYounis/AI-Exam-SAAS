@@ -1,0 +1,39 @@
+@model AiExamProctoring.ViewModels.TeacherCollaborationPageViewModel
+@using AiExamProctoring.Services.Collaboration
+@{
+    ViewData["Title"] = "Past collaborations";
+    var filters = new[] { "All", "Completed", "Expired", "Cancelled", "Revoked", "Declined", "Inactive" };
+    var current = Context.Request.Query["status"].ToString();
+    if (!filters.Contains(current, StringComparer.OrdinalIgnoreCase)) { current = "All"; }
+    var selected = Model.Past.Where(x => current.Equals("All", StringComparison.OrdinalIgnoreCase) ||
+        x.Status.ToString().Equals(current, StringComparison.OrdinalIgnoreCase)).ToList();
+}
+<div class="tc-page">
+    <header class="tc-history-head">
+        <div><a class="tc-back" asp-action="Index"><i class="bi bi-arrow-left"></i> Back to collaborations</a>
+            <h1>Past collaborations</h1>
+            <p>Completed, expired, rejected and revoked invitations. History is retained even after re-invitation.</p></div>
+        <div class="tc-history-total"><strong>@Model.Past.Count</strong><span>Historical entries</span></div>
+    </header>
+    <nav class="tc-history-filter" aria-label="Filter past collaborations">
+        @foreach (var filter in filters)
+        {
+            var selectedFilter = current.Equals(filter, StringComparison.OrdinalIgnoreCase);
+            <a class="@(selectedFilter ? "is-active" : "")" aria-current="@(selectedFilter ? "page" : null)" asp-action="Past" asp-route-status="@filter">@(filter == "Declined" ? "Rejected" : filter)</a>
+        }
+    </nav>
+    @if (selected.Count > 0)
+    {
+        <div class="tc-cards">
+            @foreach (var card in selected)
+            {
+                <partial name="~/Areas/Teacher/Views/Invitations/_CollaborationCard.cshtml" model="card" />
+            }
+        </div>
+    }
+    else
+    {
+        <div class="tc-empty"><i class="bi bi-archive"></i><strong>No matching history</strong><span>Historical collaboration events will appear here.</span></div>
+    }
+    <p class="tc-footnote">Earlier invitation cycles overwritten before audit history was introduced cannot be recreated. Existing current and revoked invitation records remain visible.</p>
+</div>

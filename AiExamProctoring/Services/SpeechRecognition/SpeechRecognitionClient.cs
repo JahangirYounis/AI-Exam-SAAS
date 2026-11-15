@@ -1,5 +1,6 @@
 using Microsoft.Extensions.Options;
 using System.Net.Http.Headers;
+using System.Net.Http.Json;
 using System.Text.Json;
 
 namespace AiExamProctoring.Services.SpeechRecognition;
@@ -30,18 +31,35 @@ public sealed class SpeechRecognitionClient : ISpeechRecognitionClient
     public Task<SpeechRecognitionCallResult> HealthAsync(CancellationToken cancellationToken = default) =>
         SendAsync(HttpMethod.Get, "api/model4/health", null, cancellationToken);
 
-    public Task<SpeechRecognitionCallResult> TranscribeAsync(
+    public async Task<SpeechRecognitionCallResult> TranscribeAsync(
         SpeechAudio audio,
         CancellationToken cancellationToken = default)
     {
         var form = new MultipartFormDataContent();
-        if (audio.Contexts.Count > 0)
-            form.Add(new StringContent(JsonSerializer.Serialize(audio.Contexts, JsonOptions)), "contexts");
         var content = new ByteArrayContent(audio.Bytes);
         content.Headers.ContentType = MediaTypeHeaderValue.Parse(
             string.IsNullOrWhiteSpace(audio.ContentType) ? "audio/webm" : audio.ContentType);
         form.Add(content, "file", string.IsNullOrWhiteSpace(audio.FileName) ? "speech.webm" : audio.FileName);
-        return SendAsync(HttpMethod.Post, audio.DetectionOnly ? "api/model4/detect" : "api/model4/transcribe", form, cancellationToken);
+        var speech = await SendAsync(HttpMethod.Post, audio.DetectionOnly ? "api/model4/detect" : "api/model4/transcribe", form, cancellationToken);
+        if (audio.DetectionOnly || !speech.Success || speech.Data is not { } response ||
+            audio.Contexts.Count == 0 || !SpeechEvidencePolicy.Intelligible(response, _options.MinimumTranscriptConfidence))
+            return speech;
+
+        if (!Uri.TryCreate(_options.ContextBaseUrl.TrimEnd('/') + "/", UriKind.Absolute, out var contextUri) ||
+            contextUri.Scheme is not ("http" or "https") || (!contextUri.IsLoopback && !_options.AllowRemoteQuestionContext))
+            return speech;
+
+        using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        timeout.CancelAfter(TimeSpan.FromSeconds(5));
+        var payload = JsonContent.Create(new
+        {
+            transcript = response.Transcript[..Math.Min(response.Transcript.Length, 4000)],
+            contexts = audio.Contexts
+        }, options: JsonOptions);
+        var context = await SendAsync(HttpMethod.Post, new Uri(contextUri, "api/model5/analyze").AbsoluteUri, payload, timeout.Token);
+        cancellationToken.ThrowIfCancellationRequested();
+        response.ContextAnalysis = context.Success ? context.Data?.ContextAnalysis : null;
+        return speech;
     }
 
     private async Task<SpeechRecognitionCallResult> SendAsync(
@@ -68,18 +86,18 @@ public sealed class SpeechRecognitionClient : ISpeechRecognitionClient
             try { data = JsonSerializer.Deserialize<SpeechRecognitionResponse>(json, JsonOptions); } catch { }
 
             if (response.IsSuccessStatusCode && data?.Ok == true)
-                return new(true, data, data.Message ?? "Model 4 request completed.");
+                return new(true, data, data.Message ?? "Speech service request completed.");
 
             return new(
                 false,
                 data,
-                data?.Message ?? data?.Detail?.ToString() ?? $"Model 4 returned HTTP {(int)response.StatusCode}.",
+                data?.Message ?? data?.Detail?.ToString() ?? $"Speech service returned HTTP {(int)response.StatusCode}.",
                 response.StatusCode == System.Net.HttpStatusCode.ServiceUnavailable || data?.Ready == false);
         }
         catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException)
         {
-            _logger.LogWarning(ex, "Model 4 service request failed: {Path}", path);
-            return new(false, null, "Model 4 is not running on port 8004.", true);
+            _logger.LogWarning(ex, "Speech service request failed: {Path}", path);
+            return new(false, null, "The selected speech service is unavailable.", true);
         }
     }
 }

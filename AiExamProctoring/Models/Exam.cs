@@ -1,3 +1,4 @@
+using static System.Net.Mime.MediaTypeNames;
 using System.ComponentModel.DataAnnotations;
 using System.ComponentModel.DataAnnotations.Schema;
 
@@ -48,6 +49,12 @@ public enum ExamBlockingMode { BOTH = 0, AUTO_ONLY = 1, MANUAL_ONLY = 2 }
 
 public class Exam
 {
+    [Range(1,10)] public int AllowedWarnings {get;set;}=3;
+    [MaxLength(64)] public string? BlockingPolicyVersion {get;set;}
+    [MaxLength(4000)] public string? QualifyingAlertsJson {get;set;}
+    public bool ResetWarningsOnResume {get;set;}=true;
+    public bool IdentityProtectiveHold {get;set;}=true;
+    [MaxLength(8000)] public string? ObjectPolicyJson { get; set; }
     public DateTime? CreatorFirstMonitoringAtUtc { get; set; }
     public DateTime? CreatorLastMonitoringAtUtc { get; set; }
     [Range(1, 1000)] public int? QuestionLimit { get; set; }
@@ -60,7 +67,7 @@ public class Exam
     public AutomaticViolationAction ViolationAction { get; set; } = AutomaticViolationAction.LockForReview;
 
     [EnumDataType(typeof(ExamBlockingMode))]
-    public ExamBlockingMode BlockingMode { get; set; } = ExamBlockingMode.BOTH;
+    public ExamBlockingMode BlockingMode { get; set; } = ExamBlockingMode.AUTO_ONLY;
     [Key]
     public int ExamId { get; set; }
 
@@ -298,14 +305,15 @@ public class Exam
     public DateTime LatestStartDate =>
         IsReusable ? DateTime.MaxValue : StartDate.AddMinutes(Math.Max(0, EntryWindowMinutes));
 
-    // Nominal scheduled end for display/reporting only. Once a candidate starts,
+    // Scheduled history deadline uses configured session rest allowances. Load Sessions.
+    // Once a candidate starts,
     // every session is timed independently from its server-side StartedAt value and
     // permitted rest breaks are not deducted from session time.
     [NotMapped]
     public DateTime EndDate =>
         IsReusable
             ? DateTime.MaxValue
-            : LatestStartDate.AddMinutes(DurationMinutes + Math.Max(0, NumberOfSessions - 1) * 10);
+            : LatestStartDate.AddMinutes(DurationMinutes + Sessions.Where(s => s.IsActive).Sum(s => Math.Clamp(s.RestAfterMinutes, 0, 10)));
 
 
 
