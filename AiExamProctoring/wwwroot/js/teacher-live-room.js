@@ -13,7 +13,7 @@
         'HeadAway', 'GazeAway', 'LookAway', 'LookingAwaySpeaking', 'ElectronicDeviceDetected',
         'ObjectObservation', 'AudioDetected', 'TalkingDetected', 'AnswerPromptSpeech',
         'TabSwitch', 'ExamPageHidden', 'FullScreenExit', 'ExamBlocked', 'ReviewRequested',
-        'CameraAccessLost', 'MicrophoneAccessLost', 'CameraMonitoringInterrupted', 'AiMonitoringUnavailable'
+        'CameraAccessLost', 'MicrophoneAccessLost', 'CameraMonitoringInterrupted', 'AiMonitoringUnavailable', 'ScreenShareLost', 'ScreenCaptureUnavailable'
     ]);
     const speechPlayer = document.getElementById('speech-alert-player');
     const speechEnable = document.getElementById('enable-speech-playback');
@@ -190,7 +190,7 @@
             (row.status === 'ProctoringBlocked' && row.alert?.kind === 'IdentityMismatch');
         // A non-cheating technical pause needs a conspicuous red review tile,
         // but must never be displayed as a confirmed misconduct strike.
-        const technicalHold = row.status === 'ProctoringBlocked' &&
+        const technicalHold = current.state === 'technical_hold' || row.status === 'ProctoringBlocked' &&
             (row.alert?.description?.startsWith('[DEVICE_HOLD]') ||
                 row.alert?.kind === 'AiMonitoringUnavailable');
         const flagged = identityHold || technicalHold || row.status === 'ProctoringBlocked' ||
@@ -203,6 +203,7 @@
         tile.element.classList.toggle('technical-hold', !!technicalHold);
         tile.element.classList.toggle('identity-review-hold', identityHold);
         tile.element.classList.toggle('monitoring-uncertain', current.state === 'uncertain');
+        tile.element.classList.toggle('monitoring-technical', current.state === 'technical');
         tile.element.classList.toggle('exam-blocked', current.state === 'blocked');
         const reasons = { HeadAway: 'Head turned away from the screen', GazeAway: 'Eyes looking away from the screen', LookAway: 'Looking away from the screen', FaceNotDetected: 'Candidate physically absent for at least 3 seconds', FaceNotVisible: 'Face not visible — candidate presence uncertain', MultipleFaces: 'Multiple people detected in camera view', TalkingDetected: 'Candidate speech detected', AnswerPromptSpeech: 'Exam-related discussion detected', ElectronicDeviceDetected: 'Prohibited object detected — inspect evidence', TabSwitch: 'Exam page left', FullScreenExit: 'Fullscreen exited', IdentityMismatch: 'Candidate identity mismatch — urgent review', CameraMonitoringInterrupted: 'Camera monitoring interrupted', AiMonitoringUnavailable: 'Technical monitoring issue' };
         const duplicateBrowserLabel = tab?.logId === latestId && !row.alert?.countsAsViolation ||
@@ -356,6 +357,24 @@
         const tile = tiles.get(state.attemptId);
         if (state.status === 'InProgress' && state.violationType && !liveAlertKinds.has(state.violationType)) return;
         if (tile && state.version < (tile.row.version || 0)) return;
+        if (state.violationType === 'ScreenShareLost' || state.violationType === 'ScreenCaptureUnavailable') {
+            // The roster resolves the current sharing episode along with camera/mic status.
+            if (tile && !rosterBusy) {
+                clearTimeout(rosterTimer);
+                void roster();
+            }
+            return;
+        }
+        if (tile && state.status === 'InProgress' && !state.eventId && typeof state.absenceActive === 'boolean') {
+            // A preliminary presence sample must not replace an active incident or its evidence link.
+            if (tile.row.tileStatus?.state !== 'active') {
+                tile.updatedAtEpoch = ++realtimeEpoch;
+                update(tile, { ...tile.row, version: state.version, strikeCount: state.strikeCount,
+                    tileStatus: { state: 'uncertain', label: state.absenceActive
+                        ? 'Possible absence — checking camera view' : 'Refreshing camera presence' } });
+            }
+            return;
+        }
         if (tile && typeof state.tabObservationEnded === 'boolean' && state.eventId) {
             const previous = tile.row.tabObservation;
             if (previous && (state.eventId < previous.logId ||
@@ -398,18 +417,19 @@
             }
         }
         if (tile && state.violationType === 'FaceNotDetected' && state.status === 'InProgress' &&
-            state.eventId === tile.row.alert?.logId && state.version <= (tile.row.version || 0) && !!state.absenceEnded === !!tile.row.alert?.absenceEnded) return;
+            state.eventId === tile.row.alert?.logId && state.version <= (tile.row.version || 0) && !!state.absenceEnded === !!tile.row.alert?.absenceEnded &&
+            state.absenceActive === tile.row.alert?.absenceActive) return;
         realtimeEpoch++;
         if (tile) tile.updatedAtEpoch = realtimeEpoch;
         if (tile && state.version >= (tile.row.version || 0)) update(tile, {
             ...tile.row, ...state,
-            tileStatus: { state: state.status === 'ProctoringBlocked' ? (state.eventCode === 'IDENTITY_REVIEW_HOLD' || state.violationType === 'IdentityMismatch' ? 'identity_hold' : 'blocked') : state.eventCode?.startsWith('DEVICE') ? 'uncertain' : state.eventCountsAsViolation && !state.absenceEnded && !state.peopleEnded && !state.attentionEnded ? 'active' : 'uncertain', label: state.eventCode === 'DEVICE_HOLD' ? 'Technical device hold — check recovery' : state.eventCode === 'IDENTITY_REVIEW_HOLD' ? 'Candidate identity mismatch — urgent teacher review' : state.status === 'ProctoringBlocked' ? 'Blocked — open review for details' : 'Monitoring update — refreshing current state' },
+            tileStatus: { state: state.status === 'ProctoringBlocked' ? (state.eventCode === 'IDENTITY_REVIEW_HOLD' || state.violationType === 'IdentityMismatch' ? 'identity_hold' : 'blocked') : state.eventCode === 'DEVICE_WARNING' ? 'technical' : state.eventCountsAsViolation && !state.absenceEnded && state.absenceActive !== false && !state.peopleEnded && !state.attentionEnded ? 'active' : 'uncertain', label: state.eventCode === 'DEVICE_WARNING' ? (state.reason || 'Technical device issue') : state.eventCode === 'DEVICE_HOLD' ? 'Technical device hold — check recovery' : state.eventCode === 'IDENTITY_REVIEW_HOLD' ? 'Candidate identity mismatch — urgent teacher review' : state.status === 'ProctoringBlocked' ? 'Blocked — open review for details' : 'Monitoring update — refreshing current state' },
             alert: state.violationType ? {
                 logId: state.eventId, kind: state.violationType,
                 description: state.reason || null, createdDate: state.occurredAt || new Date().toISOString(),
                 frameCapturedAt: state.occurredAt, hasScreenshot: !!state.hasScreenshot,
                 hasVideo: !!state.hasRecording, matchedQuestionId: state.matchedQuestionId || null,
-                countsAsViolation: state.eventCountsAsViolation === true, warningNumber: state.eventWarningNumber, absenceEnded: state.absenceEnded === true, peopleEnded: state.peopleEnded === true, attentionEnded: state.attentionEnded === true
+                countsAsViolation: state.eventCountsAsViolation === true, warningNumber: state.eventWarningNumber, absenceEnded: state.absenceEnded === true, absenceActive: state.absenceActive, peopleEnded: state.peopleEnded === true, attentionEnded: state.attentionEnded === true
             } : tile.row.alert
         });
     });

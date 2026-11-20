@@ -4,18 +4,14 @@ using AiExamProctoring.Data;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Metadata;
-using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 
 #nullable disable
 
 namespace AiExamProctoring.Migrations
 {
-    [DbContext(typeof(ApplicationDbContext))]
-    [Migration("20261024044917_inititalMig")]
-    partial class inititalMig
+    partial class RestoreTeacherChatMetadata
     {
-        /// <inheritdoc />
         protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
@@ -24,6 +20,34 @@ namespace AiExamProctoring.Migrations
                 .HasAnnotation("Relational:MaxIdentifierLength", 128);
 
             SqlServerModelBuilderExtensions.UseIdentityColumns(modelBuilder);
+            modelBuilder.Entity("AiExamProctoring.Models.TeacherChatReplyLink", b =>
+            {
+                b.Property<string>("Kind").IsRequired().HasMaxLength(16).HasColumnType("nvarchar(16)");
+                b.Property<int>("RoomId").HasColumnType("int");
+                b.Property<int>("MessageId").HasColumnType("int");
+                b.Property<int>("ReplyToId").HasColumnType("int");
+                b.HasKey("Kind", "RoomId", "MessageId");
+                b.ToTable("TeacherChatReplyLinks");
+            });
+            modelBuilder.Entity("AiExamProctoring.Models.TeacherChatReaction", b =>
+            {
+                b.Property<string>("Kind").IsRequired().HasMaxLength(16).HasColumnType("nvarchar(16)");
+                b.Property<int>("RoomId").HasColumnType("int");
+                b.Property<int>("MessageId").HasColumnType("int");
+                b.Property<string>("UserId").IsRequired().HasMaxLength(450).HasColumnType("nvarchar(450)");
+                b.Property<string>("Emoji").IsRequired().HasMaxLength(16).HasColumnType("nvarchar(16)");
+                b.HasKey("Kind", "RoomId", "MessageId", "UserId").IsClustered(false);
+                b.ToTable("TeacherChatReactions");
+            });
+            modelBuilder.Entity("AiExamProctoring.Models.TeacherActivityRead", b =>
+            {
+                b.Property<string>("UserId").IsRequired().HasMaxLength(450).HasColumnType("nvarchar(450)");
+                b.Property<string>("Kind").IsRequired().HasMaxLength(16).HasColumnType("nvarchar(16)");
+                b.Property<int>("EntryId").HasColumnType("int");
+                b.HasKey("UserId", "Kind", "EntryId").IsClustered(false);
+                b.ToTable("TeacherActivityReads");
+            });
+
 
             modelBuilder.Entity("AiExamProctoring.Models.AcademicClass", b =>
                 {
@@ -576,6 +600,9 @@ namespace AiExamProctoring.Migrations
                     b.Property<bool>("AllowBackNavigation")
                         .HasColumnType("bit");
 
+                    b.Property<int>("AllowedWarnings")
+                        .HasColumnType("int");
+
                     b.Property<DateTime?>("ApplicationDeadline")
                         .HasColumnType("datetime2");
 
@@ -594,6 +621,10 @@ namespace AiExamProctoring.Migrations
                     b.Property<int>("BlockingMode")
                         .HasColumnType("int");
 
+                    b.Property<string>("BlockingPolicyVersion")
+                        .HasMaxLength(64)
+                        .HasColumnType("nvarchar(64)");
+
                     b.Property<string>("ClassCode")
                         .HasMaxLength(40)
                         .HasColumnType("nvarchar(40)");
@@ -610,6 +641,12 @@ namespace AiExamProctoring.Migrations
                         .ValueGeneratedOnAdd()
                         .HasColumnType("datetime2")
                         .HasDefaultValueSql("GETDATE()");
+
+                    b.Property<DateTime?>("CreatorFirstMonitoringAtUtc")
+                        .HasColumnType("datetime2");
+
+                    b.Property<DateTime?>("CreatorLastMonitoringAtUtc")
+                        .HasColumnType("datetime2");
 
                     b.Property<int?>("DepartmentId")
                         .HasColumnType("int");
@@ -631,6 +668,9 @@ namespace AiExamProctoring.Migrations
                         .IsRequired()
                         .HasMaxLength(200)
                         .HasColumnType("nvarchar(200)");
+
+                    b.Property<bool>("IdentityProtectiveHold")
+                        .HasColumnType("bit");
 
                     b.Property<string>("Instructions")
                         .HasMaxLength(2000)
@@ -655,6 +695,10 @@ namespace AiExamProctoring.Migrations
                     b.Property<int>("NumberOfSessions")
                         .HasColumnType("int");
 
+                    b.Property<string>("ObjectPolicyJson")
+                        .HasMaxLength(8000)
+                        .HasColumnType("nvarchar(max)");
+
                     b.Property<decimal>("PassingPercentage")
                         .HasPrecision(5, 2)
                         .HasColumnType("decimal(5,2)");
@@ -666,6 +710,10 @@ namespace AiExamProctoring.Migrations
                         .IsRequired()
                         .HasMaxLength(30)
                         .HasColumnType("nvarchar(30)");
+
+                    b.Property<string>("QualifyingAlertsJson")
+                        .HasMaxLength(4000)
+                        .HasColumnType("nvarchar(4000)");
 
                     b.Property<int?>("QuestionLimit")
                         .HasColumnType("int");
@@ -689,6 +737,9 @@ namespace AiExamProctoring.Migrations
                         .HasColumnType("bit");
 
                     b.Property<bool>("RequireMicrophone")
+                        .HasColumnType("bit");
+
+                    b.Property<bool>("ResetWarningsOnResume")
                         .HasColumnType("bit");
 
                     b.Property<DateTime?>("ResultsPublishedAtUtc")
@@ -894,17 +945,36 @@ namespace AiExamProctoring.Migrations
                     b.Property<DateTime?>("AcceptedAtUtc")
                         .HasColumnType("datetime2");
 
+                    b.Property<bool>("CanEditQuestions")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bit")
+                        .HasDefaultValue(true);
+
+                    b.Property<bool>("CanMonitor")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bit")
+                        .HasDefaultValue(true);
+
                     b.Property<int>("Capacity")
                         .HasColumnType("int");
 
                     b.Property<int>("ExamId")
                         .HasColumnType("int");
 
+                    b.Property<DateTime?>("FirstMonitoringAtUtc")
+                        .HasColumnType("datetime2");
+
                     b.Property<DateTime>("InvitedAtUtc")
                         .HasColumnType("datetime2");
 
                     b.Property<bool>("IsActive")
                         .HasColumnType("bit");
+
+                    b.Property<DateTime?>("LastMonitoringAtUtc")
+                        .HasColumnType("datetime2");
+
+                    b.Property<DateTime?>("RevokedAtUtc")
+                        .HasColumnType("datetime2");
 
                     b.Property<string>("TeacherId")
                         .IsRequired()
@@ -1113,6 +1183,10 @@ namespace AiExamProctoring.Migrations
                         .HasPrecision(10, 2)
                         .HasColumnType("decimal(8,2)");
 
+                    b.Property<string>("ObjectTrackingJson")
+                        .HasMaxLength(24000)
+                        .HasColumnType("nvarchar(max)");
+
                     b.Property<string>("ProctoringIncidentsJson")
                         .HasColumnType("nvarchar(max)");
 
@@ -1319,6 +1393,14 @@ namespace AiExamProctoring.Migrations
 
                     SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("LogId"));
 
+                    b.Property<string>("ActionByName")
+                        .HasMaxLength(256)
+                        .HasColumnType("nvarchar(256)");
+
+                    b.Property<string>("ActionByUserId")
+                        .HasMaxLength(450)
+                        .HasColumnType("nvarchar(450)");
+
                     b.Property<string>("AlertType")
                         .IsRequired()
                         .HasMaxLength(40)
@@ -1359,14 +1441,27 @@ namespace AiExamProctoring.Migrations
                     b.Property<DateTime?>("FrameCapturedAt")
                         .HasColumnType("datetime2");
 
+                    b.Property<DateTime?>("IncidentEndedAtUtc")
+                        .HasColumnType("datetime2");
+
                     b.Property<string>("IncidentKey")
                         .HasMaxLength(32)
                         .HasColumnType("nvarchar(32)");
 
+                    b.Property<DateTime?>("IncidentStartedAtUtc")
+                        .HasColumnType("datetime2");
+
                     b.Property<bool>("IsReviewed")
                         .HasColumnType("bit");
 
+                    b.Property<string>("MachineObservationsJson")
+                        .HasMaxLength(24000)
+                        .HasColumnType("nvarchar(max)");
+
                     b.Property<int?>("MatchedQuestionId")
+                        .HasColumnType("int");
+
+                    b.Property<int?>("MaxSimultaneousPeople")
                         .HasColumnType("int");
 
                     b.Property<string>("ModelName")
@@ -1376,6 +1471,15 @@ namespace AiExamProctoring.Migrations
                     b.Property<string>("ModelVersion")
                         .HasMaxLength(100)
                         .HasColumnType("nvarchar(100)");
+
+                    b.Property<double?>("ObservedDurationSeconds")
+                        .HasColumnType("float");
+
+                    b.Property<int?>("ParentIncidentId")
+                        .HasColumnType("int");
+
+                    b.Property<DateTime?>("PolicyAppliedAt")
+                        .HasColumnType("datetime2");
 
                     b.Property<bool>("PolicyPending")
                         .HasColumnType("bit");
@@ -1395,6 +1499,10 @@ namespace AiExamProctoring.Migrations
                     b.Property<string>("RecordingPath")
                         .HasMaxLength(500)
                         .HasColumnType("nvarchar(500)");
+
+                    b.Property<string>("RecoveryStatus")
+                        .HasMaxLength(40)
+                        .HasColumnType("nvarchar(40)");
 
                     b.Property<string>("ScreenshotPath")
                         .HasMaxLength(500)
@@ -1851,6 +1959,74 @@ namespace AiExamProctoring.Migrations
                         .IsUnique();
 
                     b.ToTable("Subjects");
+                });
+
+            modelBuilder.Entity("AiExamProctoring.Models.TeacherConnection", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("int");
+
+                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("Id"));
+
+                    b.Property<DateTime?>("AcceptedAtUtc")
+                        .HasColumnType("datetime2");
+
+                    b.Property<DateTime>("CreatedAtUtc")
+                        .HasColumnType("datetime2");
+
+                    b.Property<string>("PairKey")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("nvarchar(64)");
+
+                    b.Property<string>("RecipientId")
+                        .IsRequired()
+                        .HasMaxLength(450)
+                        .HasColumnType("nvarchar(450)");
+
+                    b.Property<string>("SenderId")
+                        .IsRequired()
+                        .HasMaxLength(450)
+                        .HasColumnType("nvarchar(450)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("PairKey")
+                        .IsUnique();
+
+                    b.ToTable("TeacherConnections");
+                });
+
+            modelBuilder.Entity("AiExamProctoring.Models.TeacherPrivateMessage", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("int");
+
+                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("Id"));
+
+                    b.Property<string>("Body")
+                        .IsRequired()
+                        .HasMaxLength(2000)
+                        .HasColumnType("nvarchar(2000)");
+
+                    b.Property<int>("ConnectionId")
+                        .HasColumnType("int");
+
+                    b.Property<string>("SenderId")
+                        .IsRequired()
+                        .HasMaxLength(450)
+                        .HasColumnType("nvarchar(450)");
+
+                    b.Property<DateTime>("SentAtUtc")
+                        .HasColumnType("datetime2");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ConnectionId", "Id");
+
+                    b.ToTable("TeacherPrivateMessages");
                 });
 
             modelBuilder.Entity("AiExamProctoring.Models.UniversityCandidate", b =>

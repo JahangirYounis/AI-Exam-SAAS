@@ -1,25 +1,58 @@
 @model AiExamProctoring.ViewModels.ProctoringExamFolderPageViewModel
 @{
-    ViewData["Title"] = "Exam Evidence Folder";
+    var focusedIncident = int.TryParse(Context.Request.Query["incidentId"], out var incidentId)
+        ? Model.Logs.FirstOrDefault(log => log.LogId == incidentId)
+        : null;
+    ViewData["Title"] = focusedIncident is null ? "Exam Evidence Folder" : "Evidence Details";
+    ViewData["FocusedIncident"] = focusedIncident;
     var candidate = Model.Candidate;
     var folder = Model.ExamFolder;
     var reviewableIds = ViewData["ReviewableIds"] as HashSet<int> ?? new HashSet<int>();
     var media = (ViewData["AbsenceEvidence"] as List<AiExamProctoring.Models.ProctoringLog> ?? new()).Where(a => a.ScreenshotPath != null || a.VideoEvidencePath != null || a.RecordingPath != null).ToLookup(a => a.ParentIncidentId);
 }
 
+@section Styles {
+    <link rel="stylesheet" href="~/css/incident-evidence-details.css" asp-append-version="true" />
+}
+
 <div class="teacher-evidence te-evidence-detail">
+@if (focusedIncident is not null)
+{
+    <header class="incident-evidence incident-evidence-header" id="incident-@focusedIncident.LogId">
+        <a asp-action="ExamFolder" asp-route-examId="@folder.ExamId" asp-route-studentId="@candidate.StudentId"
+           asp-route-attemptId="@Model.AttemptId" class="incident-evidence-back"><i class="bi bi-arrow-left" aria-hidden="true"></i> Back to evidence list</a>
+        <h1>Evidence Details</h1>
+        <dl class="incident-evidence-facts">
+            <div><dt>Student ID</dt><dd>@(focusedIncident.Student?.CandidateNumber ?? candidate.StudentId)</dd></div>
+            <div><dt>Student name</dt><dd>@candidate.CandidateName</dd></div>
+            <div><dt>Exam</dt><dd>@folder.ExamTitle</dd></div>
+            <div><dt>Incident type</dt><dd>@(focusedIncident.IncidentKey == "absence" ? "Student Absence" : AiExamProctoring.Services.Proctoring.TeacherAlertContract.Title(focusedIncident))</dd></div>
+            <div><dt>Date and time</dt><dd><time datetime="@focusedIncident.CreatedDate.ToString("O")">@focusedIncident.CreatedDate.ToString("dd MMM yyyy, hh:mm:ss tt")</time></dd></div>
+            @if (focusedIncident.WarningNumber is int warning)
+            {
+                <div><dt>Warning number</dt><dd>@warning</dd></div>
+            }
+        </dl>
+    </header>
+}
+else
+{
 <nav class="small mb-3">
     <a asp-action="Index">Examination evidence</a><span class="mx-2 text-secondary">/</span><a asp-action="Exam" asp-route-examId="@folder.ExamId">@folder.ExamTitle</a><span class="mx-2 text-secondary">/</span><a asp-action="Candidate" asp-route-studentId="@candidate.StudentId" asp-route-examId="@folder.ExamId">@candidate.CandidateName</a><span class="mx-2 text-secondary">/</span><span>Attempt #@Model.AttemptId</span><span class="mx-2 text-secondary">·</span>
     <a asp-action="ExamFolder" asp-route-studentId="@candidate.StudentId" asp-route-examId="@folder.ExamId" asp-route-attemptId="@Model.AttemptId" asp-route-savedMediaOnly="true" class="btn btn-outline-primary btn-sm me-2">Saved evidence</a>
     <a asp-action="ExamFolder" asp-route-studentId="@candidate.StudentId" asp-route-examId="@folder.ExamId" asp-route-attemptId="@Model.AttemptId" asp-route-recordingsOnly="true" class="btn btn-outline-primary btn-sm me-3">Session recordings</a>
 
 </nav>
+}
 @if (ViewBag.RecordingsOnly == true || ViewBag.RecordingMarker is int)
 {
     <section id="session-timeline" class="card p-3 mb-3" data-marker-id="@ViewBag.RecordingMarker"
              data-url="@Url.Action("RecordingTimeline", new { attemptId = Model.AttemptId })">
         <h3 class="h5">Session recording</h3>
-        <p>Only pixels visible on the selected display are recorded. Timing follows the browser capture clock. Missing footage remains blank.</p>
+        @if (focusedIncident is null)
+        {
+            <p>Only pixels visible on the selected display are recorded. Timing follows the browser capture clock. Missing footage remains blank.</p>
+        }
         <div class="d-flex flex-wrap gap-2 mb-2">
             <label>Session <select data-session class="form-select"></select></label>
             <label>Browser observation <select data-marker class="form-select"></select></label>
@@ -42,6 +75,13 @@
     </section>
     <script src="~/js/session-recording-player.js" asp-append-version="true" defer></script>
 }
+@if (focusedIncident is not null)
+{
+    <partial name="_IncidentEvidenceDetails" model="Model" />
+    <partial name="_EvidenceResumeControl" model="Model" />
+}
+else
+{
 <nav aria-label="Evidence pages" class="d-flex gap-3 mb-3">
     @if ((int)ViewBag.RecordingPage > 1)
     {
@@ -118,7 +158,9 @@
                     var hasScreenshot = !string.IsNullOrWhiteSpace(log.ScreenshotPath) && !legacyRecording;
                     var hasRecording = !string.IsNullOrWhiteSpace(log.RecordingPath) || legacyRecording;
                     <tr id="incident-@log.LogId" class="te-incident-row @(!log.IsReviewed ? "table-warning" : null)">
-                        <td class="text-nowrap"><strong>Incident #@log.LogId</strong>@if(Model.TeacherScope && Model.ExamFolder != null && ViewBag.IsOwner == true &&
+                        <td class="text-nowrap"><a asp-action="ExamFolder" asp-route-examId="@folder.ExamId" asp-route-studentId="@candidate.StudentId"
+                            asp-route-attemptId="@Model.AttemptId" asp-route-incidentId="@log.LogId" asp-route-recordingsOnly="@ViewBag.RecordingsOnly" asp-route-savedMediaOnly="@ViewBag.SavedMediaOnly"
+                            asp-fragment="incident-@log.LogId"><strong>Incident #@log.LogId</strong></a>@if(Model.TeacherScope && Model.ExamFolder != null && ViewBag.IsOwner == true &&
                             (hasScreenshot || hasRecording || log.VideoEvidencePath != null))
                         { <div><a asp-controller="EvidenceSharing" asp-action="Index" asp-route-logId="@log.LogId">Share selected evidence</a></div> }<div>Warning @(log.WarningNumber?.ToString() ?? "—") / @(log.Exam?.AllowedWarnings.ToString() ?? "—")</div>@log.CreatedDate.ToString("dd MMM yyyy")<div class="small text-secondary">@log.CreatedDate.ToString("hh:mm:ss tt")</div></td>
                         <td><span class="badge @log.AlertBadgeClass">@(log.IncidentKey == "absence" ? "Student Absence" : AiExamProctoring.Services.Proctoring.TeacherAlertContract.Title(log))</span><div class="small mt-1"><span class="badge @log.SeverityBadgeClass">@log.Severity</span></div></td>
@@ -254,6 +296,8 @@
         </table>
     </div>
 </div>
+
+}
 
 <script src="~/js/browser-evidence-player.js" asp-append-version="true" defer></script>
 

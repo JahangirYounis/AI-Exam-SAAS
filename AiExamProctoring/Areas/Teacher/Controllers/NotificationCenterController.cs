@@ -220,6 +220,10 @@ public sealed class NotificationCenterController(ApplicationDbContext db) : Cont
               l.MatchedQuestionId.HasValue && l.PolicyProcessed) ||
              (l.AlertType == ProctoringAlertType.IdentityMismatch && l.Severity == ProctoringSeverity.High) ||
              (l.AlertType == ProctoringAlertType.CameraMonitoringInterrupted && l.Severity == ProctoringSeverity.High) ||
+             (l.IncidentKey == "browser" && l.ParentIncidentId == null &&
+                (l.AlertType == ProctoringAlertType.ScreenShareLost || l.AlertType == ProctoringAlertType.ScreenCaptureUnavailable)) ||
+             ((l.AlertType == ProctoringAlertType.CameraMonitoringInterrupted || l.AlertType == ProctoringAlertType.MicrophoneAccessLost) &&
+                l.Description != null && l.Description.StartsWith("[DEVICE_WARNING]")) ||
              (l.AlertType == ProctoringAlertType.AiMonitoringUnavailable && l.Severity == ProctoringSeverity.High)));
 
     private async Task<List<TeacherActivityItem>> MonitoringItems(CancellationToken ct)

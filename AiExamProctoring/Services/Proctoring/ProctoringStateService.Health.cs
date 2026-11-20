@@ -34,13 +34,17 @@ public sealed partial class ProctoringStateService
             var decision = DeviceHealthPolicy.Sample(prior, issue, now, settings.DeviceHoldConfirmationSeconds);
             var episode = decision.Episode;
             ProctoringLog? audit = null;
-            if (decision.Warn || (prior is not null && prior.Issue != "healthy" && episode?.Issue == "healthy"))
+            var recovered = prior is { Issue: not "healthy" } && episode?.Issue == "healthy";
+            var newFault = episode is { Issue: not "healthy" } &&
+                (prior is null || prior.Issue == "healthy" || prior.Started != episode.Started);
+            if (recovered || (newFault && !decision.Hold))
             {
                 var kind = DeviceHealthPolicy.CameraAffected(issue) ? ProctoringAlertType.CameraMonitoringInterrupted
+                    : DeviceHealthPolicy.MicrophoneAffected(issue) ? ProctoringAlertType.MicrophoneAccessLost
                     : ProctoringAlertType.AiMonitoringUnavailable;
                 var description = issue == "healthy"
                     ? "[DEVICE_RECOVERED] Camera and microphone observations have recovered; ongoing readiness is monitored."
-                    : $"[DEVICE_WARNING] Technical problem: {issue}. Warning {episode?.Warnings ?? 1}/3; no cheating strike. Check camera, microphone and permissions.";
+                    : $"[DEVICE_WARNING] Technical problem: {issue.Replace('_', ' ')}. Check device connection and permissions.";
                 audit = Audit(a, s, kind, description);
                 if (issue != "healthy")
                 {
@@ -78,13 +82,13 @@ public sealed partial class ProctoringStateService
             s.DeviceHealthJson = episode is null ? null : JsonSerializer.Serialize(episode);
             await db.SaveChangesAsync(ct);
             owner = a.Exam?.CreatedBy;
-            reply = new DeviceHealthReply(decision.Warn || decision.Hold, issue,
+            reply = new DeviceHealthReply(decision.Warn || decision.Hold, episode?.Issue ?? issue,
                 episode?.Warnings ?? 0, decision.Hold, State(a, s, audit));
             await tx.CommitAsync(ct);
         });
-        if (reply is not null && owner is not null && (reply.Warning || reply.NeedsReview))
+        if (reply is not null && owner is not null && (reply.State.EventId.HasValue || reply.NeedsReview))
             await PublishAsync(reply.State, owner,
-                reply.NeedsReview ? "ExamLocked" : "DeviceWarning");
+                reply.NeedsReview ? "ExamLocked" : reply.Issue == "healthy" ? "DeviceRecovered" : "DeviceWarning");
         return reply;
     }
 

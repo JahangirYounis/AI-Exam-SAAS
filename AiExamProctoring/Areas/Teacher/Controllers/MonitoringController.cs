@@ -114,7 +114,8 @@ public sealed class MonitoringController : Controller
             ProctoringAlertType.ElectronicDeviceDetected, ProctoringAlertType.ObjectObservation, ProctoringAlertType.CameraAccessLost,
             ProctoringAlertType.MicrophoneAccessLost, ProctoringAlertType.CameraMonitoringInterrupted,
             ProctoringAlertType.AiMonitoringUnavailable, ProctoringAlertType.AdditionalPersonObservation,
-            ProctoringAlertType.TabSwitch, ProctoringAlertType.ExamPageHidden, ProctoringAlertType.FullScreenExit };
+            ProctoringAlertType.TabSwitch, ProctoringAlertType.ExamPageHidden, ProctoringAlertType.FullScreenExit,
+            ProctoringAlertType.ScreenShareLost, ProctoringAlertType.ScreenCaptureUnavailable };
         // Screening observations are NOT cheating strikes; they still merit a
         // short visible red review status on the correct candidate tile.
         var recentBrowserAfter = DateTime.UtcNow.AddSeconds(-15);
@@ -138,6 +139,11 @@ public sealed class MonitoringController : Controller
                 activeBrowser = _db.ProctoringLogs.Any(l => l.AttemptId == a.AttemptId &&
                     l.IncidentKey == "browser" && l.CountsAsViolation && l.IncidentEndedAtUtc == null &&
                     l.AlertType != ProctoringAlertType.FullScreenExit && l.CreatedDate >= recentBrowserAfter),
+                screenInterrupted = _db.ProctoringLogs.Any(l => l.AttemptId == a.AttemptId &&
+                    l.IncidentKey == "browser" && l.IncidentEndedAtUtc == null && l.ParentIncidentId == null &&
+                    (l.AlertType == ProctoringAlertType.ScreenShareLost || l.AlertType == ProctoringAlertType.ScreenCaptureUnavailable) &&
+                    l.SessionAttemptId == _db.ExamSessionAttempts.Where(s => s.AttemptId == a.AttemptId)
+                        .Max(s => (int?)s.SessionAttemptId)),
                 fullscreenObservation = _db.ProctoringLogs.Where(l => l.AttemptId == a.AttemptId && l.ParentIncidentId == null &&
                     l.AlertType == ProctoringAlertType.FullScreenExit && l.IncidentKey == "browser" &&
                     l.SessionAttemptId == _db.ExamSessionAttempts.Where(s => s.AttemptId == a.AttemptId)
@@ -234,7 +240,7 @@ public sealed class MonitoringController : Controller
                     ? new LiveTileStatus("active", "Active fullscreen exit")
                     : r.status == nameof(AttemptStatus.InProgress) && r.activeBrowser
                     ? new LiveTileStatus("active", "Active browser rule violation")
-                    : LiveTileStatus.Evaluate(r.status, r.incidents, r.health, DateTime.UtcNow, r.objectTracking)
+                    : LiveTileStatus.Evaluate(r.status, r.incidents, r.health, DateTime.UtcNow, r.objectTracking, r.screenInterrupted)
                 };
             }),
             page,

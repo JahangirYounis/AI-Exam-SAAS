@@ -1269,7 +1269,7 @@ public partial class ExamController : Controller
     [HttpPost, ValidateAntiForgeryToken]
     [RequestSizeLimit(20_000_000)]
     [Route("/Student/Exam/VerifyActiveIdentity")]
-    public async Task<IActionResult> VerifyActiveIdentity([FromForm] FaceIdentityFrameRequest request)
+    public async Task<IActionResult> VerifyActiveIdentity([FromForm] FaceIdentityFrameRequest request, [FromForm] Guid? identitySequenceId = null)
     {
         if (StudentId is null) return Unauthorized();
         var observationStartedAt = DateTime.Now;
@@ -1293,7 +1293,9 @@ public partial class ExamController : Controller
             return BadRequest(new { ok = false, message = "Active examination session was not found." });
         if (active?.Attempt is null) return BadRequest(new { ok = false, message = "Active examination session was not found." });
 
-        var images = await ReadFaceFramesAsync(request.Frames, HttpContext.RequestAborted);
+        // A compact, valid JPEG can be smaller than the enrollment quality floor.
+        // The identity worker still decodes and quality-checks every frame.
+        var images = await ReadFaceFramesAsync(request.Frames, HttpContext.RequestAborted, minimumBytes: 4);
         if (images.Count != _faceOptions.ContinuousVerificationFrames)
             return BadRequest(new { ok = false, message = "One or more camera frames were invalid." });
         var result = await _faceIdentity.VerifyActiveAsync(StudentId, images, HttpContext.RequestAborted);
@@ -1335,6 +1337,7 @@ public partial class ExamController : Controller
             }
         }
         int? confirmedSampleId = null;
+        DateTime? confirmationStartedAt = null;
         if (criticalMismatch)
         {
             var previousDecision = await _context.ProctoringLogs.AsNoTracking()
@@ -1353,8 +1356,9 @@ public partial class ExamController : Controller
                 });
             var frameHash = string.Join(":", images.Select(image => Convert.ToHexString(SHA256.HashData(image.Bytes))[..16]).Distinct().OrderBy(x => x, StringComparer.Ordinal));
             var confirmation = await ConfirmIdentityMismatchAsync(active.AttemptId, active.SessionAttemptId,
-                observationStartedAt, frameHash, result.Data.MedianSimilarity, HttpContext.RequestAborted, checkEvidenceKey);
+                observationStartedAt, frameHash, result.Data.MedianSimilarity, HttpContext.RequestAborted, checkEvidenceKey, identitySequenceId);
             confirmedSampleId = confirmation.ConfirmedSampleId;
+            confirmationStartedAt = confirmation.StartedAt;
             if (!confirmedSampleId.HasValue)
                 return Json(new
                 {
@@ -1424,7 +1428,7 @@ public partial class ExamController : Controller
             SessionAttemptId = active.SessionAttemptId,
             AlertType = isVerified ? ProctoringAlertType.IdentityVerified : ProctoringAlertType.IdentityMismatch,
             Severity = isVerified ? ProctoringSeverity.Low : ProctoringSeverity.High,
-            Description = presentationUnconfirmed ? "Camera presentation could not be authenticated. Fresh verification is required; this is not a misconduct finding." : (isVerified ? "Registered candidate verified against the authorized reference." : "Student Changed: three fresh checks did not match the registered candidate. Examination held for teacher review."),
+            Description = presentationUnconfirmed ? "Camera presentation could not be authenticated. Fresh verification is required; this is not a misconduct finding." : (isVerified ? "Registered candidate verified against the authorized reference." : "Student Changed: the initial check and one fresh recheck did not match the registered candidate. Examination held for teacher review."),
             ScreenshotPath = identityEvidenceKey,
             ConfidenceScore = result.Data.MedianSimilarity,
             DetectedFaceCount = 1,
@@ -1432,6 +1436,8 @@ public partial class ExamController : Controller
             ModelVersion = result.Data.ModuleVersion ?? _faceOptions.ModelVersion,
             ClientEventId = Guid.NewGuid().ToString("N"),
             FrameCapturedAt = observationStartedAt,
+            IncidentStartedAtUtc = criticalMismatch ? confirmationStartedAt?.ToUniversalTime() ?? observationStartedAt.ToUniversalTime() : null,
+            RecoveryStatus = criticalMismatch ? "UnderReview" : null,
             CountsAsViolation = false,
             // Only a confirmed, fresh-batch sequence can trigger the identity hold.
             MachineObservationsJson = criticalMismatch
@@ -1751,13 +1757,10 @@ public partial class ExamController : Controller
             !AbsenceReturnPolicy.PhysicallyPresent(presence?.State, metrics?.PersonDetectorReady == true,
                 metrics?.PresenceOk == true))
             result.Data.Signals["absence"] = null;
-        // The worker owns the pre-confirmation timer. Pending samples do not need
-        // the attempt write lock unless a confirmed episode still needs updating.
-        if (feature == "absence" && presence?.State == "POSSIBLE_ABSENCE" &&
-            (string.IsNullOrEmpty(active.ProctoringIncidentsJson) ||
-             !active.ProctoringIncidentsJson.Contains("\"absence\"", StringComparison.Ordinal)))
-            return Json(new { ok = true, observationOnly = true, metrics,
-                presenceStatus = presence, capabilities = result.Data.Capabilities });
+        // The worker owns the pre-confirmation timer. Provisional presence is
+        // shared with the teacher without opening an incident or counting a warning.
+        var provisionalAbsence = presence?.State == "POSSIBLE_ABSENCE" && metrics?.PersonDetectorReady == true &&
+            metrics.PresenceOk == true && result.Data.Capabilities?.PhysicalAbsence == true;
         var attention = result.Data.AttentionStatus.GetValueOrDefault();
         var calibrated = attention.ValueKind == System.Text.Json.JsonValueKind.Object &&
             attention.TryGetProperty("calibrated", out var calibratedValue) &&
@@ -1826,7 +1829,8 @@ public partial class ExamController : Controller
                : key == "attention" ? attentionDuration : null,
                key == "persons" && people?.ContextSupported == true,
                RepeatedAttention: key == "attention" && repeatedLookingAway,
-               SupportedAttention: key == "attention" && attentionSignal == true));
+               SupportedAttention: key == "attention" && attentionSignal == true,
+               ProvisionalAbsence: key == "absence" && provisionalAbsence));
         }
         var logIds = await _states.ObserveAsync(active.AttemptId, active.SessionAttemptId, StudentId,
             observationStartedAt, observations, HttpContext.RequestAborted);
@@ -2395,8 +2399,16 @@ public partial class ExamController : Controller
         var highSeveritySpeech = contextReview && !localMatch.Ambiguous &&
             (localMatch.Related || semanticMatchedCaptured);
         var candidateSpeech = reliableSpeech && _speechOptions.TalkingProhibited && windowSpeakerSupported;
-        // Require independent phrase and semantic matches to the same captured question.
-        var questionSpeechConfirmed = windowSpeakerSupported && highSeveritySpeech && localMatch.Related && semanticMatchedCaptured;
+        // Question-specific content may come from any audible speaker. Keep speaker
+        // attribution independent from content: generic cues and semantic similarity
+        // alone still cannot trigger a strike. Require a captured question, usable
+        // transcript, Model 5 agreement, and an independent phrase or concept anchor.
+        var questionTermCorroborated = spokenQuestion is not null &&
+            SpeechContextAnalyzer.HasSpecificQuestionAnchor(transcript, spokenQuestion.QuestionText,
+                new[] { spokenQuestion.OptionA, spokenQuestion.OptionB, spokenQuestion.OptionC,
+                    spokenQuestion.OptionD, spokenQuestion.OptionE });
+        var questionSpeechConfirmed = highSeveritySpeech && semanticMatchedCaptured &&
+            (localMatch.Related || questionTermCorroborated);
         var contextMatch = new SpeechContextMatch(contextReview,
             localMatch.Related || localMatch.Ambiguous ? localMatch.Reason :
             "Semantic comparison suggests question relevance; teacher review required.",
@@ -2442,7 +2454,7 @@ public partial class ExamController : Controller
                 contextStatus = !captureContextReliable ? "missing_capture_context" : !reliableSpeech ? "unintelligible" :
                     contextMatch.Related ? semantic?.Ready == true ? "possible_match" : "phrase_match_semantics_unavailable" :
                     contextMatch.Ambiguous ? "generic_cue" : semantic?.Ready == true ? "no_supported_match" : "semantic_unavailable",
-                candidateSpeechConfirmed = candidateSpeech, questionSpeechConfirmed,
+                candidateSpeechConfirmed = candidateSpeech, questionSpeechConfirmed, questionTermCorroborated,
                 matchedPhrases = contextMatch.MatchedPhrases ?? Array.Empty<string>(),
                 semanticScore = semantic?.Score, semanticMargin = semantic?.RelevanceMargin,
                 segments = speechData.Segments.Select(s => new { s.Start, s.End }), source = "microphone", enhanced = false
@@ -3288,12 +3300,12 @@ public partial class ExamController : Controller
         return $"m2-{Convert.ToHexString(SHA256.HashData(raw))}";
     }
 
-    private static async Task<List<FaceIdentityImage>> ReadFaceFramesAsync(IReadOnlyCollection<IFormFile> frames, CancellationToken cancellationToken)
+    private static async Task<List<FaceIdentityImage>> ReadFaceFramesAsync(IReadOnlyCollection<IFormFile> frames, CancellationToken cancellationToken, int minimumBytes = 8_000)
     {
         var images = new List<FaceIdentityImage>(frames.Count);
         foreach (var frame in frames)
         {
-            if (frame.Length < 8_000 || frame.Length > 5 * 1024 * 1024) continue;
+            if (frame.Length < minimumBytes || frame.Length > 5 * 1024 * 1024) continue;
             await using var stream = new MemoryStream();
             await frame.CopyToAsync(stream, cancellationToken);
             var bytes = stream.ToArray();

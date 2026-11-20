@@ -1,0 +1,230 @@
+@model AiExamProctoring.ViewModels.ProctoringExamFolderPageViewModel
+@using AiExamProctoring.Models
+@using AiExamProctoring.Services.Proctoring
+@{
+    var log = (ProctoringLog)ViewData["FocusedIncident"]!;
+    var candidate = Model.Candidate;
+    var folder = Model.ExamFolder;
+    var reviewableIds = ViewData["ReviewableIds"] as HashSet<int> ?? new();
+    var attachments = (ViewData["AbsenceEvidence"] as List<ProctoringLog> ?? new())
+        .Where(asset => asset.ParentIncidentId == log.LogId).ToList();
+    var files = attachments.OrderBy(asset => asset.FrameCapturedAt).ThenBy(asset => asset.LogId).Prepend(log)
+        .SelectMany(asset => new[] { "video", "recording", "screenshot" }.Select(kind => new {
+            Asset = asset, Kind = kind, Key = EvidenceSharing.Key(asset, kind)
+        }))
+        .Where(file => !string.IsNullOrWhiteSpace(file.Key))
+        .Select(file => new { file.Asset, file.Kind, Extension = System.IO.Path.GetExtension(file.Key)?.ToLowerInvariant() })
+        .Where(file => file.Kind != "screenshot" || file.Extension != ".webm" || !string.IsNullOrWhiteSpace(file.Asset.RecordingPath)).ToList();
+    var screenshots = files.Where(file => file.Kind == "screenshot" && file.Extension is not (".webm" or ".mp4")).ToList();
+    var recordings = files.Except(screenshots).ToList();
+    var videos = recordings.Where(file => file.Asset.ModelName != "audio-original" && (file.Extension is ".webm" or ".mp4")).ToList();
+    var primaryVideo = videos.FirstOrDefault(file => file.Asset.RecordingIncludesAudio && file.Asset.ModelName != "screen-original")
+        ?? videos.FirstOrDefault(file => file.Asset.ModelName != "screen-original") ?? videos.FirstOrDefault();
+    var hasScreenshot = screenshots.Any(file => file.Asset.LogId == log.LogId);
+    var hasRecording = recordings.Any(file => file.Asset.LogId == log.LogId && file.Kind == "recording");
+    var canShare = Model.TeacherScope && ViewBag.IsOwner == true;
+    var hasSessionTimeline = ViewBag.RecordingsOnly == true || ViewBag.RecordingMarker is int;
+}
+
+<div class="incident-evidence">
+    <div class="incident-evidence-grid">
+        <section class="incident-evidence-panel" aria-labelledby="evidence-video">
+            <h2 id="evidence-video">Evidence Video</h2>
+            @if (primaryVideo is not null)
+            {
+                <video class="incident-evidence-player" controls preload="none" playsinline
+                       src="@Url.Action("Evidence", new { id = primaryVideo.Asset.LogId, kind = primaryVideo.Kind })"></video>
+                @if (primaryVideo.Asset.RecordingIncludesAudio) { <p class="incident-evidence-note">Microphone audio included</p> }
+                <div class="incident-evidence-actions">
+                    <a asp-action="Evidence" asp-route-id="@primaryVideo.Asset.LogId" asp-route-kind="@primaryVideo.Kind"
+                       asp-route-download="true" class="btn btn-outline-primary btn-sm">Download video</a>
+                    @if (canShare)
+                    {
+                        <a asp-controller="EvidenceSharing" asp-action="Index" asp-route-logId="@primaryVideo.Asset.LogId"
+                           class="btn btn-outline-primary btn-sm">Share evidence</a>
+                    }
+                    <a asp-action="Evidence" asp-route-id="@primaryVideo.Asset.LogId" asp-route-kind="@primaryVideo.Kind"
+                       target="_blank" rel="noopener" class="btn btn-outline-secondary btn-sm">Open video</a>
+                </div>
+            }
+            else
+            {
+                <p class="incident-evidence-empty">@(hasSessionTimeline ? "Separate incident video unavailable. See the session recording above." : "Video evidence unavailable.")</p>
+            }
+            @if ((log.IncidentKey is "absence" or "persons" || log.AlertType == ProctoringAlertType.IdentityMismatch) && log.VideoEvidencePath != null)
+            {
+                <p class="incident-evidence-note">@AbsenceEvidenceMetadata.Label(log.MachineObservationsJson)</p>
+            }
+            @if ((log.IncidentKey is "absence:escalation" or "persons:escalation") && log.ParentIncidentId is int originalIncidentId)
+            {
+                <p><a asp-action="ExamFolder" asp-route-examId="@log.ExamId" asp-route-studentId="@log.StudentId"
+                      asp-route-incidentId="@originalIncidentId" asp-fragment="incident-@originalIncidentId">Open original incident evidence</a></p>
+            }
+            @if (log.IncidentKey == "browser" || attachments.Any(asset => asset.ModelName is "screen-original" or "composite"))
+            {
+                <details class="browser-evidence-player"><summary>Review synchronized recordings</summary>
+                    <p>Original sources are preserved separately. Timing is approximate and based on client capture clocks; unavailable intervals remain blank.</p>
+                    <button type="button" class="play-media">Play synchronized review</button>
+                    <button type="button" class="pause-media">Pause</button>
+                    <input type="range" class="media-position" aria-label="Recording position" min="0" max="0" step="0.1" value="0" />
+                    <output class="media-time"></output>
+                    @foreach(var clip in attachments.Where(a => a.VideoEvidencePath != null)) {
+                        <div class="review-clip" data-timing="@clip.MachineObservationsJson">
+                            <strong>@clip.ModelName</strong>
+                            <video controls preload="none" style="width:100%;max-width:640px" src="@Url.Action("Evidence", new {id=clip.LogId,kind="video"})"></video>
+                        </div>
+                    }
+                </details>
+            }
+            @if (recordings.Any(file => file != primaryVideo))
+            {
+                <details>
+                    <summary>Additional recordings and audio</summary>
+                    <ul class="incident-evidence-sources">
+                    @foreach (var file in recordings.Where(file => file != primaryVideo))
+                    {
+                        var label = file.Asset.ModelName switch
+                        {
+                            "audio-original" => "Microphone audio",
+                            "screen-original" => "Screen recording",
+                            "composite" => "Combined recording",
+                            "absence-segment" => "Absence camera segment",
+                            _ => file.Extension == ".wav" ? "Audio recording" : "Recording"
+                        };
+                        <li>
+                            <strong>@label</strong>
+                            @if (file.Asset.FrameCapturedAt is DateTime captured) { <span class="incident-evidence-note">@captured.ToString("dd MMM yyyy, HH:mm:ss")</span> }
+                            @if (file.Asset.ModelName == "audio-original" || file.Extension == ".wav")
+                            {
+                                <audio controls preload="none" src="@Url.Action("Evidence", new { id = file.Asset.LogId, kind = file.Kind })"></audio>
+                            }
+                            @if (file.Asset.ModelName == "absence-segment")
+                            {
+                                <video class="incident-evidence-player" controls preload="none" playsinline
+                                       src="@Url.Action("Evidence", new { id = file.Asset.LogId, kind = file.Kind })"></video>
+                                <small>@AbsenceEvidenceMetadata.SegmentLabel(file.Asset.MachineObservationsJson)</small>
+                            }
+                            <div class="incident-evidence-actions">
+                                <a asp-action="Evidence" asp-route-id="@file.Asset.LogId" asp-route-kind="@file.Kind" target="_blank" rel="noopener">Open</a>
+                                <a asp-action="Evidence" asp-route-id="@file.Asset.LogId" asp-route-kind="@file.Kind" asp-route-download="true">Download</a>
+                                @if (canShare) { <a asp-controller="EvidenceSharing" asp-action="Index" asp-route-logId="@file.Asset.LogId">Share</a> }
+                            </div>
+                        </li>
+                    }
+                    </ul>
+                </details>
+            }
+        </section>
+        <section class="incident-evidence-panel" aria-labelledby="evidence-screenshots">
+            <h2 id="evidence-screenshots">Screenshot Evidence</h2>
+            @if (screenshots.Count == 0)
+            {
+                <p class="incident-evidence-empty">Screenshot evidence unavailable.</p>
+            }
+            else
+            {
+                <div class="incident-evidence-gallery">
+                    @for (var i = 0; i < screenshots.Count; i++)
+                    {
+                        var image = screenshots[i];
+                        var label = $"Screenshot {i + 1}";
+                        <figure>
+                            <a asp-action="Evidence" asp-route-id="@image.Asset.LogId" asp-route-kind="screenshot" target="_blank" rel="noopener">
+                                <img src="@Url.Action("Evidence", new { id = image.Asset.LogId, kind = "screenshot" })"
+                                     alt="@label" loading="lazy" decoding="async" />
+                            </a>
+                            <figcaption class="incident-evidence-actions">
+                                <a asp-action="Evidence" asp-route-id="@image.Asset.LogId" asp-route-kind="screenshot" target="_blank" rel="noopener">View full-size</a>
+                                <a asp-action="Evidence" asp-route-id="@image.Asset.LogId" asp-route-kind="screenshot" asp-route-download="true">Download</a>
+                                @if (canShare) { <a asp-controller="EvidenceSharing" asp-action="Index" asp-route-logId="@image.Asset.LogId">Share</a> }
+                            </figcaption>
+                        </figure>
+                    }
+                </div>
+            }
+        </section>
+    </div>
+
+    @if (reviewableIds.Contains(log.LogId))
+    {
+        <section class="incident-evidence-panel incident-evidence-review" aria-labelledby="evidence-review">
+            <h2 id="evidence-review">Review actions</h2>
+            @if (log.IncidentKey?.StartsWith("object:", StringComparison.Ordinal) == true)
+            {
+              <form asp-controller="Alerts" asp-action="Review" method="post">
+               @Html.AntiForgeryToken()<input type="hidden" name="id" value="@log.LogId" />
+               <select name="decision" aria-label="Review decision"><option value="confirmed-rule-violation">Confirmed rule violation</option><option value="false-positive">False alert</option><option value="insufficient-evidence">Insufficient evidence</option><option value="allowed-object">Allowed object</option><option value="further-review">Requires further review</option></select>
+               <input name="notes" aria-label="Review notes" minlength="10" maxlength="300" required /><button type="submit">Save separate review decision</button>
+              </form>
+            }
+            @if (log.AlertType != ProctoringAlertType.ObjectObservation)
+            {
+            <details><summary>Review decision and notes</summary>
+                <form asp-controller="Alerts" asp-action="Review" method="post">
+                    @Html.AntiForgeryToken()<input type="hidden" name="id" value="@log.LogId" />
+                    <label>Decision<select name="decision" class="form-select"><option value="confirmed-rule-violation">Cheating Confirmed</option><option value="false-positive">Not Cheating</option><option value="further-review">Needs Further Review</option></select></label>
+                    <label>Review notes<textarea name="notes" class="form-control" minlength="10" maxlength="300" required></textarea></label>
+                    <button class="btn btn-sm btn-outline-primary">Save audited review</button>
+                </form>
+            </details>
+            }
+            @if (!log.IsReviewed)
+            {
+                <form asp-action="MarkReviewed" method="post">
+                    @Html.AntiForgeryToken()
+                    <input type="hidden" name="id" value="@log.LogId" />
+                    <input type="hidden" name="studentId" value="@candidate.StudentId" />
+                    <input type="hidden" name="examId" value="@folder.ExamId" />
+                    <button class="btn btn-sm btn-outline-success" type="submit">Mark reviewed</button>
+                </form>
+            }
+            @if ((hasScreenshot || hasRecording) && log.Attempt?.Status == AttemptStatus.InProgress)
+            {
+                <details class="mt-2"><summary>Pause after reviewing evidence</summary>
+                    <form asp-action="PauseAfterReview" method="post" class="mt-2">
+                        @Html.AntiForgeryToken()<input type="hidden" name="logId" value="@log.LogId" />
+                        <label for="reason-@log.LogId" class="form-label">Your review reason</label>
+                        <textarea id="reason-@log.LogId" name="reason" class="form-control" minlength="10" maxlength="300" required></textarea>
+                        <button type="submit" class="btn btn-sm btn-outline-danger mt-2">I reviewed the evidence — pause attempt</button>
+                    </form>
+                </details>
+            }
+        </section>
+    }
+
+    <details class="incident-evidence-panel incident-evidence-technical">
+        <summary>Technical Details</summary>
+        <dl class="incident-evidence-facts">
+            <div><dt>Incident ID</dt><dd>#@log.LogId</dd></div>
+            <div><dt>Attempt / session</dt><dd>#@Model.AttemptId · @(log.SessionAttempt?.Session?.SessionTitle ?? "Exam-level event")</dd></div>
+            <div><dt>Severity</dt><dd>@log.Severity</dd></div>
+            <div><dt>Source</dt><dd>@(log.ModelName ?? "Exam monitoring") @log.ModelVersion</dd></div>
+            <div><dt>Policy effect</dt><dd>@(log.CountsAsViolation ? "Counts as violation" : "Observation / recovery")</dd></div>
+            <div><dt>Review state</dt><dd>@(log.IsReviewed ? "Reviewed" : "Pending review")</dd></div>
+            <div><dt>Started (UTC)</dt><dd>@(log.IncidentStartedAtUtc?.ToString("u") ?? "Unavailable")</dd></div>
+            <div><dt>Ended (UTC)</dt><dd>@(log.IncidentEndedAtUtc?.ToString("u") ?? "Unavailable")</dd></div>
+            @if (log.ObservedDurationSeconds is double duration) { <div><dt>Observed duration</dt><dd>@duration.ToString("0.0") s</dd></div> }
+            @if (!string.IsNullOrWhiteSpace(log.RecoveryStatus)) { <div><dt>Recovery status</dt><dd>@log.RecoveryStatus</dd></div> }
+            @if (log.MaxSimultaneousPeople is int people) { <div><dt>Maximum people</dt><dd>@people</dd></div> }
+        </dl>
+        @if (!string.IsNullOrWhiteSpace(log.Description)) { <p>@log.Description</p> }
+        @if (log.MachineObservationsJson is not null)
+        {
+            <details><summary>Machine-readable observations</summary><pre>@log.MachineObservationsJson</pre></details>
+        }
+        @foreach (var analysis in attachments.Where(a => a.ModelName == "Speech analysis").OrderBy(a => a.FrameCapturedAt)) {
+            var notes = AiExamProctoring.Services.SpeechRecognition.SpeechContextAnalyzer.ReadReview(analysis.MachineObservationsJson);
+            <details>
+                <summary>Transcript window · @(analysis.MatchedQuestionId is int matched ? $"Matched question #{matched}" : "No recorded match") · @analysis.FrameCapturedAt?.ToString("u")</summary>
+                <p style="white-space:pre-wrap">@analysis.SpeechTranscript</p>
+                <p>@notes.Status · @(analysis.SpeakerAttribution == "mouth_correlated" ? "Mouth activity aligned" : "Speaker unknown")</p>
+                @if (!string.IsNullOrWhiteSpace(notes.Question)) { <p><strong>Captured question</strong> @notes.Question</p> }
+                @if (!string.IsNullOrWhiteSpace(notes.Phrases)) { <p><strong>Matching phrases</strong> @notes.Phrases</p> }
+                @if (notes.Score is double score) { <p>Semantic similarity @score.ToString("0.000")</p> }
+            </details>
+        }
+        @if (!string.IsNullOrWhiteSpace(log.SpeechTranscript)) {
+            <details><summary>Speech evidence details</summary><p style="white-space:pre-wrap">@log.SpeechTranscript</p><p>Matched question: @(log.MatchedQuestionId?.ToString() ?? "Not recorded") · Similarity: @(log.SemanticSimilarity?.ToString("0.000") ?? "Not recorded") · Attribution: @(log.SpeakerAttribution ?? "Unknown")</p></details>
+        }
+    </details>
+</div>

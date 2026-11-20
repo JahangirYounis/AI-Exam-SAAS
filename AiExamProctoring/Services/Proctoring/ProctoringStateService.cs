@@ -16,6 +16,7 @@ public sealed record ProctoringState(int AttemptId, int? SessionAttemptId, strin
 {
     public int WarningCount => Math.Clamp(StrikeCount, 0, AllowedWarnings);
     public int? AbsenceRootId { get; init; }
+    public bool? AbsenceActive { get; init; }
 }
 
 public interface IProctoringStateService
@@ -47,10 +48,12 @@ public sealed partial class ProctoringStateService(ApplicationDbContext db, IHub
         HashSet<int> absenceUpdated = [];
         HashSet<int> peopleUpdated = [];
         var attentionEnded = false;
+        bool? provisionalAbsenceChanged = null;
         HashSet<int> peopleUpgraded = [];
         HashSet<int> peoplePeaks = [];
         await db.Database.CreateExecutionStrategy().ExecuteAsync(async () =>
         {
+            provisionalAbsenceChanged = null;
             attentionEnded = false; ids.Clear(); enriched.Clear(); absenceUpdated.Clear(); peopleUpdated.Clear(); peopleUpgraded.Clear(); peoplePeaks.Clear();
             db.ChangeTracker.Clear();
             await using var tx = await db.Database.BeginTransactionAsync(IsolationLevel.ReadCommitted, ct);
@@ -177,7 +180,9 @@ public sealed partial class ProctoringStateService(ApplicationDbContext db, IHub
                 }
                 if (observation.Key == "absence" && now > previousSample)
                 {
-                    episode.LastActive = observation.Active;
+                    episode.LastActive = observation.ProvisionalAbsence ? true : observation.Active;
+                    if (!episode.Emitted && !confirmed && (previousActive == true) != (episode.LastActive == true))
+                        provisionalAbsenceChanged = episode.LastActive == true;
                     if (observation.Active == true) episode.PotentialReturnUtc = null;
                     if (observation.Active == false) episode.PotentialReturnUtc ??= now;
                     if (episode.LogId is int absenceId)
@@ -215,7 +220,7 @@ public sealed partial class ProctoringStateService(ApplicationDbContext db, IHub
                             // Milestones require current, continuous model evidence.
                             // Persist the milestone with its child alert under the attempt lock.
                             if (episode.Emitted && supportedDuration is double continuousSeconds &&
-                                (!previousVerifiedDuration.HasValue || continuousSeconds > previousVerifiedDuration.Value))
+                                (!previousVerifiedDuration.HasValue || continuousSeconds >= previousVerifiedDuration.Value))
                             {
                                 var milestone = episode.LastAbsenceMilestoneSeconds < 30 ? 30 :
                                     episode.LastAbsenceMilestoneSeconds < 60 ? 60 :
@@ -400,11 +405,22 @@ public sealed partial class ProctoringStateService(ApplicationDbContext db, IHub
             var owner = await db.ExamAttempts.Where(a => a.AttemptId == attemptId).Select(a => a.Exam!.CreatedBy).SingleAsync(ct);
             if (current is not null && owner is not null) await PublishAsync(current, owner, "PeopleObservationUpdated");
         }
-        if (absenceUpdated.Count > 0)
+        foreach (var absenceId in absenceUpdated)
+            await NotifyObservationAsync(absenceId, ct);
+        if (absenceUpdated.Count == 0 && provisionalAbsenceChanged is bool visible)
         {
             var current = await GetAsync(attemptId, ct);
-            var owner = await db.ExamAttempts.Where(a => a.AttemptId == attemptId).Select(a => a.Exam!.CreatedBy).SingleAsync(ct);
-            if (current is not null && owner is not null) await PublishAsync(current, owner, "AbsenceUpdated");
+            if (current is { Status: nameof(AttemptStatus.InProgress) } && current.SessionAttemptId == sessionId)
+            {
+                var owner = await db.ExamAttempts.Where(a => a.AttemptId == attemptId)
+                    .Select(a => a.Exam!.CreatedBy).SingleAsync(ct);
+                if (owner is not null)
+                    await PublishAsync(current with {
+                        EventId = null, AbsenceRootId = null, AbsenceActive = visible,
+                        EventCountsAsViolation = false, EventWarningNumber = null, AbsenceEnded = false,
+                        ViolationType = nameof(ProctoringAlertType.FaceNotDetected)
+                    }, owner, "AbsenceUpdated");
+            }
         }
         // When a review-only person incident is upgraded to confirmed, return
         // that same log id for the latest screenshot/video attachment pipeline.
@@ -442,12 +458,14 @@ public sealed partial class ProctoringStateService(ApplicationDbContext db, IHub
         ProctoringAlertType.LookingAwaySpeaking or ProctoringAlertType.TabSwitch or ProctoringAlertType.FullScreenExit or
         ProctoringAlertType.FaceNotDetected or ProctoringAlertType.MultipleFaces or ProctoringAlertType.HeadAway or
         ProctoringAlertType.GazeAway or ProctoringAlertType.LookAway or
-        ProctoringAlertType.ElectronicDeviceDetected or ProctoringAlertType.AnswerPromptSpeech or ProctoringAlertType.TalkingDetected;
+        ProctoringAlertType.ElectronicDeviceDetected or ProctoringAlertType.AnswerPromptSpeech or ProctoringAlertType.TalkingDetected or
+        ProctoringAlertType.IdentityMismatch;
 
     public static bool IsCritical(ProctoringLog log) =>
         log.AlertType == ProctoringAlertType.IdentityMismatch &&
         log.Severity == ProctoringSeverity.High && log.PolicyPending &&
         (log.MachineObservationsJson?.Contains($"\"identityConfirmation\":\"{AiExamProctoring.Services.FaceIdentity.IdentityRecheckPolicy.ConfirmationMarker}\"", StringComparison.Ordinal) == true ||
+         log.MachineObservationsJson?.Contains("\"identityConfirmation\":\"three_fresh_batches\"", StringComparison.Ordinal) == true ||
          log.MachineObservationsJson?.Contains("\"identityConfirmation\":\"four_fresh_batches\"", StringComparison.Ordinal) == true);
 
     public static async Task LockAttemptAsync(ApplicationDbContext context, int id, CancellationToken ct)
@@ -643,34 +661,47 @@ public sealed partial class ProctoringStateService(ApplicationDbContext db, IHub
             if (a.Status == AttemptStatus.InProgress && s.Status == AttemptStatus.InProgress &&
                 Remaining(s) > 0 && (critical || canCount))
             {
-                log.CountsAsViolation = !critical;
+                // New two-batch identity incidents record one standard warning
+                // while retaining the existing protective hold.
+                var counted = !critical ||
+                    log.MachineObservationsJson?.Contains("\"identityConfirmation\":\"two_fresh_batches\"", StringComparison.Ordinal) == true &&
+                    BlockingPolicy.Qualifies(a.Exam!, log.AlertType);
+                log.CountsAsViolation = counted;
                 if (critical || log.AlertType is ProctoringAlertType.FaceNotDetected or ProctoringAlertType.MultipleFaces
                     or ProctoringAlertType.HeadAway or ProctoringAlertType.GazeAway or ProctoringAlertType.LookAway
                     or ProctoringAlertType.LookingAwaySpeaking or ProctoringAlertType.ElectronicDeviceDetected
                     or ProctoringAlertType.TalkingDetected or ProctoringAlertType.AnswerPromptSpeech)
                     log.Severity = ProctoringSeverity.High;
-                if (!critical) a.TotalViolations++;
+                if (counted) a.TotalViolations++;
                 log.PolicyAppliedAt = nowLocal;
                 a.LastViolationAtUtc = DateTime.UtcNow;
                 a.StateVersion++;
                 if (critical) a.HighSeverityViolations++;
-                else a.StrikeCount = a.StrikeCount == int.MaxValue ? int.MaxValue : a.StrikeCount + 1;
+                if (counted) a.StrikeCount = a.StrikeCount == int.MaxValue ? int.MaxValue : a.StrikeCount + 1;
                 var allowed = Math.Clamp(a.Exam!.AllowedWarnings, 1, 10);
-                log.WarningNumber = !critical && a.StrikeCount <= allowed ? a.StrikeCount : null;
+                log.WarningNumber = counted && a.StrikeCount <= allowed ? a.StrikeCount : null;
                 var automaticBlock = !critical && BlockingPolicy.ShouldAutoLock(a.Exam.BlockingMode,
                     a.StrikeCount, false, allowed);
                 if (critical || automaticBlock)
+                {
+                    if (critical && log.IncidentStartedAtUtc.HasValue)
+                    {
+                        log.IncidentEndedAtUtc = DateTime.UtcNow;
+                        log.ObservedDurationSeconds = Math.Max(0, (log.IncidentEndedAtUtc.Value - log.IncidentStartedAtUtc.Value).TotalSeconds);
+                        log.RecoveryStatus = "IdentityHold";
+                    }
                     await FreezeAsync(a, s, critical
                         ? "Protective identity review: repeated supported mismatches require supervisor review. No misconduct determination."
                         : log.IncidentKey is "absence" or "absence:escalation"
                             ? $"Student blocked — {log.Description}. Teacher review required."
                             : $"Automatic exam block after {a.StrikeCount} qualifying incidents. Teacher review required.", ct);
+                }
 
                 log.MachineObservationsJson = JsonSerializer.Serialize(new
                 {
                     policyVersion = a.Exam.BlockingPolicyVersion ?? "legacy-v1",
                     allowedWarnings = allowed,
-                    violationNumber = critical ? (int?)null : a.StrikeCount,
+                    violationNumber = counted ? a.StrikeCount : (int?)null,
                     sourceObservations = log.MachineObservationsJson,
                     qualification = critical ? "protective_identity_review" : "verified_policy_incident",
                     incidentId = log.LogId
@@ -1013,10 +1044,15 @@ public sealed partial class ProctoringStateService(ApplicationDbContext db, IHub
         var owner = await db.ExamAttempts.Where(a => a.AttemptId == attempt).Select(a => a.Exam!.CreatedBy).SingleAsync(ct);
         var tabObservation = log.AlertType is ProctoringAlertType.ExamPageHidden or ProctoringAlertType.TabSwitch;
         var fullscreenObservation = IsFullscreenObservation(log);
-        if ((tabObservation || fullscreenObservation) && log.SessionAttemptId != state?.SessionAttemptId) return;
+        var absenceObservation = log.IncidentKey == "absence";
+        if ((tabObservation || fullscreenObservation || absenceObservation) && log.SessionAttemptId != state?.SessionAttemptId) return;
         var captureTime = tabObservation ? SessionRecordingMetadata.BrowserMarker(log.MachineObservationsJson) : null;
         if (state is not null && owner is not null) await PublishAsync(state with {
-            EventId = log.LogId, EventWarningNumber = log.WarningNumber, EventCountsAsViolation = log.CountsAsViolation, AbsenceEnded = false, ViolationType = log.AlertType.ToString(), Reason = log.Description,
+            EventId = log.LogId, EventWarningNumber = log.WarningNumber, EventCountsAsViolation = log.CountsAsViolation,
+            AbsenceRootId = absenceObservation ? log.LogId : null,
+            AbsenceEnded = absenceObservation && log.IncidentEndedAtUtc.HasValue,
+            AbsenceActive = absenceObservation ? log.RecoveryStatus == "Absent" : null,
+            ViolationType = log.AlertType.ToString(), Reason = log.Description,
             TabObservationEnded = tabObservation ? log.IncidentEndedAtUtc.HasValue : null,
             FullscreenObservationEnded = fullscreenObservation ? log.IncidentEndedAtUtc.HasValue : null,
             OccurredAt = tabObservation ? captureTime?.UtcDateTime ?? DateTime.SpecifyKind(log.CreatedDate, DateTimeKind.Utc)
@@ -1024,7 +1060,7 @@ public sealed partial class ProctoringStateService(ApplicationDbContext db, IHub
             HasScreenshot = log.ScreenshotPath is not null,
             HasRecording = log.RecordingPath is not null || log.VideoEvidencePath is not null,
             Transcript = log.SpeechTranscript, MatchedQuestionId = log.MatchedQuestionId
-        }, owner, "BrowserObservationUpdated");
+        }, owner, absenceObservation ? "AbsenceUpdated" : "BrowserObservationUpdated");
     }
 
     public async Task NotifySpeechContextAsync(int logId, CancellationToken ct = default)

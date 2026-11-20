@@ -59,14 +59,15 @@ public static class DeviceHealthPolicy
         }
         if (issue == "healthy")
         {
-            if (old is not null && old.Issue != "healthy" &&
-                now >= old.Seen && now - old.Seen <= TimeSpan.FromSeconds(8))
+            if (old is not null && old.Issue != "healthy")
             {
                 // A single normal browser sample cannot erase repeatedly
                 // unusable frames from Model 2. Require two independent normal
                 // samples spanning at least two seconds with no intervening fault.
-                var recoverStarted = old.RecoveryStarted ?? now;
-                var recoverSamples = old.RecoverySamples + 1;
+                var consecutive = now >= old.Seen && now - old.Seen <= TimeSpan.FromSeconds(8);
+                var recoverStarted = consecutive ? old.RecoveryStarted ?? now : now;
+                var previousSamples = consecutive ? old.RecoverySamples : 0;
+                var recoverSamples = previousSamples + 1;
                 if (recoverSamples < 2 || (now - recoverStarted).TotalSeconds < 2)
                     return new(old with
                     {

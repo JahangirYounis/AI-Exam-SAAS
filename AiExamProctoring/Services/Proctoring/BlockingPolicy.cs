@@ -61,7 +61,9 @@ public static class BlockingPolicy
             ProctoringAlertType.HeadAway or ProctoringAlertType.GazeAway or ProctoringAlertType.LookAway =>
                 log.IncidentKey == "attention" && (log.ObservedDurationSeconds ?? log.DurationSeconds ?? 0) >= 2,
             ProctoringAlertType.TabSwitch =>
-                log.ModelName == "Browser Session Controls" && !string.IsNullOrWhiteSpace(log.ClientEventId),
+                (log.ModelName == "Browser Session Controls" && !string.IsNullOrWhiteSpace(log.ClientEventId)) ||
+                (log.ModelName == "Browser visibility signals" && log.IncidentKey == "browser" &&
+                 log.ObservedDurationSeconds >= 0.6 && !string.IsNullOrWhiteSpace(log.ClientEventId)),
             ProctoringAlertType.FullScreenExit =>
                 exam.RequireFullscreen && log.IncidentKey == "browser" && log.ModelName == "Browser visibility signals" &&
                 log.ObservedDurationSeconds >= 1.5 && !string.IsNullOrWhiteSpace(log.ClientEventId),

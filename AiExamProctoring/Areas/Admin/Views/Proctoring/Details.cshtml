@@ -1,20 +1,42 @@
 @model AiExamProctoring.Models.ProctoringLog
 @{
-    ViewData["Title"] = "Integrity Event Details";
-    var legacyRecording = Model.RecordingPath is null && Model.ScreenshotPath?.EndsWith(".webm", StringComparison.OrdinalIgnoreCase) == true;
-    var hasScreenshot = !string.IsNullOrWhiteSpace(Model.ScreenshotPath) && !legacyRecording;
-    var hasRecording = !string.IsNullOrWhiteSpace(Model.RecordingPath) || legacyRecording;
+    ViewData["Title"] = "Evidence Details";
 }
-<nav class="small mb-3"><a asp-action="Index">Candidate folders</a><span class="mx-2 text-secondary">/</span><a asp-action="Candidate" asp-route-studentId="@Model.StudentId">@(Model.Student?.FullName ?? "Candidate")</a><span class="mx-2 text-secondary">/</span><a asp-action="ExamFolder" asp-route-studentId="@Model.StudentId" asp-route-examId="@Model.ExamId">@(Model.Exam?.ExamTitle ?? "Exam")</a><span class="mx-2 text-secondary">/</span><span>Event #@Model.LogId</span></nav>
-<div class="d-flex justify-content-between align-items-start flex-wrap gap-3 mb-4"><div><span class="eyebrow">Event record</span><h2 class="fw-bold mt-1 mb-1">@Model.AlertTypeDisplay</h2><p class="text-secondary mb-0">@(Model.Student?.FullName ?? "Unknown candidate") · @(Model.Exam?.ExamTitle ?? "Unknown exam")</p></div><span class="badge @Model.SeverityBadgeClass fs-6">@Model.Severity severity</span></div>
-<div class="row g-4">
-    <div class="col-lg-7"><div class="portal-panel p-4 h-100"><h5 class="fw-bold mb-3">Event information</h5><dl class="row mb-0"><dt class="col-sm-4">Recorded</dt><dd class="col-sm-8">@Model.CreatedDate.ToString("dd MMM yyyy, hh:mm:ss tt")</dd><dt class="col-sm-4">Attempt / session</dt><dd class="col-sm-8">#@(Model.AttemptId?.ToString() ?? "—") · @(Model.SessionAttempt?.Session?.SessionTitle ?? "Exam-level event")</dd><dt class="col-sm-4">Policy effect</dt><dd class="col-sm-8">@(Model.CountsAsViolation ? "Accepted violation" : "Observation / recovery")</dd><dt class="col-sm-4">Review state</dt><dd class="col-sm-8">@(Model.IsReviewed ? "Reviewed" : "Review pending")</dd><dt class="col-sm-4">Face / confidence</dt><dd class="col-sm-8">@(Model.DetectedFaceCount?.ToString() ?? "—") / @(Model.ConfidenceScore.HasValue ? $"{Model.ConfidenceScore:P1}" : "—")</dd><dt class="col-sm-4">Model</dt><dd class="col-sm-8">@(Model.ModelName ?? "Browser/system event") @(Model.ModelVersion)</dd><dt class="col-sm-4">Description</dt><dd class="col-sm-8">@(Model.Description ?? "No description supplied.")</dd></dl></div></div>
-    <div class="col-lg-5"><div class="portal-panel p-4 h-100"><h5 class="fw-bold mb-3">Protected evidence</h5>
-        <div class="alert alert-light border rounded-3" role="status">
-            <i class="bi bi-shield-lock me-2" aria-hidden="true"></i>
-            Raw camera, screen and microphone evidence is Teacher-private. Administrator role alone does not permit access.
-            If the examination owner shares an individual evidence item with your account, open
-            <a asp-area="" asp-controller="SharedEvidence" asp-action="Index">Evidence shared with me</a>.
-        </div>
-    </div></div>
+<link rel="stylesheet" href="~/css/incident-evidence-details.css" asp-append-version="true" />
+<div class="incident-evidence">
+    <header class="incident-evidence-header">
+        <a asp-action="ExamFolder" asp-route-studentId="@Model.StudentId" asp-route-examId="@Model.ExamId" class="incident-evidence-back">
+            <i class="bi bi-arrow-left" aria-hidden="true"></i> Back to evidence list
+        </a>
+        <h1>Evidence Details</h1>
+        <dl class="incident-evidence-facts">
+            <div><dt>Student ID</dt><dd>@(Model.Student?.CandidateNumber ?? Model.StudentId ?? "Unavailable")</dd></div>
+            <div><dt>Student name</dt><dd>@(Model.Student?.FullName ?? "Unavailable")</dd></div>
+            <div><dt>Exam</dt><dd>@(Model.Exam?.ExamTitle ?? "Unavailable")</dd></div>
+            <div><dt>Incident type</dt><dd>@Model.AlertTypeDisplay</dd></div>
+            <div><dt>Date and time</dt><dd><time datetime="@Model.CreatedDate.ToString("O")">@Model.CreatedDate.ToString("dd MMM yyyy, hh:mm:ss tt")</time></dd></div>
+            @if (Model.WarningNumber is int warning)
+            {
+                <div><dt>Warning number</dt><dd>@warning</dd></div>
+            }
+        </dl>
+    </header>
+    <section class="incident-evidence-panel incident-evidence-access" aria-labelledby="shared-evidence-title">
+        <h2 id="shared-evidence-title">Protected evidence</h2>
+        <p>The exam owner can share selected video, audio and screenshots with your account.</p>
+        <a asp-area="" asp-controller="SharedEvidence" asp-action="Index" class="btn btn-outline-primary btn-sm">Evidence shared with me</a>
+    </section>
+    <details class="incident-evidence-panel incident-evidence-technical">
+        <summary>Technical Details</summary>
+        <dl class="incident-evidence-facts">
+            <div><dt>Incident ID</dt><dd>#@Model.LogId</dd></div>
+            <div><dt>Attempt / session</dt><dd>#@(Model.AttemptId?.ToString() ?? "—") · @(Model.SessionAttempt?.Session?.SessionTitle ?? "Exam-level event")</dd></div>
+            <div><dt>Severity</dt><dd>@Model.Severity</dd></div>
+            <div><dt>Policy effect</dt><dd>@(Model.CountsAsViolation ? "Accepted violation" : "Observation / recovery")</dd></div>
+            <div><dt>Review state</dt><dd>@(Model.IsReviewed ? "Reviewed" : "Review pending")</dd></div>
+            <div><dt>Detected faces / confidence</dt><dd>@(Model.DetectedFaceCount?.ToString() ?? "—") / @(Model.ConfidenceScore.HasValue ? $"{Model.ConfidenceScore:P1}" : "—")</dd></div>
+            <div><dt>Source</dt><dd>@(Model.ModelName ?? "Browser/system event") @Model.ModelVersion</dd></div>
+            <div><dt>Description</dt><dd>@(Model.Description ?? "Unavailable")</dd></div>
+        </dl>
+    </details>
 </div>

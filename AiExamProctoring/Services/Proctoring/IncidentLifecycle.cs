@@ -57,4 +57,4 @@ public static class IncidentLifecycle
     }
 }
 
-public sealed record IncidentObservation(string Key, bool? Active, Models.ProctoringLog Log, double? MonotonicDurationSeconds = null, bool PeopleContextSupported = false, bool RepeatedAttention = false, bool SupportedAttention = false);
+public sealed record IncidentObservation(string Key, bool? Active, Models.ProctoringLog Log, double? MonotonicDurationSeconds = null, bool PeopleContextSupported = false, bool RepeatedAttention = false, bool SupportedAttention = false, bool ProvisionalAbsence = false);

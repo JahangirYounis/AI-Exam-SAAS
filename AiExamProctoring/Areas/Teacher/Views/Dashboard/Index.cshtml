@@ -29,7 +29,7 @@ else
         <section aria-labelledby="td-overview-title" class="td-overview">
             <h2 id="td-overview-title" class="td-section-label">Overview</h2>
             <div class="row g-3">
-                <div class="col-6 col-xl-3">
+                <div class="col-3 col-xl-3">
                     <a class="td-stat-card" asp-area="Teacher" asp-controller="Exam" asp-action="Index" aria-label="@Model.TotalExams total tests; view all examinations">
                         <span class="td-stat-top"><span class="td-stat-icon td-icon-blue"><i class="bi bi-journal-text" aria-hidden="true"></i></span><i class="bi bi-arrow-up-right td-stat-arrow" aria-hidden="true"></i></span>
                         <span class="td-stat-number">@Model.TotalExams.ToString("N0")</span>
@@ -37,7 +37,7 @@ else
                         <span class="td-stat-detail">@Model.DraftExams drafts to finish</span>
                     </a>
                 </div>
-                <div class="col-6 col-xl-3">
+                <div class="col-3 col-xl-3">
                     <div class="td-stat-card td-stat-static">
                         <span class="td-stat-top"><span class="td-stat-icon td-icon-indigo"><i class="bi bi-people" aria-hidden="true"></i></span></span>
                         <span class="td-stat-number">@Model.StudentsTested.ToString("N0")</span>
@@ -45,7 +45,7 @@ else
                         <span class="td-stat-detail">Unique students across my tests</span>
                     </div>
                 </div>
-                <div class="col-6 col-xl-3">
+                <div class="col-3 col-xl-3">
                     <a class="td-stat-card @(Model.StudentsNeedingReview > 0 ? "td-stat-attention" : "")" asp-area="Teacher" asp-controller="Monitoring" asp-action="Index" aria-label="@Model.StudentsNeedingReview students requiring review; open candidate evidence">
                         <span class="td-stat-top"><span class="td-stat-icon td-icon-amber"><i class="bi bi-shield-exclamation" aria-hidden="true"></i></span><i class="bi bi-arrow-up-right td-stat-arrow" aria-hidden="true"></i></span>
                         <span class="td-stat-number">@Model.StudentsNeedingReview.ToString("N0")</span>
@@ -53,7 +53,7 @@ else
                         <span class="td-stat-detail">@(Model.StudentsNeedingReview > 0 ? "Review candidate evidence" : "No reviews pending")</span>
                     </a>
                 </div>
-                <div class="col-6 col-xl-3">
+                <div class="col-3 col-xl-3">
                     <a class="td-stat-card" asp-area="Teacher" asp-controller="Results" asp-action="Index" aria-label="@Model.AvailableResults available results; open results">
                         <span class="td-stat-top"><span class="td-stat-icon td-icon-green"><i class="bi bi-clipboard-data" aria-hidden="true"></i></span><i class="bi bi-arrow-up-right td-stat-arrow" aria-hidden="true"></i></span>
                         <span class="td-stat-number">@Model.AvailableResults.ToString("N0")</span>

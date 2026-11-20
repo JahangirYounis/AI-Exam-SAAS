@@ -169,7 +169,7 @@ window.ProctoringRealtime = (() => {
         if (overlay) {
             overlay.hidden = !blocked;
             overlay.querySelector('h1').textContent = state.eventCode === 'DEVICE_HOLD' ? 'Exam paused for a device check' : 'Exam blocked — instructor review required';
-            overlay.querySelector('.lock-reason').textContent = state.eventCode === 'DEVICE_HOLD' ? 'Camera or microphone monitoring could not continue. This is a technical hold, not a cheating finding. Contact your teacher.' : state.eventCode === 'IDENTITY_REVIEW_HOLD' || state.violationType === 'IdentityMismatch' ? 'Student Changed: three fresh camera checks did not match your registered identity. Your examination is paused for supervisor review.' : state.reason?.startsWith('Teacher ') ? 'Your examination has been blocked by an authorized examination supervisor. Please contact your supervisor.' : 'Your examination has been blocked after repeated rule violations. Please contact your examination supervisor for review. Latest observation: ' + reasonFor(state)[0];
+            overlay.querySelector('.lock-reason').textContent = state.eventCode === 'DEVICE_HOLD' ? 'Camera or microphone monitoring could not continue. This is a technical hold, not a cheating finding. Contact your teacher.' : state.eventCode === 'IDENTITY_REVIEW_HOLD' || state.violationType === 'IdentityMismatch' ? 'Student Changed: the initial check and one fresh recheck did not match your registered identity. Your examination is paused for supervisor review.' : state.reason?.startsWith('Teacher ') ? 'Your examination has been blocked by an authorized examination supervisor. Please contact your supervisor.' : 'Your examination has been blocked after repeated rule violations. Please contact your examination supervisor for review. Latest observation: ' + reasonFor(state)[0];
             overlay.querySelector('[role="status"]').textContent = `Frozen time: ${state.remainingTimeSeconds} seconds. Your saved answers are retained.`;
             if (blocked && modal?.open) modal.close();
         }
@@ -196,7 +196,7 @@ window.ProctoringRealtime = (() => {
         const limit = state.allowedWarnings ?? 3;
         const ordinal = state.strikeCount === 1 ? 'first' : state.strikeCount === 2 ? 'second' : String(state.strikeCount);
         const specific = state.violationType === 'TalkingDetected' ? `Speaking is not permitted during this examination. This is your ${ordinal} warning. Please follow the exam rules.` : ['LookAway', 'HeadAway', 'GazeAway'].includes(state.violationType) ? `Please keep your attention on the examination screen. Looking away may violate exam rules. This is your ${ordinal} warning.` : copy[0];
-        const english = state.eventCode === 'IDENTITY_REVIEW_HOLD' ? 'Student Changed: three fresh camera checks did not match your registered identity. Your examination is paused for supervisor review.' : blocked ? (state.eventCode === 'DEVICE_HOLD' || state.violationType === 'IdentityMismatch' ? copy[0] : state.reason?.startsWith('Teacher ') ? 'Examination Blocked. Your examination has been blocked by an authorized examination supervisor. Please contact your supervisor.' : `Examination Blocked. ${copy[0]} Please contact your examination supervisor for review.`) : manualOnly ? `Warning ${state.strikeCount}. ${specific} Your supervisor will review this incident.` : state.strikeCount === limit ? `Final Warning — ${limit} of ${limit}. ${specific} Another examination rule violation may cause your exam to be blocked automatically. Please follow all examination rules.` : `Warning ${state.strikeCount} of ${limit}. ${specific}`;
+        const english = state.eventCode === 'IDENTITY_REVIEW_HOLD' ? 'Student Changed: the initial check and one fresh recheck did not match your registered identity. Your examination is paused for supervisor review.' : blocked ? (state.eventCode === 'DEVICE_HOLD' || state.violationType === 'IdentityMismatch' ? copy[0] : state.reason?.startsWith('Teacher ') ? 'Examination Blocked. Your examination has been blocked by an authorized examination supervisor. Please contact your supervisor.' : `Examination Blocked. ${copy[0]} Please contact your examination supervisor for review.`) : manualOnly ? `Warning ${state.strikeCount}. ${specific} Your supervisor will review this incident.` : state.strikeCount === limit ? `Final Warning — ${limit} of ${limit}. ${specific} Another examination rule violation may cause your exam to be blocked automatically. Please follow all examination rules.` : `Warning ${state.strikeCount} of ${limit}. ${specific}`;
         const urdu = state.violationType === 'IdentityMismatch' ? copy[1] : blocked ? `${copy[1]} امتحان روک دیا گیا ہے۔` : `تنبیہ ${state.strikeCount}۔ ${copy[1]} ${state.blockingMode !== 'MANUAL_ONLY' && state.strikeCount === (state.allowedWarnings ?? 3) ? (state.violationAction === 'FinalSubmit' ? 'آخری تنبیہ۔ اگلی خلاف ورزی پر امتحان جمع ہو جائے گا۔' : 'آخری تنبیہ۔ اگلی خلاف ورزی پر امتحان بند ہو جائے گا۔') : ''}`;
         const text = english;
         if (banner) { banner.querySelector('.strike-message').textContent = text; banner.className = `alert ${state.violationType === 'TalkingDetected' || state.violationType === 'AnswerPromptSpeech' || state.strikeCount >= (state.allowedWarnings ?? 3) || blocked ? 'alert-danger' : 'alert-warning'}`; }
@@ -282,7 +282,7 @@ window.ExamProctoring = {
         let evidence, stopAudio, stopSharing, stopped = false, identityBusy = false;
         // Prevent the 60-second lane from overlapping an active mismatch recheck
         // sequence. This affects identity only, not behavior/object/audio lanes.
-        let identitySequenceActive = false, identitySequenceId = 0;
+        let identitySequenceActive = false, identitySequenceId = 0, identitySequenceToken;
         let behaviorReady = false, calibrationBusy = false, calibrationAttempts = 0, lastCalibrationAttempt = -Infinity;
         let calibrationRetryPending = false;
         let cameraCalibrationRequired = false;
@@ -371,7 +371,7 @@ window.ExamProctoring = {
                 void evidence?.finishIdentityCapture(evidenceIds[0]);
             else if (evidenceIds?.length && data.get('Feature') !== 'persons')
                 evidence?.attach(evidenceIds.filter(id => id !== result.absenceIncident?.id));
-            if (!response.ok) throw Object.assign(new Error(result.message || `${action}: HTTP ${response.status}`), { status: response.status });
+            if (!response.ok && !(action === 'identity' && result.blocked)) throw Object.assign(new Error(result.message || `${action}: HTTP ${response.status}`), { status: response.status });
             return result;
         }
         async function frame(maximumDimension = 640) {
@@ -439,6 +439,7 @@ window.ExamProctoring = {
         flushBrowserObservations();
         on(window, 'online', flushBrowserObservations);
         lane(() => browserQueue.then(queue => queue?.flush()), 5000, 'evidenceStatus');
+        const pendingFullscreenEvidence = [];
         let fullscreenEntered = false, initialFullscreenTried = false;
         const guard = ExamBrowserGuard.create({
             now: () => performance.now(),
@@ -468,7 +469,11 @@ window.ExamProctoring = {
                     attemptId: config.attemptId, sessionAttemptId: config.sessionId,
                     observedAt: new Date(performance.timeOrigin + performance.now()).toISOString() };
                 void deliverBrowserObservation(packet);
-                evidence?.browserEvent(type, event, false);
+                if (type === 'FullScreenExit' && (!evidence?.recorder.running ||
+                    pendingFullscreenEvidence.some(pending => pending.event.id === event.id))) {
+                    if (pendingFullscreenEvidence.length === 8) pendingFullscreenEvidence.shift();
+                    pendingFullscreenEvidence.push({ event, at: performance.now() });
+                } else evidence?.browserEvent(type, event, false);
                 if (event.phase !== 'update' && type === 'ExamPageHidden') incidentAlert(event.id,
                     'TAB SWITCHING OBSERVATION',
                     event.phase === 'end' ? 'The browser recorded an interruption for teacher review.' :
@@ -480,6 +485,8 @@ window.ExamProctoring = {
         on(document, 'visibilitychange', () => {
             if (document.hidden && active()) departureSnapshot = evidence?.recorder?.captureScreenDataUrl() || null;
             guard.sample();
+            // Restore the server-authoritative strike count if realtime updates were delayed while hidden.
+            if (!document.hidden && active()) void window.ProctoringRealtime.sync();
             document.getElementById('examForm')?.classList.toggle('exam-content-hidden', document.hidden);
         });
         const fullscreenButton = document.getElementById('fullscreenStatusPill');
@@ -610,57 +617,92 @@ window.ExamProctoring = {
         let initialMediaSettled = false;
         let lastVisualFingerprint = null, lastVisualChangeAt = performance.now();
         let cameraPermissionDenied = false, microphonePermissionDenied = false;
-        let lastPcmAt = null;
+        let observedCamera, observedMicrophone, microphoneSince = 0, lastPcmAt = null;
         on(window, 'exam-microphone-pcm', event => {
-            if (event.detail?.samples > 0) lastPcmAt = performance.now();
+            const track = stream?.getAudioTracks()[0];
+            if (track?.readyState === 'live' && track.enabled && !track.muted && event.detail?.track === track && event.detail.samples > 0) {
+                if (track !== observedMicrophone) {
+                    observedMicrophone = track;
+                    microphoneSince = performance.now();
+                }
+                lastPcmAt = performance.now();
+            }
         });
         async function deviceHealth() {
             if (!active() || !config.urls.health) return;
-            // If getUserMedia fails, the old health lane never started and the
-            // server stayed unaware of a completely unmonitored examination.
-            // Give the initial browser permission dialog a short grace period.
-            if (!initialMediaSettled && performance.now() - mediaRequestedAt < 15000) return;
-            let issue = 'healthy';
-            if (video.currentTime !== lastVideoTime) { lastVideoTime = video.currentTime; lastVideoAdvance = performance.now(); }
+            const now = performance.now();
             const camera = stream?.getVideoTracks()[0], mic = stream?.getAudioTracks()[0];
-            const cameraFailed = !camera || camera.readyState !== 'live' || !camera.enabled || camera.muted;
-            const previewStalled = !cameraFailed && (video.readyState < 2 || !video.videoWidth ||
-                performance.now() - lastVideoAdvance > 6000);
-            const microphoneFrozen = !!mic && mic.readyState === 'live' && !mic.muted &&
-                lastPcmAt !== null && performance.now() - lastPcmAt > 6500;
-            const micFailed = !mic || mic.readyState !== 'live' || !mic.enabled || mic.muted || microphoneFrozen;
-            const visual = cameraFailed || previewStalled ? null : window.MediaCapabilities?.captureState(video);
+            if (camera !== observedCamera) {
+                observedCamera = camera;
+                lastVideoTime = -1;
+                lastVideoAdvance = lastVisualChangeAt = now;
+                lastVisualFingerprint = null;
+            }
+            if (mic !== observedMicrophone) {
+                observedMicrophone = mic;
+                microphoneSince = now;
+                lastPcmAt = null;
+            }
+            if (video.currentTime !== lastVideoTime) {
+                lastVideoTime = video.currentTime;
+                lastVideoAdvance = now;
+            }
+            const cameraLive = camera?.readyState === 'live' && camera.enabled && !camera.muted;
+            const previewReady = video.readyState >= 2 && video.videoWidth > 0;
+            const visual = cameraLive && previewReady ? window.MediaCapabilities?.captureState(video) : null;
             if (visual?.fingerprint && visual.fingerprint !== lastVisualFingerprint) {
                 lastVisualFingerprint = visual.fingerprint;
-                lastVisualChangeAt = performance.now();
+                lastVisualChangeAt = now;
             }
-            // A playable video element can keep advancing its clock while the
-            // camera repeatedly returns the same frozen frame.
-            const frozenCamera = !cameraFailed && (previewStalled
-                ? performance.now() - lastVideoAdvance > 6500
-                : visual && performance.now() - lastVisualChangeAt > 6500);
-            if (previewStalled && !frozenCamera && !micFailed) return;
-            if ((cameraFailed || frozenCamera) && micFailed) issue = 'camera_and_microphone_disconnected';
-            else if (cameraFailed) issue = cameraPermissionDenied ? 'camera_denied' :
-                camera?.muted ? 'camera_muted' : 'camera_disconnected';
-            else if (frozenCamera) issue = 'camera_frozen';
-            else if (micFailed) issue = microphonePermissionDenied ? 'microphone_denied' :
-                microphoneFrozen ? 'microphone_frozen' : mic?.muted ? 'microphone_muted' : 'microphone_disconnected';
-            else if (visual && visual.brightness < 12) issue = 'camera_dark';
-            if (issue !== 'healthy') identityContinuityLost = true;
-            else if (identityContinuityLost) reverifyAfterContinuityLoss();
+            const initialPermissionPending = !initialMediaSettled && now - mediaRequestedAt < 15000;
+            let cameraIssue = !cameraLive
+                ? cameraPermissionDenied ? 'camera_denied' : camera?.muted ? 'camera_muted' :
+                    !camera && initialPermissionPending ? 'checking' : 'camera_disconnected'
+                : 'healthy';
+            if (cameraLive) {
+                if (now - lastVideoAdvance > 6500 || (visual && now - lastVisualChangeAt > 6500))
+                    cameraIssue = 'camera_frozen';
+                else if (!previewReady) cameraIssue = 'checking';
+                else if (!visual) cameraIssue = 'camera_unclear';
+                else if (visual.brightness < 12) cameraIssue = 'camera_dark';
+            }
+            const micLive = mic?.readyState === 'live' && mic.enabled && !mic.muted;
+            if (!micLive) {
+                microphoneSince = now;
+                lastPcmAt = null;
+            }
+            const micIssue = !micLive
+                ? microphonePermissionDenied ? 'microphone_denied' : mic?.muted ? 'microphone_muted' :
+                    !mic && initialPermissionPending ? 'checking' : 'microphone_disconnected'
+                : now - (lastPcmAt ?? microphoneSince) > 6500 ? 'microphone_frozen' :
+                    lastPcmAt === null ? 'checking' : 'healthy';
+            const isFault = value => value !== 'checking' && value !== 'healthy';
+            const cameraFault = isFault(cameraIssue), micFault = isFault(micIssue);
+            if (cameraFault) identityContinuityLost = true;
+            else if (cameraIssue === 'healthy' && identityContinuityLost) reverifyAfterContinuityLoss();
+
+            const issue = cameraFault && micFault ? 'camera_and_microphone_disconnected' :
+                cameraFault ? cameraIssue : micFault ? micIssue : 'healthy';
+            if (issue === 'healthy' && (cameraIssue === 'checking' || micIssue === 'checking')) return;
+            const descriptions = {
+                camera_denied: 'Camera permission denied', microphone_denied: 'Microphone permission denied',
+                camera_disconnected: 'Camera disconnected', microphone_disconnected: 'Microphone disconnected',
+                camera_muted: 'Camera track muted', microphone_muted: 'Microphone track muted',
+                camera_frozen: 'Camera frames stopped updating', microphone_frozen: 'Microphone audio capture interrupted',
+                camera_dark: 'Camera image is too dark', camera_unclear: 'Camera frames cannot be checked'
+            };
+            const problem = [cameraIssue, micIssue].filter(isFault).map(value => descriptions[value]).join('. ');
+            if (problem) status('mediaStatus', problem + '. Check your device and permissions.', true);
             const data = body(); data.append('issue', issue);
             const result = await request('health', data, 8000);
-            if (result.warning) {
-                const recovery = issue === 'camera_and_microphone_disconnected'
-                    ? 'Reconnect BOTH your camera and microphone before requesting Teacher review.'
-                    : issue.startsWith('microphone_') ? 'Please reconnect your microphone and check its permission.'
-                        : 'Please check your camera connection, position and lighting.';
-                const message = `Device warning ${result.warningCount}/3: ${issue.replaceAll('_', ' ')}. ${recovery} A persistent failure pauses the exam, without a cheating strike.`;
+            if (problem && result.warningCount > 0) {
+                const message = `Device warning ${result.warningCount}/3: ${problem}. A persistent failure pauses the exam without a cheating strike.`;
                 status('mediaStatus', message, true);
-                voice.speak(message, 'کیمرہ، مائیکروفون اور روشنی چیک کریں۔ مسئلہ برقرار رہنے پر استاد سے رابطہ کریں۔', 'ur-PK');
-                if (result.state?.eventId) evidence?.attach([result.state.eventId]);
-            } else if (issue === 'healthy') status('mediaStatus', 'Camera and microphone connected');
+                if (result.warning && result.state?.eventId) evidence?.attach([result.state.eventId]);
+            } else if (issue === 'healthy') {
+                const recovered = result.issue === 'healthy';
+                status('mediaStatus', recovered ? 'Camera and microphone connected' : 'Checking device recovery…', !recovered);
+            }
         }
         async function identity(opportunity = 0, sequenceId = null) {
             if (!active() || physicallyAway || identityBusy || !stream?.getVideoTracks().some(t => t.readyState === 'live' && !t.muted)) {
@@ -674,12 +716,14 @@ window.ExamProctoring = {
                 if (identitySequenceActive) return;
                 identitySequenceActive = true;
                 sequenceId = ++identitySequenceId;
+                identitySequenceToken = crypto.randomUUID();
                 evidence?.startIdentityCapture();
             } else if (sequenceId !== identitySequenceId) return;
             identityBusy = true;
             let retry = false, retryDelay = 3000;
             try {
                 const data = body();
+                data.append('IdentitySequenceId', identitySequenceToken);
                 const count = Math.max(1, Math.min(10, Number(config.identityFrames) || 3));
                 for (let i = 0; i < count; i++) {
                     data.append('Frames', await frame(), `identity-${i}.jpg`);
@@ -688,7 +732,7 @@ window.ExamProctoring = {
                 if (sequenceId !== identitySequenceId) return;
                 const result = await request('identity', data, 50000);
                 if (sequenceId !== identitySequenceId) return;
-                retry = result.confirmationPending === true;
+                retry = opportunity === 0 && result.confirmationPending === true;
                 retryDelay = Math.max(2000, Math.min(10000, Number(result.retryAfterMilliseconds) || 3000));
                 const progress = Number.isInteger(result.confirmedMismatchBatches)
                     ? ` — ${result.confirmedMismatchBatches}/${result.requiredMismatchBatches} checks` : '';
@@ -697,13 +741,11 @@ window.ExamProctoring = {
                         : result.message || 'Identity needs teacher review', !result.verified);
             } catch (error) {
                 status('identityMonitorStatus', window.ExamHttp.describe(error), true);
-                // Uncertain camera/presentation frames do NOT count as swaps;
-                // retry a bounded number of times without blocking other lanes.
-                if (error.status === 422) { retry = true; retryDelay = 3000; }
+                // Uncertain results are left to the normal identity lane.
+                // A suspected change gets only one dedicated follow-up request.
             } finally {
                 identityBusy = false;
-                // Allow a few quality retries, but do not enter an unbounded loop.
-                if (retry && opportunity < 6 && active() && sequenceId === identitySequenceId)
+                if (retry && active() && sequenceId === identitySequenceId)
                     later(() => identity(opportunity + 1, sequenceId), retryDelay);
                 else if (sequenceId === identitySequenceId) {
                     identitySequenceActive = false;
@@ -820,11 +862,13 @@ window.ExamProctoring = {
                         return;
                     }
                     if (presence === 'POSSIBLE_ABSENCE' || presence === 'VERIFIED_PHYSICAL_ABSENCE') {
+                        status(id, presence === 'POSSIBLE_ABSENCE' ? 'Student out of camera view — confirming absence' : 'Student absent from camera view', true);
                         if (!physicallyAway) {
                             physicallyAway = true;
                             invalidateIdentitySequence();
                             evidence?.startIdentityCapture();
                         }
+                        return;
                     } else if (presence === 'PERSON_VISIBLE_IDENTITY_UNCERTAIN') {
                         const returned = physicallyAway;
                         physicallyAway = false;
@@ -1018,7 +1062,19 @@ window.ExamProctoring = {
                 return;
             }
             evidenceStarting = true;
-            void evidence.start().then(attachScreenEvidence).catch(error => {
+            void evidence.start().then(() => {
+                if (identitySequenceActive || physicallyAway) evidence?.startIdentityCapture();
+                const deferred = pendingFullscreenEvidence.splice(0);
+                const endedBeforeCapture = new Set(deferred.filter(({ event }) => event.phase === 'end' || event.phase === 'stop')
+                    .map(({ event }) => event.id));
+                for (const { event, at } of deferred) {
+                    const delaySeconds = (performance.now() - at) / 1000;
+                    // An episode that finished before capture cannot be represented by later footage.
+                    if (!endedBeforeCapture.has(event.id) && delaySeconds <= 15)
+                        evidence?.browserEvent('FullScreenExit', { ...event, duration: event.duration + delaySeconds }, false);
+                }
+                return attachScreenEvidence();
+            }).catch(error => {
                 evidence.recorder.stop();
                 status('evidenceStatus', 'Recording unavailable: ' + error.message, true);
             }).finally(() => { evidenceStarting = false; });
@@ -1042,7 +1098,17 @@ window.ExamProctoring = {
                     { echoCancellation: true, noiseSuppression: true, autoGainControl: true, channelCount: 1 });
             const pending = (async () => {
                 const inherited = capture?.camera.getTracks().find(t => t.kind === kind && t.readyState === 'live');
-                const source = inherited ? null : await navigator.mediaDevices.getUserMedia({ [kind]: constraints });
+                let source;
+                try {
+                    if (!inherited) source = await navigator.mediaDevices.getUserMedia({ [kind]: constraints });
+                    if (kind === 'video') cameraPermissionDenied = false;
+                    else microphonePermissionDenied = false;
+                } catch (error) {
+                    const denied = ['NotAllowedError', 'PermissionDeniedError', 'SecurityError'].includes(error.name);
+                    if (kind === 'video') cameraPermissionDenied = denied;
+                    else microphonePermissionDenied = denied;
+                    throw error;
+                }
                 if (stopped || !active()) { source?.getTracks().forEach(track => track.stop()); return; }
                 const track = inherited || source.getTracks().find(t => t.kind === kind && t.readyState === 'live');
                 source?.getTracks().filter(t => t !== track).forEach(t => t.stop());
@@ -1064,10 +1130,17 @@ window.ExamProctoring = {
                         behaviorReady = false;
                     }
                     if (!active()) return;
-                    void deviceHealth().catch(() => {});
-                    later(() => {
+                    later(async () => {
                         if (!active()) return;
-                        acquireDevice(kind)?.catch(() => status('mediaStatus', 'Device unavailable. Use the exam recovery check if the exam is paused.', true));
+                        const name = kind === 'video' ? 'camera' : 'microphone';
+                        try {
+                            const permission = await navigator.permissions?.query({ name });
+                            if (permission?.state === 'denied') {
+                                if (kind === 'video') cameraPermissionDenied = true;
+                                else microphonePermissionDenied = true;
+                            }
+                            if (permission?.state === 'granted' && active()) await acquireDevice(kind);
+                        } catch { /* The next health sample reports failure and offers the existing recovery path. */ }
                     }, 500);
                 });
                 const detail = window.MediaCapabilities?.inspect(track);
@@ -1086,12 +1159,44 @@ window.ExamProctoring = {
         }
         const restoreDisplay = document.getElementById('restoreExamDisplay');
         let observedDisplayTrack;
+        let displayIssueSince = null;
+        const displayEpisodeKey = episodeKey + ':display';
+        let displayEpisode = null;
+        try { displayEpisode = JSON.parse(sessionStorage.getItem(displayEpisodeKey)); } catch { }
+        function reportDisplayHealth() {
+            if (!active()) return;
+            const track = window.ExamDisplayCapture?.live(display);
+            const now = Date.now();
+            if (!track || track.muted) {
+                displayIssueSince ??= now;
+                if (displayEpisode || now - displayIssueSince < 3000) return;
+                displayEpisode = {
+                    id: crypto.randomUUID(),
+                    kind: observedDisplayTrack ? 'ScreenShareLost' : 'ScreenCaptureUnavailable',
+                    startedAt: new Date(displayIssueSince).toISOString(),
+                    surface: observedDisplayTrack?.getSettings?.().displaySurface || 'unknown'
+                };
+                try { sessionStorage.setItem(displayEpisodeKey, JSON.stringify(displayEpisode)); } catch { }
+                void deliverBrowserObservation({ ...displayEpisode, phase: 'start', duration: (now - displayIssueSince) / 1000,
+                    observedAt: new Date(now).toISOString(), attemptId: config.attemptId, sessionAttemptId: config.sessionId });
+                return;
+            }
+            displayIssueSince = null;
+            if (!displayEpisode) return;
+            const ended = displayEpisode;
+            displayEpisode = null;
+            try { sessionStorage.removeItem(displayEpisodeKey); } catch { }
+            void deliverBrowserObservation({ ...ended, phase: 'end',
+                duration: Math.max(0, (now - Date.parse(ended.startedAt)) / 1000),
+                observedAt: new Date(now).toISOString(), attemptId: config.attemptId, sessionAttemptId: config.sessionId });
+        }
         function showDisplay() {
             const track = window.ExamDisplayCapture?.live(display);
-            if (restoreDisplay) restoreDisplay.hidden = !!track;
+            if (restoreDisplay) restoreDisplay.hidden = !!track && !track.muted;
             status('liveDisplayStatus', !track ? 'Display sharing unavailable. Restore sharing to continue monitoring.' :
-                track.muted ? 'Display sharing is temporarily interrupted.' : 'Entire display shared for live monitoring',
+                track.muted ? 'Display sharing is interrupted. Restore sharing if it does not resume.' : 'Entire display shared for live monitoring',
                 !track || track.muted);
+            reportDisplayHealth();
             if (!track || track === observedDisplayTrack) return;
             observedDisplayTrack = track;
             for (const event of ['ended', 'mute', 'unmute']) on(track, event, () => {
@@ -1123,16 +1228,8 @@ window.ExamProctoring = {
                 ]);
                 if (stopped) return;
                 initialMediaSettled = true;
-                cameraPermissionDenied = results[0]?.status === 'rejected' &&
-                    ['NotAllowedError', 'PermissionDeniedError', 'SecurityError'].includes(results[0]?.reason?.name);
-                microphonePermissionDenied = results[1]?.status === 'rejected' &&
-                    ['NotAllowedError', 'PermissionDeniedError', 'SecurityError'].includes(results[1]?.reason?.name);
-                const failed = results.filter(result => result.status === 'rejected');
-                status('mediaStatus', failed.length ? 'A required media device is unavailable. Contact your teacher.' : 'Camera and microphone active', failed.length > 0);
-                // Start server heartbeat immediately when the initial permission
-                // decision finishes, rather than leaving the watchdog blind for
-                // the first fifteen seconds of an otherwise active session.
-                void deviceHealth().catch(error => status('mediaStatus', error.message, true));
+                const failed = results.some(result => result.status === 'rejected');
+                if (!failed) status('mediaStatus', 'Checking camera frames and microphone audio…');
                 try {
                 const { ObservationEvidence } = await import('/js/proctoring/observation-evidence.js?v=fullscreen-observations');
                 if (stopped) return;
@@ -1171,6 +1268,7 @@ window.ExamProctoring = {
         // Device health runs independently of getUserMedia and all AI lanes.
         // Camera/mic denial, disconnect or failed initialization must reach SQL.
         lane(deviceHealth, 3000, 'mediaStatus');
+        lane(reportDisplayHealth, 3000, 'liveDisplayStatus');
         const session = { identity, stop, finishEvidence: () => {
             const finalized = evidence?.stop();
             window.ExamDisplayCapture?.stop(display);

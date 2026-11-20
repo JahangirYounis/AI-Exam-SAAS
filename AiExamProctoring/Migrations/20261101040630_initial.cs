@@ -6,7 +6,7 @@ using Microsoft.EntityFrameworkCore.Migrations;
 namespace AiExamProctoring.Migrations
 {
     /// <inheritdoc />
-    public partial class inititalMig : Migration
+    public partial class initial : Migration
     {
         /// <inheritdoc />
         protected override void Up(MigrationBuilder migrationBuilder)
@@ -76,6 +76,39 @@ namespace AiExamProctoring.Migrations
                 constraints: table =>
                 {
                     table.PrimaryKey("PK_Subjects", x => x.SubjectId);
+                });
+
+            migrationBuilder.CreateTable(
+                name: "TeacherConnections",
+                columns: table => new
+                {
+                    Id = table.Column<int>(type: "int", nullable: false)
+                        .Annotation("SqlServer:Identity", "1, 1"),
+                    PairKey = table.Column<string>(type: "nvarchar(64)", maxLength: 64, nullable: false),
+                    SenderId = table.Column<string>(type: "nvarchar(450)", maxLength: 450, nullable: false),
+                    RecipientId = table.Column<string>(type: "nvarchar(450)", maxLength: 450, nullable: false),
+                    CreatedAtUtc = table.Column<DateTime>(type: "datetime2", nullable: false),
+                    AcceptedAtUtc = table.Column<DateTime>(type: "datetime2", nullable: true)
+                },
+                constraints: table =>
+                {
+                    table.PrimaryKey("PK_TeacherConnections", x => x.Id);
+                });
+
+            migrationBuilder.CreateTable(
+                name: "TeacherPrivateMessages",
+                columns: table => new
+                {
+                    Id = table.Column<int>(type: "int", nullable: false)
+                        .Annotation("SqlServer:Identity", "1, 1"),
+                    ConnectionId = table.Column<int>(type: "int", nullable: false),
+                    SenderId = table.Column<string>(type: "nvarchar(450)", maxLength: 450, nullable: false),
+                    Body = table.Column<string>(type: "nvarchar(2000)", maxLength: 2000, nullable: false),
+                    SentAtUtc = table.Column<DateTime>(type: "datetime2", nullable: false)
+                },
+                constraints: table =>
+                {
+                    table.PrimaryKey("PK_TeacherPrivateMessages", x => x.Id);
                 });
 
             migrationBuilder.CreateTable(
@@ -482,6 +515,14 @@ namespace AiExamProctoring.Migrations
                 {
                     ExamId = table.Column<int>(type: "int", nullable: false)
                         .Annotation("SqlServer:Identity", "1, 1"),
+                    AllowedWarnings = table.Column<int>(type: "int", nullable: false),
+                    BlockingPolicyVersion = table.Column<string>(type: "nvarchar(64)", maxLength: 64, nullable: true),
+                    QualifyingAlertsJson = table.Column<string>(type: "nvarchar(4000)", maxLength: 4000, nullable: true),
+                    ResetWarningsOnResume = table.Column<bool>(type: "bit", nullable: false),
+                    IdentityProtectiveHold = table.Column<bool>(type: "bit", nullable: false),
+                    ObjectPolicyJson = table.Column<string>(type: "nvarchar(max)", maxLength: 8000, nullable: true),
+                    CreatorFirstMonitoringAtUtc = table.Column<DateTime>(type: "datetime2", nullable: true),
+                    CreatorLastMonitoringAtUtc = table.Column<DateTime>(type: "datetime2", nullable: true),
                     QuestionLimit = table.Column<int>(type: "int", nullable: true),
                     RecruitmentDepartment = table.Column<string>(type: "nvarchar(150)", maxLength: 150, nullable: true),
                     RecruitmentPost = table.Column<string>(type: "nvarchar(150)", maxLength: 150, nullable: true),
@@ -685,6 +726,11 @@ namespace AiExamProctoring.Migrations
                 {
                     Id = table.Column<int>(type: "int", nullable: false)
                         .Annotation("SqlServer:Identity", "1, 1"),
+                    CanEditQuestions = table.Column<bool>(type: "bit", nullable: false, defaultValue: true),
+                    CanMonitor = table.Column<bool>(type: "bit", nullable: false, defaultValue: true),
+                    RevokedAtUtc = table.Column<DateTime>(type: "datetime2", nullable: true),
+                    FirstMonitoringAtUtc = table.Column<DateTime>(type: "datetime2", nullable: true),
+                    LastMonitoringAtUtc = table.Column<DateTime>(type: "datetime2", nullable: true),
                     AcceptedAtUtc = table.Column<DateTime>(type: "datetime2", nullable: true),
                     InvitedAtUtc = table.Column<DateTime>(type: "datetime2", nullable: false),
                     ExamId = table.Column<int>(type: "int", nullable: false),
@@ -916,6 +962,7 @@ namespace AiExamProctoring.Migrations
                 {
                     SessionAttemptId = table.Column<int>(type: "int", nullable: false)
                         .Annotation("SqlServer:Identity", "1, 1"),
+                    ObjectTrackingJson = table.Column<string>(type: "nvarchar(max)", maxLength: 24000, nullable: true),
                     DeviceHealthJson = table.Column<string>(type: "nvarchar(2000)", maxLength: 2000, nullable: true),
                     AttemptId = table.Column<int>(type: "int", nullable: false),
                     SessionId = table.Column<int>(type: "int", nullable: false),
@@ -1009,15 +1056,25 @@ namespace AiExamProctoring.Migrations
                     ConfidenceScore = table.Column<decimal>(type: "decimal(5,4)", precision: 5, scale: 4, nullable: true),
                     DetectedFaceCount = table.Column<int>(type: "int", nullable: true),
                     DurationSeconds = table.Column<int>(type: "int", nullable: true),
+                    IncidentStartedAtUtc = table.Column<DateTime>(type: "datetime2", nullable: true),
+                    IncidentEndedAtUtc = table.Column<DateTime>(type: "datetime2", nullable: true),
+                    ObservedDurationSeconds = table.Column<double>(type: "float", nullable: true),
+                    MaxSimultaneousPeople = table.Column<int>(type: "int", nullable: true),
+                    MachineObservationsJson = table.Column<string>(type: "nvarchar(max)", maxLength: 24000, nullable: true),
+                    ParentIncidentId = table.Column<int>(type: "int", nullable: true),
+                    RecoveryStatus = table.Column<string>(type: "nvarchar(40)", maxLength: 40, nullable: true),
                     ModelName = table.Column<string>(type: "nvarchar(100)", maxLength: 100, nullable: true),
                     ModelVersion = table.Column<string>(type: "nvarchar(100)", maxLength: 100, nullable: true),
                     ClientEventId = table.Column<string>(type: "nvarchar(64)", maxLength: 64, nullable: true),
                     FrameCapturedAt = table.Column<DateTime>(type: "datetime2", nullable: true),
                     CountsAsViolation = table.Column<bool>(type: "bit", nullable: false),
                     PolicyProcessed = table.Column<bool>(type: "bit", nullable: false),
+                    PolicyAppliedAt = table.Column<DateTime>(type: "datetime2", nullable: true),
                     PolicyPending = table.Column<bool>(type: "bit", nullable: false),
                     IncidentKey = table.Column<string>(type: "nvarchar(32)", maxLength: 32, nullable: true),
                     WarningNumber = table.Column<int>(type: "int", nullable: true),
+                    ActionByUserId = table.Column<string>(type: "nvarchar(450)", maxLength: 450, nullable: true),
+                    ActionByName = table.Column<string>(type: "nvarchar(256)", maxLength: 256, nullable: true),
                     IsReviewed = table.Column<bool>(type: "bit", nullable: false),
                     CreatedDate = table.Column<DateTime>(type: "datetime2", nullable: false, defaultValueSql: "GETDATE()")
                 },
@@ -1478,6 +1535,17 @@ namespace AiExamProctoring.Migrations
                 unique: true);
 
             migrationBuilder.CreateIndex(
+                name: "IX_TeacherConnections_PairKey",
+                table: "TeacherConnections",
+                column: "PairKey",
+                unique: true);
+
+            migrationBuilder.CreateIndex(
+                name: "IX_TeacherPrivateMessages_ConnectionId_Id",
+                table: "TeacherPrivateMessages",
+                columns: new[] { "ConnectionId", "Id" });
+
+            migrationBuilder.CreateIndex(
                 name: "IX_UniversityCandidates_RollNumber",
                 table: "UniversityCandidates",
                 column: "RollNumber",
@@ -1559,6 +1627,12 @@ namespace AiExamProctoring.Migrations
 
             migrationBuilder.DropTable(
                 name: "StudentNotifications");
+
+            migrationBuilder.DropTable(
+                name: "TeacherConnections");
+
+            migrationBuilder.DropTable(
+                name: "TeacherPrivateMessages");
 
             migrationBuilder.DropTable(
                 name: "UniversityCandidates");

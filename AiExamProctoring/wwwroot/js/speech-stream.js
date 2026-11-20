@@ -93,10 +93,12 @@ window.ExamSpeechStream = (() => {
             options.transcribe({ capturedAt:selected[0]?.at, monotonicStart:selected[0]?.start, monotonicEnd:selected.at(-1)?.end, clip: new Blob([wav(selected.map(p => p.pcm))], {type:'audio/wav'}),
                 questionScreenshot: captured.screenshot, questionId: captured.question, questionIds: captured.question ? [captured.question] : [], detectionLogId });
         }
+        let lastAnalyzedSpeech = null;
         function flushUtterance() {
             if (!utterance) return;
             const completed = utterance;
             utterance = null;
+            lastAnalyzedSpeech = completed.detectionLogId;
             transcribe(completed, completed.detectionLogId);
         }
 
@@ -161,7 +163,14 @@ window.ExamSpeechStream = (() => {
                     utterance.detectionLogId !== detectionLogId || part.start - utterance.parts.at(-1).end > 750))
                     flushUtterance();
                 if (result.speechDetected && detectionLogId) {
-                    utterance ??= { question: captured.question, detectionLogId, parts: [], screenshot: captured.screenshot };
+                    if (!utterance) {
+                        // Streaming VAD uses prior audio for onset. Include the immediately
+                        // preceding same-question packets in ASR so its first words survive.
+                        const onset = lastAnalyzedSpeech === detectionLogId ? [] : captured.parts.slice(-3, -1)
+                            .filter(previous => previous.question === captured.question &&
+                                part.sequence - previous.sequence <= 2 && part.start - previous.end <= 1100);
+                        utterance = { question: captured.question, detectionLogId, parts: onset, screenshot: captured.screenshot };
+                    }
                     utterance.parts.push(part);
                     // Send short speech after the first quiet packet. A longer
                     // conversation is analyzed in bounded four-second clips.
@@ -198,7 +207,7 @@ window.ExamSpeechStream = (() => {
             // Health heartbeat from actual AudioWorklet PCM delivery. A live
             // MediaStreamTrack alone does not prove that audio callbacks continue.
             window.dispatchEvent?.(new CustomEvent('exam-microphone-pcm',
-                { detail: { observedAt: performance.now(), samples: pcm.length } }));
+                { detail: { track: options.stream.getAudioTracks()[0], samples: pcm.length } }));
             const question = options.question();
             const end=performance.now();
             const part={pcm, question, sequence, at:new Date(Date.now()-pcm.length/16).toISOString(),start:end-pcm.length/16,end};

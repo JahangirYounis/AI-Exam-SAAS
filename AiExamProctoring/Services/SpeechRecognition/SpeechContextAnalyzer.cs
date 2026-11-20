@@ -60,6 +60,32 @@ public static class SpeechContextAnalyzer
         Regex.Replace(text ?? "", "<[^>]*>", " ", RegexOptions.None, TimeSpan.FromMilliseconds(100)))
         .Normalize(NormalizationForm.FormKC).ToLowerInvariant()).Select(x => x.Value).ToArray();
 
+    // A short, question-specific concept can corroborate a semantic paraphrase
+    // even when no four-word verbatim phrase is repeated (e.g. Roman Urdu).
+    // Never turn a generic "option B" or a single isolated noun into proof.
+    private static readonly HashSet<string> NonSpecific = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "i", "we", "you", "my", "your", "what", "which", "who", "when", "where", "why", "how",
+        "do", "does", "did", "was", "were", "are", "am", "be", "been", "to", "of", "for", "in", "on",
+        "with", "and", "or", "that", "this", "it", "please", "can", "could", "would", "should",
+        "have", "has", "had", "need", "think", "tell", "give", "me", "us", "up", "out", "about",
+        "karta", "karte", "karti", "kar", "raha", "rahi", "hain", "han", "hon", "ho", "mein", "mai",
+        "سے", "میں", "ہے", "ہیں", "پر", "اور", "جو", "کو", "کے", "کی", "یہ", "وہ"
+    };
+
+    private static string? SpecificQuestionTerm(string[] spoken, string question, IEnumerable<string?> options)
+    {
+        static bool Useful(string word) => word.Length >= 3 && !Generic.Contains(word) && !NonSpecific.Contains(word);
+        var content = spoken.Where(Useful).Distinct(StringComparer.OrdinalIgnoreCase).ToArray();
+        if (content.Length < 2) return null; // an isolated topic word is not enough
+        var reference = Tokens(question).Concat(options.Where(o => o is not null).SelectMany(o => Tokens(o!)));
+        var supported = reference.Where(Useful).ToHashSet(StringComparer.OrdinalIgnoreCase);
+        return content.FirstOrDefault(supported.Contains);
+    }
+
+    public static bool HasSpecificQuestionAnchor(string transcript, string question, IEnumerable<string?> options) =>
+        SpecificQuestionTerm(Tokens(transcript), question, options) is not null;
+
     private static string? SharedPhrase(string[] spoken, string[] reference, int minimum)
     {
         if (spoken.Length < minimum || reference.Length < minimum) return null;
@@ -95,8 +121,14 @@ public static class SpeechContextAnalyzer
         var generic = Regex.IsMatch(utterance,
             @"\b(?:option|answer|question|choose|select|jawab|sawal|alfa|alpha|beta|gamma|delta)\b|(?:سوال|جواب|آپشن)",
             RegexOptions.IgnoreCase, TimeSpan.FromMilliseconds(100));
-        // 'Option B' is a useful observation, but never evidence of the specific answer.
-        // Do not mark it as a confirmed question match or as a cheating strike.
+        // Exact-phrase matching alone misses multilingual paraphrases. A specific
+        // question/option term is only supporting evidence: Model 5 must independently
+        // confirm the same captured question before a policy warning can qualify.
+        var specificTerm = SpecificQuestionTerm(spoken, question, options);
+        if (specificTerm is not null)
+            return new(false, "A specific question concept was heard; semantic confirmation is required.",
+                new[] { specificTerm }, "question_term", false);
+        // 'Option B' alone is never evidence of the specific answer.
         if (generic)
             return new(false, "Generic exam/option phrase heard; question relevance uncertain, review only.",
                 Array.Empty<string>(), "generic_exam_cue", true);

@@ -12,8 +12,8 @@ using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 namespace AiExamProctoring.Migrations
 {
     [DbContext(typeof(ApplicationDbContext))]
-    [Migration("20261025132607_TeacherCollaborationAndMonitoringAudit")]
-    partial class TeacherCollaborationAndMonitoringAudit
+    [Migration("20261101040630_initial")]
+    partial class initial
     {
         /// <inheritdoc />
         protected override void BuildTargetModel(ModelBuilder modelBuilder)
@@ -576,6 +576,9 @@ namespace AiExamProctoring.Migrations
                     b.Property<bool>("AllowBackNavigation")
                         .HasColumnType("bit");
 
+                    b.Property<int>("AllowedWarnings")
+                        .HasColumnType("int");
+
                     b.Property<DateTime?>("ApplicationDeadline")
                         .HasColumnType("datetime2");
 
@@ -593,6 +596,10 @@ namespace AiExamProctoring.Migrations
 
                     b.Property<int>("BlockingMode")
                         .HasColumnType("int");
+
+                    b.Property<string>("BlockingPolicyVersion")
+                        .HasMaxLength(64)
+                        .HasColumnType("nvarchar(64)");
 
                     b.Property<string>("ClassCode")
                         .HasMaxLength(40)
@@ -638,6 +645,9 @@ namespace AiExamProctoring.Migrations
                         .HasMaxLength(200)
                         .HasColumnType("nvarchar(200)");
 
+                    b.Property<bool>("IdentityProtectiveHold")
+                        .HasColumnType("bit");
+
                     b.Property<string>("Instructions")
                         .HasMaxLength(2000)
                         .HasColumnType("nvarchar(2000)");
@@ -661,6 +671,10 @@ namespace AiExamProctoring.Migrations
                     b.Property<int>("NumberOfSessions")
                         .HasColumnType("int");
 
+                    b.Property<string>("ObjectPolicyJson")
+                        .HasMaxLength(8000)
+                        .HasColumnType("nvarchar(max)");
+
                     b.Property<decimal>("PassingPercentage")
                         .HasPrecision(5, 2)
                         .HasColumnType("decimal(5,2)");
@@ -672,6 +686,10 @@ namespace AiExamProctoring.Migrations
                         .IsRequired()
                         .HasMaxLength(30)
                         .HasColumnType("nvarchar(30)");
+
+                    b.Property<string>("QualifyingAlertsJson")
+                        .HasMaxLength(4000)
+                        .HasColumnType("nvarchar(4000)");
 
                     b.Property<int?>("QuestionLimit")
                         .HasColumnType("int");
@@ -695,6 +713,9 @@ namespace AiExamProctoring.Migrations
                         .HasColumnType("bit");
 
                     b.Property<bool>("RequireMicrophone")
+                        .HasColumnType("bit");
+
+                    b.Property<bool>("ResetWarningsOnResume")
                         .HasColumnType("bit");
 
                     b.Property<DateTime?>("ResultsPublishedAtUtc")
@@ -1138,6 +1159,10 @@ namespace AiExamProctoring.Migrations
                         .HasPrecision(10, 2)
                         .HasColumnType("decimal(8,2)");
 
+                    b.Property<string>("ObjectTrackingJson")
+                        .HasMaxLength(24000)
+                        .HasColumnType("nvarchar(max)");
+
                     b.Property<string>("ProctoringIncidentsJson")
                         .HasColumnType("nvarchar(max)");
 
@@ -1392,14 +1417,27 @@ namespace AiExamProctoring.Migrations
                     b.Property<DateTime?>("FrameCapturedAt")
                         .HasColumnType("datetime2");
 
+                    b.Property<DateTime?>("IncidentEndedAtUtc")
+                        .HasColumnType("datetime2");
+
                     b.Property<string>("IncidentKey")
                         .HasMaxLength(32)
                         .HasColumnType("nvarchar(32)");
 
+                    b.Property<DateTime?>("IncidentStartedAtUtc")
+                        .HasColumnType("datetime2");
+
                     b.Property<bool>("IsReviewed")
                         .HasColumnType("bit");
 
+                    b.Property<string>("MachineObservationsJson")
+                        .HasMaxLength(24000)
+                        .HasColumnType("nvarchar(max)");
+
                     b.Property<int?>("MatchedQuestionId")
+                        .HasColumnType("int");
+
+                    b.Property<int?>("MaxSimultaneousPeople")
                         .HasColumnType("int");
 
                     b.Property<string>("ModelName")
@@ -1409,6 +1447,15 @@ namespace AiExamProctoring.Migrations
                     b.Property<string>("ModelVersion")
                         .HasMaxLength(100)
                         .HasColumnType("nvarchar(100)");
+
+                    b.Property<double?>("ObservedDurationSeconds")
+                        .HasColumnType("float");
+
+                    b.Property<int?>("ParentIncidentId")
+                        .HasColumnType("int");
+
+                    b.Property<DateTime?>("PolicyAppliedAt")
+                        .HasColumnType("datetime2");
 
                     b.Property<bool>("PolicyPending")
                         .HasColumnType("bit");
@@ -1428,6 +1475,10 @@ namespace AiExamProctoring.Migrations
                     b.Property<string>("RecordingPath")
                         .HasMaxLength(500)
                         .HasColumnType("nvarchar(500)");
+
+                    b.Property<string>("RecoveryStatus")
+                        .HasMaxLength(40)
+                        .HasColumnType("nvarchar(40)");
 
                     b.Property<string>("ScreenshotPath")
                         .HasMaxLength(500)
