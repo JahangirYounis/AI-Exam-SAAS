@@ -92,7 +92,9 @@ public sealed class SpeechRecognitionClient : ISpeechRecognitionClient
                 false,
                 data,
                 data?.Message ?? data?.Detail?.ToString() ?? $"Speech service returned HTTP {(int)response.StatusCode}.",
-                response.StatusCode == System.Net.HttpStatusCode.ServiceUnavailable || data?.Ready == false);
+                (int)response.StatusCode >= 500 ||
+                response.StatusCode == System.Net.HttpStatusCode.TooManyRequests ||
+                response.IsSuccessStatusCode && (data is null || !data.Ready));
         }
         catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException)
         {

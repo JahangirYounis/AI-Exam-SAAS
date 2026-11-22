@@ -1066,24 +1066,33 @@ public sealed partial class ProctoringStateService(ApplicationDbContext db, IHub
     public async Task NotifySpeechContextAsync(int logId, CancellationToken ct = default)
     {
         var log = await db.ProctoringLogs.AsNoTracking().SingleOrDefaultAsync(x => x.LogId == logId, ct);
-        if (log?.AttemptId is not int id || log.AlertType != ProctoringAlertType.AnswerPromptSpeech) return;
+        if (log?.AttemptId is not int id) return;
+        int? notice = null;
+        if (log.IncidentKey == "speech" && !log.CountsAsViolation)
+        {
+            using var metadata = JsonDocument.Parse(log.MachineObservationsJson ?? "{}");
+            if (metadata.RootElement.TryGetProperty("speechNoticeNumber", out var value) &&
+                value.ValueKind == JsonValueKind.Number && value.TryGetInt32(out var number) && number is 1 or 2) notice = number;
+        }
+        if (notice is null && log.AlertType != ProctoringAlertType.AnswerPromptSpeech) return;
         var state = await GetAsync(id, ct);
         if (state is null || state.Status != nameof(AttemptStatus.InProgress)) return;
         var owner = await db.ExamAttempts.Where(x => x.AttemptId == id).Select(x => x.Exam!.CreatedBy).SingleAsync(ct);
-        // A semantic review needs a Teacher notification even when the speaker is
-        // unknown and the event did not (and must not) add a strike.
+        // Notices and review updates use the same committed speech episode.
+        // Only ApplyLogAsync can increment the master warning counter.
         if (!string.IsNullOrWhiteSpace(owner))
             await PublishAsync(state with
             {
                 EventId = log.LogId, EventWarningNumber = log.WarningNumber, EventCountsAsViolation = log.CountsAsViolation, AbsenceEnded = false,
                 ViolationType = log.AlertType.ToString(),
+                EventCode = notice.HasValue ? $"SPEECH_NOTICE_{notice}" : state.EventCode,
                 Reason = log.Description,
                 OccurredAt = log.FrameCapturedAt ?? log.CreatedDate,
                 HasScreenshot = log.ScreenshotPath is not null,
                 HasRecording = log.RecordingPath is not null || log.VideoEvidencePath is not null,
                 Transcript = log.SpeechTranscript,
                 MatchedQuestionId = log.MatchedQuestionId
-            }, owner, "SpeechContextUpdated");
+            }, owner, notice.HasValue ? "SpeechReminder" : "SpeechContextUpdated");
     }
 
     private async Task PublishAsync(ProctoringState state, string owner, string name)

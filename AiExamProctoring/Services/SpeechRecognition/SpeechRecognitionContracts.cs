@@ -35,7 +35,11 @@ public sealed class SpeechRecognitionSegment
 public sealed record SpeechQuestionContext(
     [property: JsonPropertyName("question_id")] int QuestionId,
     [property: JsonPropertyName("question")] string Question,
-    [property: JsonPropertyName("options")] string[] Options);
+    [property: JsonPropertyName("options")] string[] Options)
+{
+    [JsonPropertyName("exam_title")] public string? ExamTitle { get; init; }
+    [JsonPropertyName("subject")] public string? Subject { get; init; }
+}
 
 public sealed class SpeechContextAnalysis
 {
@@ -49,6 +53,8 @@ public sealed class SpeechContextAnalysis
     [JsonPropertyName("matched_phrases")] public List<string> MatchedPhrases { get; set; } = new();
     [JsonPropertyName("relevance_margin")] public double? RelevanceMargin { get; set; }
     [JsonPropertyName("elapsed_ms")] public double? ElapsedMs { get; set; }
+    [JsonPropertyName("classification")] public string? Classification { get; set; }
+    [JsonPropertyName("background_similarity")] public double? BackgroundSimilarity { get; set; }
 }
 
 public sealed record SpeechAudio(byte[] Bytes, string ContentType, string FileName)

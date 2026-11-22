@@ -71,7 +71,7 @@ window.ProctoringRealtime = (() => {
         FaceNotDetected: ['Your face has remained outside the camera view. Please return and keep your face visible.', 'آپ کا چہرہ کچھ دیر سے کیمرے میں نظر نہیں آ رہا۔ براہ کرم کیمرے کے سامنے واپس آئیں۔'],
         MultipleFaces: ["More than one person was detected in the camera view. Please ask other people to move out of view; only the candidate should remain visible.", "اسکرین پر ایک سے زیادہ افراد نظر آ رہے ہیں۔ براہ کرم دوسرے افراد کو ہٹائیں، ورنہ امتحان بند ہو جائے گا۔"],
         FaceNotVisible: ["Your face is not visible to the camera. Please return to view. This is a review observation, not a confirmed cheating incident.", "آپ کا چہرہ نظر نہیں آ رہا۔ براہ کرم کیمرے کے سامنے آئیں۔"],
-        TalkingDetected: ["Speaking is not permitted during this examination. Please remain silent and continue your test.", "امتحان کے دوران بات نہ کریں۔"],
+        TalkingDetected: ["Repeated speech was detected near the microphone. Please keep the examination area quiet.", "امتحان کے دوران بات نہ کریں۔"],
         HeadAway: ["Please keep your attention on the examination screen. Looking away may violate exam rules.", "براہ کرم ادھر ادھر نہ دیکھیں، امتحان کی اسکرین پر توجہ دیں۔"],
         GazeAway: ["Please keep your attention on the examination screen. Looking away may violate exam rules.", "براہ کرم ادھر ادھر نہ دیکھیں، امتحان کی اسکرین پر توجہ دیں۔"],
         LookAway: ['Please keep your attention on the examination screen. Looking away may violate exam rules.', 'اپنی توجہ امتحان پر رکھیں۔'],
@@ -195,7 +195,7 @@ window.ProctoringRealtime = (() => {
         const copy = reasonFor(state);
         const limit = state.allowedWarnings ?? 3;
         const ordinal = state.strikeCount === 1 ? 'first' : state.strikeCount === 2 ? 'second' : String(state.strikeCount);
-        const specific = state.violationType === 'TalkingDetected' ? `Speaking is not permitted during this examination. This is your ${ordinal} warning. Please follow the exam rules.` : ['LookAway', 'HeadAway', 'GazeAway'].includes(state.violationType) ? `Please keep your attention on the examination screen. Looking away may violate exam rules. This is your ${ordinal} warning.` : copy[0];
+        const specific = state.violationType === 'TalkingDetected' ? `Repeated speech was detected near the microphone. This is your ${ordinal} warning. Please keep the examination area quiet.` : ['LookAway', 'HeadAway', 'GazeAway'].includes(state.violationType) ? `Please keep your attention on the examination screen. Looking away may violate exam rules. This is your ${ordinal} warning.` : copy[0];
         const english = state.eventCode === 'IDENTITY_REVIEW_HOLD' ? 'Student Changed: the initial check and one fresh recheck did not match your registered identity. Your examination is paused for supervisor review.' : blocked ? (state.eventCode === 'DEVICE_HOLD' || state.violationType === 'IdentityMismatch' ? copy[0] : state.reason?.startsWith('Teacher ') ? 'Examination Blocked. Your examination has been blocked by an authorized examination supervisor. Please contact your supervisor.' : `Examination Blocked. ${copy[0]} Please contact your examination supervisor for review.`) : manualOnly ? `Warning ${state.strikeCount}. ${specific} Your supervisor will review this incident.` : state.strikeCount === limit ? `Final Warning — ${limit} of ${limit}. ${specific} Another examination rule violation may cause your exam to be blocked automatically. Please follow all examination rules.` : `Warning ${state.strikeCount} of ${limit}. ${specific}`;
         const urdu = state.violationType === 'IdentityMismatch' ? copy[1] : blocked ? `${copy[1]} امتحان روک دیا گیا ہے۔` : `تنبیہ ${state.strikeCount}۔ ${copy[1]} ${state.blockingMode !== 'MANUAL_ONLY' && state.strikeCount === (state.allowedWarnings ?? 3) ? (state.violationAction === 'FinalSubmit' ? 'آخری تنبیہ۔ اگلی خلاف ورزی پر امتحان جمع ہو جائے گا۔' : 'آخری تنبیہ۔ اگلی خلاف ورزی پر امتحان بند ہو جائے گا۔') : ''}`;
         const text = english;
@@ -230,17 +230,19 @@ window.ProctoringRealtime = (() => {
         voice.speak(copy[0], copy[1], 'ur-PK');
     });
     const softSpeechIds = new Set();
-    function speechReminder(id) {
+    function speechReminder(id, noticeNumber) {
         if (!id || blocked || softSpeechIds.has(id)) return;
         softSpeechIds.add(id);
-        const english = 'Please do not talk during the examination.';
+        const english = noticeNumber === 1 ? 'First Speech Notice. Please remain silent. Speech notice 1 of 2.' :
+            noticeNumber === 2 ? 'Final Speech Notice. Further talking may result in a cheating warning.' :
+            'Please do not talk during the examination.';
         if (banner) { banner.querySelector('.strike-message').textContent = english; banner.className = 'alert alert-warning'; }
         const voice = window.ProctoringVoiceInstance ||= new ProctoringVoice();
         voice.stop(); voice.until = 0; voice.enabled = true;
         voice.speak(english, 'براہ کرم خاموش رہیں، ٹیسٹ کے دوران بات نہ کریں۔', 'ur-PK');
     }
     connection.on('IdentityReverificationRequested', state => window.dispatchEvent(new CustomEvent('identity-reverification-requested', { detail: state })));
-    connection.on('SpeechReminder', state => { if (state.attemptId === attemptId && state.version >= version) { version = state.version; speechReminder(state.eventId); } });
+    connection.on('SpeechReminder', state => { if (state.attemptId === attemptId && state.version >= version) { version = state.version; speechReminder(state.eventId, state.eventCode === 'SPEECH_NOTICE_1' ? 1 : state.eventCode === 'SPEECH_NOTICE_2' ? 2 : undefined); } });
     ['StrikeIssued', 'ExamLocked', 'ExamSubmitted', 'ResumeExamSignal', 'UnblockSignal'].forEach(name => connection.on(name, state => apply(state)));
     connection.on('AbsenceUpdated', state => { if (state.absenceEnded) apply(state, false); });
     async function sync() {
@@ -359,9 +361,12 @@ window.ExamProctoring = {
             return data;
         };
         async function request(action, data, timeout = 30000) {
+            const headers = { Accept: 'application/json' };
+            if (action === 'behavior' && ['attention', 'absence', 'persons'].includes(data.get('Feature')))
+                headers['X-Proctoring-Feature'] = data.get('Feature');
             const response = await fetch(config.urls[action], {
                 method: 'POST', body: data,
-                credentials: 'same-origin', headers: { Accept: 'application/json' }, signal: AbortSignal.any([lifetime.signal, AbortSignal.timeout(timeout)])
+                credentials: 'same-origin', headers, signal: AbortSignal.any([lifetime.signal, AbortSignal.timeout(timeout)])
             });
             const result = await window.ExamHttp.readJson(response, { allowBlockedState: true });
             if (result.state) window.ProctoringRealtime.apply(result.state);
@@ -812,11 +817,23 @@ window.ExamProctoring = {
         // A lane schedules its next fresh capture after completion. No shared busy flag,
         // no stale frame backlog, and a slow detector never stalls another detector.
         function lane(fn, interval, id) {
+            let failures = 0;
             const run = async () => {
                 const started = performance.now();
-                try { if (active()) await fn(); }
-                catch (error) { if (!lifetime.signal.aborted) status(id, window.ExamHttp.describe(error), true); }
-                finally { later(run, Math.max(50, interval - (performance.now() - started))); }
+                let retryDelay = 0;
+                try {
+                    if (active()) await fn();
+                    failures = 0;
+                }
+                catch (error) {
+                    if (!lifetime.signal.aborted) status(id, window.ExamHttp.describe(error), true);
+                    if ([429, 500, 502, 503, 504].includes(error.status) || error.name === 'TimeoutError') {
+                        failures = Math.min(failures + 1, 5);
+                        retryDelay = Math.min(60000, Math.max(Number(error.retryAfterMilliseconds) || 0,
+                            Math.min(10000, Math.max(1000, interval) * 2 ** (failures - 1))));
+                    }
+                }
+                finally { later(run, Math.max(retryDelay, 50, interval - (performance.now() - started))); }
             };
             run();
         }
@@ -948,6 +965,7 @@ window.ExamProctoring = {
                 throw error;
             }
         }
+        let speechAnalysisIssue = null;
         const transcribe = ExamSpeechStream.createAnalysisQueue({
             active,
             process: analyzeSpeech,
@@ -956,7 +974,10 @@ window.ExamProctoring = {
                 evidence?.outbox.enqueue({ audioGap: { reason: 'backpressure', durationSeconds: seconds },
                     attemptId: config.attemptId, sessionAttemptId: config.sessionId, capturedAt: Date.now() });
             },
-            onError: () => {}
+            onError: error => {
+                speechAnalysisIssue = window.ExamHttp.describe(error);
+                if (active()) status('speechMonitorStatus', speechAnalysisIssue, true);
+            }
         });
         async function analyzeSpeech(current) {
             const data = body(); data.append('Audio', current.clip, 'speech.wav');
@@ -975,6 +996,9 @@ window.ExamProctoring = {
                 if (!active()) return;
                 result = await request('transcribe', data, 30000);
             }
+            speechAnalysisIssue = result.semanticReady === false ? 'Question context analysis unavailable; speech detection continues' : null;
+            if (result.speechNoticeNumber === 1 || result.speechNoticeNumber === 2)
+                window.ProctoringRealtime.speechReminder(result.speechNoticeId, result.speechNoticeNumber);
             if (result.speechEvidenceId) {
                 void evidence?.commitSpeech(result.speechEvidenceId);
                 void window.ProctoringRealtime.sync();
@@ -1022,7 +1046,8 @@ window.ExamProctoring = {
                         metadata: packet.metadata, attemptId: config.attemptId, sessionAttemptId: config.sessionId
                     }),
                     snapshot: () => evidence && !evidence.recorder.status().cameraOnly && !document.hidden ? evidence.recorder.captureScreenDataUrl?.() : null,
-                    status: text => status('speechMonitorStatus', text, !['Live speech monitoring active', 'Microphone screening active (HTTP)'].includes(text)), transcribe,
+                    status: text => status('speechMonitorStatus', speechAnalysisIssue ? `${text} · ${speechAnalysisIssue}` : text,
+                        !!speechAnalysisIssue || !['Live speech monitoring active', 'Microphone screening active (HTTP)'].includes(text)), transcribe,
                     result: result => {
                         if (result.speechDetected && result.detectionLogId) {
                             evidence?.stageSpeech(result.detectionLogId);

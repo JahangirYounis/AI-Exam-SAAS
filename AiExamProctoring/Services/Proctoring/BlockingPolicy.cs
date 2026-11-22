@@ -82,11 +82,17 @@ public static class BlockingPolicy
             var evidence = observations.RootElement;
             if (evidence.ValueKind != JsonValueKind.Object) return false;
             bool Verified(string field) => evidence.TryGetProperty(field, out var value) && value.ValueKind == JsonValueKind.True;
-            return (log.SpeakerAttribution == "mouth_correlated" && Verified("candidateSpeechConfirmed") &&
-                    Qualifies(exam, ProctoringAlertType.TalkingDetected)) ||
-                (log.SpeakerAttribution == "mouth_correlated" &&
-                    log.AlertType == ProctoringAlertType.AnswerPromptSpeech && log.MatchedQuestionId.HasValue &&
-                    Verified("questionSpeechConfirmed") && Qualifies(exam, ProctoringAlertType.AnswerPromptSpeech));
+            // Content confirmation is independent of speaker attribution. Both paths
+            // require server-owned capture context and an intelligible transcript.
+            if (!Verified("captureContextReliable") ||
+                !evidence.TryGetProperty("transcriptionStatus", out var status) || status.GetString() != "available")
+                return false;
+            return (log.AlertType == ProctoringAlertType.AnswerPromptSpeech && log.MatchedQuestionId.HasValue &&
+                    Verified("questionSpeechConfirmed") && Qualifies(exam, ProctoringAlertType.AnswerPromptSpeech)) ||
+                (log.AlertType == ProctoringAlertType.TalkingDetected && Verified("unrelatedSpeechConfirmed") &&
+                    evidence.TryGetProperty("unrelatedSpeechEpisode", out var ordinal) &&
+                    ordinal.TryGetInt32(out var number) && number >= 3 &&
+                    Qualifies(exam, ProctoringAlertType.TalkingDetected));
         }
         catch (JsonException) { return false; }
     }
@@ -107,6 +113,12 @@ public static class BlockingPolicy
         DateTime appliedAtLocal, int seconds = CorrelatedWindowSeconds)
     {
         if (previous.SessionAttemptId != incoming.SessionAttemptId) return false;
+        // Distinct canonical speech episodes are separated by observed quiet.
+        // The generic ten-second correlation window must not swallow a new episode.
+        if (previous.IncidentKey == "speech" && incoming.IncidentKey == "speech" &&
+            previous.ModelName == "Speech screening" && incoming.ModelName == "Speech screening")
+            return previous.LogId == incoming.LogId ||
+                previous.ModelVersion is not null && previous.ModelVersion == incoming.ModelVersion;
         if (IsAbsenceEscalation(previous) || IsAbsenceEscalation(incoming) || IsPeopleEscalation(previous) || IsPeopleEscalation(incoming))
             return previous.ClientEventId is not null && previous.ClientEventId == incoming.ClientEventId;
 

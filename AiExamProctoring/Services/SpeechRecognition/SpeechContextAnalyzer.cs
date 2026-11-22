@@ -48,6 +48,17 @@ public static class SpeechContextAnalyzer
         analysis?.Ready == true && analysis.Related && !analysis.Uncertain &&
         analysis.Score is double score && double.IsFinite(score) && score > .60 && score <= 1;
 
+    public static bool SupportedParaphrase(SpeechContextAnalysis? analysis, string transcript) =>
+        IsHighSeverity(analysis) && analysis!.Classification == "exam_related" &&
+        analysis.RelevanceMargin is double margin && double.IsFinite(margin) && margin >= .03 &&
+        (analysis.MatchKind == "question" || analysis.MatchKind?.StartsWith("option_", StringComparison.Ordinal) == true) &&
+        Tokens(transcript).Where(w => w.Length >= 3 && !Generic.Contains(w) && !NonSpecific.Contains(w)).Distinct().Count() >= 3;
+
+    public static bool ConfirmedUnrelated(SpeechContextAnalysis? analysis) =>
+        analysis is { Ready: true, Related: false, Uncertain: false, Classification: "unrelated" } &&
+        analysis.BackgroundSimilarity is double neutral && double.IsFinite(neutral) && neutral is >= .60 and <= 1 &&
+        analysis.RelevanceMargin is double margin && double.IsFinite(margin) && margin <= -.03;
+
     private static readonly Regex Words = new(@"[\p{L}\p{N}]+", RegexOptions.Compiled, TimeSpan.FromMilliseconds(100));
     private static readonly HashSet<string> Generic = new(StringComparer.OrdinalIgnoreCase)
     {

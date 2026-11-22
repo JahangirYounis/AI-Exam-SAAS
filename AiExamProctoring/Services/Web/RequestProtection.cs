@@ -29,7 +29,7 @@ public static class RequestProtection
 
                 var userId = context.User.FindFirstValue(ClaimTypes.NameIdentifier);
                 if (userId is not null)
-                    return RateLimitPartition.GetTokenBucketLimiter("user:" + userId, _ => new()
+                    return RateLimitPartition.GetTokenBucketLimiter("user:" + userId + MonitoringLane(context), _ => new()
                     {
                         TokenLimit = 360,
                         TokensPerPeriod = 60,
@@ -51,6 +51,29 @@ public static class RequestProtection
             };
         });
         return services;
+    }
+
+    private static string MonitoringLane(HttpContext context)
+    {
+        // Fixed partitions keep one busy detector from consuming device, exam
+        // navigation or sibling-detector capacity. Each retains existing token
+        // and queue limits. Arbitrary paths cannot create extra partitions.
+        var path = context.Request.Path.Value?.ToLowerInvariant();
+        if (path == "/student/exam/analyzebehavior" && HttpMethods.IsPost(context.Request.Method))
+        {
+            var feature = context.Request.Headers["X-Proctoring-Feature"].ToString();
+            return feature is "attention" or "absence" or "persons"
+                ? ":monitoring:" + feature : ":monitoring:behavior";
+        }
+        return path switch
+        {
+            "/student/exam/verifyactiveidentity" => ":monitoring:identity",
+            "/student/exam/analyzeobjects" => ":monitoring:objects",
+            "/student/exam/devicehealth" => ":monitoring:devices",
+            "/student/exam/detectspeech" or "/student/exam/speechstream" => ":monitoring:speech",
+            "/student/exam/transcribespeech" => ":monitoring:transcription",
+            _ => ""
+        };
     }
 
     public static IApplicationBuilder UseResponseProtection(this IApplicationBuilder app)

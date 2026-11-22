@@ -114,7 +114,12 @@ public sealed class FaceIdentityClient : IFaceIdentityClient
             if (response.IsSuccessStatusCode && data?.Ok == true)
                 return new(true, data, data.Message ?? "Face identity request completed.");
             var message = data?.Message ?? data?.Detail ?? $"Face service returned HTTP {(int)response.StatusCode}.";
-            return new(false, data, message, response.StatusCode == System.Net.HttpStatusCode.ServiceUnavailable);
+            var unavailable = (int)response.StatusCode >= 500 ||
+                response.StatusCode == System.Net.HttpStatusCode.TooManyRequests ||
+                response.IsSuccessStatusCode && data is null;
+            _logger.LogWarning("Identity worker rejected {Path}: HTTP {Status}; reason {ReasonCode}",
+                path, (int)response.StatusCode, data?.ReasonCode ?? "unavailable_or_invalid_response");
+            return new(false, data, message, unavailable);
         }
         catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException)
         {

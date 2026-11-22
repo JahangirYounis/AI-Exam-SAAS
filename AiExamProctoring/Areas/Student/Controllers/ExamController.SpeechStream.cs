@@ -29,6 +29,8 @@ public partial class ExamController
         {
             using var browser = await HttpContext.WebSockets.AcceptWebSocketAsync();
             using var service = new ClientWebSocket();
+            var elapsed = System.Diagnostics.Stopwatch.StartNew();
+            var phase = "browser authentication";
             try
             {
                 using var handshake = CancellationTokenSource.CreateLinkedTokenSource(HttpContext.RequestAborted);
@@ -39,7 +41,9 @@ public partial class ExamController
                 var uri = new UriBuilder(new Uri(new Uri(_speechOptions.BaseUrl), "api/model4/stream"));
                 uri.Scheme = uri.Scheme == "https" ? "wss" : "ws";
                 if (!string.IsNullOrWhiteSpace(_speechOptions.ApiKey)) service.Options.SetRequestHeader("X-Speech-Api-Key", _speechOptions.ApiKey);
+                phase = "speech worker connection";
                 await service.ConnectAsync(uri.Uri, handshake.Token);
+                phase = "audio streaming";
                 await browser.SendAsync(System.Text.Encoding.UTF8.GetBytes("{\"ready\":true}"), WebSocketMessageType.Text, true, handshake.Token);
                 using var lifetime = CancellationTokenSource.CreateLinkedTokenSource(HttpContext.RequestAborted);
                 var chunks = Channel.CreateBounded<(AudioChunk Packet, byte[] Wav, DateTime ReceivedAt)>(new BoundedChannelOptions(4)
@@ -100,7 +104,8 @@ public partial class ExamController
             }
             catch (Exception ex) when (ex is WebSocketException or OperationCanceledException or InvalidDataException or FormatException or JsonException or AntiforgeryValidationException)
             {
-                HttpContext.RequestServices.GetRequiredService<ILogger<ExamController>>().LogWarning("Speech stream stopped: {Type}", ex.GetType().Name);
+                HttpContext.RequestServices.GetRequiredService<ILogger<ExamController>>().LogWarning(ex,
+                    "Speech stream stopped during {Phase} after {ElapsedMs} ms", phase, elapsed.ElapsedMilliseconds);
                 if (browser.State == WebSocketState.Open)
                     await browser.CloseOutputAsync(WebSocketCloseStatus.PolicyViolation, "Speech stream reconnect required", CancellationToken.None);
             }

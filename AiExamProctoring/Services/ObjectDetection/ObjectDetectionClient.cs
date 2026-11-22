@@ -84,7 +84,9 @@ public sealed class ObjectDetectionClient : IObjectDetectionClient
                 false,
                 data,
                 data?.Message ?? detail ?? $"Model 3 returned HTTP {(int)response.StatusCode}.",
-                response.StatusCode == System.Net.HttpStatusCode.ServiceUnavailable || data?.Ready == false);
+                (int)response.StatusCode >= 500 ||
+                response.StatusCode == System.Net.HttpStatusCode.TooManyRequests ||
+                response.IsSuccessStatusCode && (data is null || !data.Ready));
         }
         catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException)
         {

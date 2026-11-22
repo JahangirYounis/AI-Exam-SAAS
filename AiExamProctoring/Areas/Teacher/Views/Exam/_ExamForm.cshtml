@@ -12,7 +12,9 @@
         (ProctoringAlertType.ElectronicDeviceDetected, "Prohibited object", "High-confidence, sustained object detection"),
         (ProctoringAlertType.TabSwitch, "Leaving the test tab", "Browser-confirmed tab switch"),
         (ProctoringAlertType.FullScreenExit, "Leaving fullscreen", "Browser-confirmed fullscreen exit"),
-        (ProctoringAlertType.LookingAwaySpeaking, "Looking away while speaking", "Qualified combined attention observation")
+        (ProctoringAlertType.LookingAwaySpeaking, "Looking away while speaking", "Qualified combined attention observation"),
+        (ProctoringAlertType.TalkingDetected, "Repeated unrelated speech", "Two uncounted notices; a warning from the third confirmed episode"),
+        (ProctoringAlertType.AnswerPromptSpeech, "Exam-related speech", "Confirmed question discussion from any audible speaker")
     };
 }
 <div asp-validation-summary="All" class="alert alert-danger" role="alert" id="examFormErrors" hidden="@ViewData.ModelState.IsValid"></div>

@@ -2169,7 +2169,10 @@ public partial class ExamController : Controller
         {
             DetectionOnly = detectionOnly,
             Contexts = spokenQuestions.Select(q => new SpeechQuestionContext(q.QuestionId, q.QuestionText,
-                new[] { q.OptionA, q.OptionB, q.OptionC, q.OptionD, q.OptionE ?? "" })).ToArray()
+                new[] { q.OptionA, q.OptionB, q.OptionC, q.OptionD, q.OptionE ?? "" }) {
+                    ExamTitle = active.Attempt.Exam?.ExamTitle,
+                    Subject = q.Subject?.SubjectName
+                }).ToArray()
         };
         var result = streamedResult ?? await _speechRecognition.TranscribeAsync(audio, HttpContext.RequestAborted);
         var speechUnavailable = !result.Success || result.Data is null;
@@ -2207,6 +2210,14 @@ public partial class ExamController : Controller
             foreach (var id in speechPolicyIds) await _states.ApplyLogAsync(id, HttpContext.RequestAborted);
             foreach (var id in observationNotifications) await _states.NotifyObservationAsync(id, HttpContext.RequestAborted);
             foreach (var id in contextNotifications) await _states.NotifySpeechContextAsync(id, HttpContext.RequestAborted);
+            if (response is JsonResult json && speechPolicyIds.Count > 0)
+            {
+                var payload = System.Text.Json.JsonSerializer.SerializeToNode(json.Value)!.AsObject();
+                payload["state"] = System.Text.Json.JsonSerializer.SerializeToNode(
+                    await _states.GetAsync(request.AttemptId, HttpContext.RequestAborted),
+                    new System.Text.Json.JsonSerializerOptions(System.Text.Json.JsonSerializerDefaults.Web));
+                return Json(payload);
+            }
             return response;
         });
 
@@ -2231,8 +2242,7 @@ public partial class ExamController : Controller
             {
                 var last = await _context.ProctoringLogs.Where(l => l.SessionAttemptId == active.SessionAttemptId && l.ModelName == "Speech screening")
                     .OrderByDescending(l => l.LogId).FirstOrDefaultAsync();
-                if (last is not null && (observationStartedAt.ToUniversalTime() - (last.IncidentEndedAtUtc ?? last.CreatedDate.ToUniversalTime())).TotalSeconds >= 3)
-                    last.RecoveryStatus = "Ended";
+                if (last is not null) ObserveSpeechQuiet(last, observationStartedAt.ToUniversalTime());
                 // Energy is used only for a non-counting environmental sound advisory.
                 var rms = SpeechNoisePolicy.Pcm16WavRms(bytes);
                 if (SpeechNoisePolicy.ElevatedUnknownNoise(rms, speechData.SpeechDetected))
@@ -2310,13 +2320,17 @@ public partial class ExamController : Controller
             var previousLastSpeech = previousScreening?.IncidentEndedAtUtc ?? previousScreening?.FrameCapturedAt?.ToUniversalTime() ?? previousScreening?.CreatedDate.ToUniversalTime();
             var continuousConversation = previousScreening is not null && previousScreening.RecoveryStatus != "Ended" && previousLastSpeech.HasValue &&
                 observationStartedAt.ToUniversalTime() >= previousScreening.IncidentStartedAtUtc &&
-                observationStartedAt.ToUniversalTime() - previousLastSpeech.Value < TimeSpan.FromSeconds(3) &&
                 !(recoveredSpeech?.ClearSinceUtc is DateTime clear && !recoveredSpeech.Emitted && clear >= previousLastSpeech.Value);
             var conversation = continuousConversation ? previousScreening!.ModelVersion : Guid.NewGuid().ToString("N");
             // One durable observation per continuous conversation, not one per
             // 500ms VAD packet. Reusing its ID prevents repeated teacher alerts.
             if (continuousConversation && previousScreening is not null)
             {
+                // A transport gap is not proof of silence. Only fresh quiet VAD
+                // observations close the canonical conversation.
+                var quiet = SpeechMetadata(previousScreening.MachineObservationsJson);
+                quiet.Remove("quietSinceUtc"); quiet.Remove("lastQuietUtc");
+                previousScreening.MachineObservationsJson = quiet.ToJsonString();
                 await CaptureSpeechQuestions(previousScreening, spokenQuestions);
                 // Only refresh the durable episode heartbeat every ~2s, not on
                 // every 500ms packet. Long conversations remain one observation.
@@ -2388,17 +2402,22 @@ public partial class ExamController : Controller
         var spokenQuestion = spokenQuestions.FirstOrDefault(q => q.QuestionId == semantic?.QuestionId);
         var localMatches = spokenQuestions.Select(q => new { Question = q, Match = SpeechContextAnalyzer.Analyze(
             transcript, q.QuestionText, new[] { q.OptionA, q.OptionB, q.OptionC, q.OptionD, q.OptionE }) }).ToList();
-        var selectedLocal = localMatches.FirstOrDefault(m => m.Match.Related) ??
-            localMatches.FirstOrDefault(m => m.Match.Ambiguous);
+        var selectedLocal = localMatches.FirstOrDefault(m => m.Question.QuestionId == semantic?.QuestionId &&
+            (m.Match.Related || m.Match.MatchKind == "question_term")) ??
+            localMatches.FirstOrDefault(m => m.Match.Related) ?? localMatches.FirstOrDefault(m => m.Match.Ambiguous);
         var localMatch = selectedLocal?.Match ?? SpeechContextAnalyzer.Analyze(transcript, "", Array.Empty<string>());
         var semanticMatchedCaptured = captureContextReliable &&
             spokenQuestion?.QuestionId == capturedId &&
             SpeechContextAnalyzer.IsHighSeverity(semantic);
+        var semanticParaphrase = semanticMatchedCaptured && SpeechContextAnalyzer.SupportedParaphrase(semantic, transcript);
         var contextReview = captureContextReliable && reliableSpeech &&
-            (localMatch.Related || semanticMatchedCaptured && !localMatch.Ambiguous);
-        var highSeveritySpeech = contextReview && !localMatch.Ambiguous &&
+            (localMatch.Related || semanticMatchedCaptured && !localMatch.Ambiguous || semanticParaphrase);
+        var highSeveritySpeech = contextReview && (!localMatch.Ambiguous || semanticParaphrase) &&
             (localMatch.Related || semanticMatchedCaptured);
         var candidateSpeech = reliableSpeech && _speechOptions.TalkingProhibited && windowSpeakerSupported;
+        var unrelatedSpeechConfirmed = captureContextReliable && reliableSpeech &&
+            !contextReview && !localMatch.Related && !localMatch.Ambiguous &&
+            SpeechContextAnalyzer.ConfirmedUnrelated(semantic);
         // Question-specific content may come from any audible speaker. Keep speaker
         // attribution independent from content: generic cues and semantic similarity
         // alone still cannot trigger a strike. Require a captured question, usable
@@ -2408,17 +2427,45 @@ public partial class ExamController : Controller
                 new[] { spokenQuestion.OptionA, spokenQuestion.OptionB, spokenQuestion.OptionC,
                     spokenQuestion.OptionD, spokenQuestion.OptionE });
         var questionSpeechConfirmed = highSeveritySpeech && semanticMatchedCaptured &&
-            (localMatch.Related || questionTermCorroborated);
+            (localMatch.Related || questionTermCorroborated || semanticParaphrase);
         var contextMatch = new SpeechContextMatch(contextReview,
             localMatch.Related || localMatch.Ambiguous ? localMatch.Reason :
             "Semantic comparison suggests question relevance; teacher review required.",
             localMatch.MatchedPhrases ?? semantic?.MatchedPhrases, localMatch.MatchKind, localMatch.Ambiguous);
         var matchedQuestionId = contextReview ?
             (selectedLocal?.Question.QuestionId ?? spokenQuestion?.QuestionId ?? detectedLog?.QuestionIdAtCapture) : null;
+        int? speechNotice = null;
         if (detectedLog?.ModelName == "Speech screening" && analysisKey is not null)
         {
             // Enrich the SAME durable VAD episode rather than creating a separate
             // unlinked notification. Voice alone cannot prove speaker identity.
+            var unrelatedOrdinal = 0;
+            if (unrelatedSpeechConfirmed && _speechOptions.TalkingProhibited && !_speechOptions.ObservationOnly)
+            {
+                var decisionKey = $"speech-policy:{detectedLog.LogId}";
+                var existingDecision = await _context.ProctoringLogs.SingleOrDefaultAsync(l => l.ClientEventId == decisionKey);
+                if (existingDecision is not null)
+                    int.TryParse(existingDecision.ModelVersion, out unrelatedOrdinal);
+                else if (!detectedLog.CountsAsViolation && detectedLog.AlertType != ProctoringAlertType.AnswerPromptSpeech)
+                {
+                    unrelatedOrdinal = 1 + await _context.ProctoringLogs.CountAsync(l =>
+                        l.AttemptId == active.AttemptId && l.ModelName == "Speech policy decision");
+                    _context.ProctoringLogs.Add(new ProctoringLog {
+                        ParentIncidentId = detectedLog.LogId, StudentId = StudentId, ExamId = active.Attempt.ExamId,
+                        AttemptId = active.AttemptId, SessionAttemptId = active.SessionAttemptId,
+                        ClientEventId = decisionKey, ModelName = "Speech policy decision",
+                        ModelVersion = unrelatedOrdinal.ToString(System.Globalization.CultureInfo.InvariantCulture),
+                        AlertType = ProctoringAlertType.Other, CountsAsViolation = false, PolicyProcessed = true,
+                        CreatedDate = DateTime.UtcNow, Description = "Confirmed unrelated speech episode; attempt policy decision."
+                    });
+                    if (unrelatedOrdinal <= 2)
+                    {
+                        active.Attempt.StateVersion++;
+                        speechNotice = unrelatedOrdinal;
+                        contextNotifications.Add(detectedLog.LogId);
+                    }
+                }
+            }
             var previousContext = detectedLog.AlertType == ProctoringAlertType.AnswerPromptSpeech;
             var rootMetadata = SpeechMetadata(detectedLog.MachineObservationsJson);
             var previousObservations = rootMetadata["sourceObservations"] is System.Text.Json.Nodes.JsonValue source &&
@@ -2436,10 +2483,12 @@ public partial class ExamController : Controller
                     ? (decimal)contextScore : null;
                 detectedLog.MatchedQuestionId = matchedQuestionId;
             }
-            else if (candidateSpeech && detectedLog.AlertType != ProctoringAlertType.AnswerPromptSpeech)
+            else if (unrelatedSpeechConfirmed && unrelatedOrdinal > 0 && detectedLog.AlertType != ProctoringAlertType.AnswerPromptSpeech)
             {
                 detectedLog.AlertType = ProctoringAlertType.TalkingDetected;
-                detectedLog.Description = "Speech detected with synchronized candidate mouth activity; teacher review required.";
+                detectedLog.Description = unrelatedOrdinal == 1 ? "First Speech Notice — please remain silent. Speech notice 1 of 2." :
+                    unrelatedOrdinal == 2 ? "Final Speech Notice — further talking may result in a cheating warning." :
+                    "Repeated intelligible unrelated speech detected. Speech warning policy applies.";
             }
             var windowTranscript = transcript[..Math.Min(transcript.Length, 4000)];
             var windowMetadata = EnrichSpeechMetadata(detectedLog.MachineObservationsJson, System.Text.Json.JsonSerializer.Serialize(new {
@@ -2454,14 +2503,17 @@ public partial class ExamController : Controller
                 contextStatus = !captureContextReliable ? "missing_capture_context" : !reliableSpeech ? "unintelligible" :
                     contextMatch.Related ? semantic?.Ready == true ? "possible_match" : "phrase_match_semantics_unavailable" :
                     contextMatch.Ambiguous ? "generic_cue" : semantic?.Ready == true ? "no_supported_match" : "semantic_unavailable",
-                candidateSpeechConfirmed = candidateSpeech, questionSpeechConfirmed, questionTermCorroborated,
+                candidateSpeechConfirmed = candidateSpeech, questionSpeechConfirmed, questionTermCorroborated, semanticParaphrase,
+                unrelatedSpeechConfirmed, unrelatedSpeechEpisode = unrelatedOrdinal,
+                speechNoticeNumber = unrelatedOrdinal is 1 or 2 ? unrelatedOrdinal : (int?)null,
+                speechClassification = questionSpeechConfirmed ? "exam_related" : unrelatedSpeechConfirmed ? "unrelated" : "uncertain",
                 matchedPhrases = contextMatch.MatchedPhrases ?? Array.Empty<string>(),
                 semanticScore = semantic?.Score, semanticMargin = semantic?.RelevanceMargin,
                 segments = speechData.Segments.Select(s => new { s.Start, s.End }), source = "microphone", enhanced = false
             }));
             var awaitingPolicy = detectedLog.PolicyPending && !detectedLog.PolicyProcessed;
             if (detectedLog.SpeechTranscript is null || questionSpeechConfirmed && updateContext ||
-                !awaitingPolicy && (updateContext || candidateSpeech && detectedLog.AlertType == ProctoringAlertType.TalkingDetected))
+                !awaitingPolicy && (updateContext || unrelatedSpeechConfirmed && detectedLog.AlertType == ProctoringAlertType.TalkingDetected))
             {
                 detectedLog.SpeechTranscript = windowTranscript;
                 if (rootMetadata.ContainsKey("sourceObservations"))
@@ -2503,6 +2555,7 @@ public partial class ExamController : Controller
             reviewOnly = speechPolicyIds.Count == 0, observationOnly = true,
             speechEvidenceId = candidateSpeech || questionSpeechConfirmed ? detectedLog?.LogId : null,
             semanticReady = semantic?.Ready == true, language = speechData.Language,
+            speechNoticeNumber = speechNotice, speechNoticeId = speechNotice.HasValue ? detectedLog?.LogId : null,
             detectionLogId = detectedLog?.LogId, logIds = Array.Empty<int>()
         });
         }

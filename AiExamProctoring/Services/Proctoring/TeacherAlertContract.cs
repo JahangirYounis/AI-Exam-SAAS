@@ -24,7 +24,7 @@ public static class TeacherAlertContract
         ProctoringAlertType.LookingAwaySpeaking => "Looking Away and Speaking",
         ProctoringAlertType.HeadAway or ProctoringAlertType.GazeAway or ProctoringAlertType.LookAway => "Looking Away",
         ProctoringAlertType.AudioDetected => "Speech Observed — Speaker Unknown",
-        ProctoringAlertType.TalkingDetected => "Student Speaking",
+        ProctoringAlertType.TalkingDetected => "Repeated Speech",
         ProctoringAlertType.AnswerPromptSpeech => "Exam-Related Conversation",
         ProctoringAlertType.MultipleFaces => "Multiple Faces on Single Screen",
         ProctoringAlertType.AdditionalPersonObservation => "Additional Person — Participation Uncertain",
