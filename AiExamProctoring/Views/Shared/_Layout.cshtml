@@ -19,6 +19,7 @@
     @await RenderSectionAsync("Styles", required: false)
     <link rel="stylesheet" href="~/css/experience.css" asp-append-version="true" />
 <link rel="stylesheet" href="~/css/device-layout.css" asp-append-version="true" />
+    <link rel="stylesheet" href="~/css/public-pages.css" asp-append-version="true" />
 </head>
 <body class="public-body">
 <a class="skip-link" href="#main-content">Skip to main content</a>
@@ -103,7 +104,7 @@
         </div>
         <div class="footer-bottom mt-4 pt-4 d-flex flex-column flex-md-row justify-content-between gap-2">
             <span>&copy; @DateTime.Now.Year AI Based Online Examination System</span>
-            <span>Made for learning. Designed for clarity.</span>
+            <span><a href="https://www.pexels.com/license/" target="_blank" rel="noopener noreferrer">Photography: Pexels</a></span>
         </div>
     </div>
 </footer>
